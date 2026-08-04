@@ -1,0 +1,132 @@
+@startuml
+' fig Core layer - timeline editing logic, no Avalonia dependencies.
+' Operates on Models, raises change events, supports undo/redo.
+
+package "fig.Core" {
+
+  class TimelineEditor {
+    + Timeline Document
+    + CommandHistory History
+    + SelectionState Selection
+    + PlayheadController Clock
+    + event TimelineChanged
+    + Cut(clip, atSec) : Clip[]
+    + Trim(clip, newIn, newOut) : void
+    + Move(clip, newStartSec) : void
+    + RippleDelete(clip) : void
+    + AddClip(track, clip) : void
+    + Execute(IEditCommand) : void
+    + Undo() : bool
+    + Redo() : bool
+  }
+
+  abstract class IEditCommand {
+    + Execute() : void
+    + Undo() : void
+    + Redo() : void
+    + Description : string
+  }
+
+  class CutCommand {
+    + clipId : string
+    + atSec : double
+  }
+
+  class TrimCommand {
+    + clipId : string
+    + newIn : double
+    + newOut : double
+  }
+
+  class MoveCommand {
+    + clipId : string
+    + newStartSec : double
+    + oldStartSec : double
+  }
+
+  class RippleDeleteCommand {
+    + clipId : string
+  }
+
+  class CommandHistory {
+    + UndoStack : Stack<IEditCommand>
+    + RedoStack : Stack<IEditCommand>
+    + MaxDepth : int
+    + Execute(IEditCommand) : void
+    + Undo() : bool
+    + Redo() : bool
+  }
+
+  class SelectionState {
+    + SelectedClipIds : string[]
+    + ActiveTrackId : string?
+    + Clear() : void
+    + Select(clip) : void
+  }
+
+  class PlayheadController {
+    + PositionSec : double
+    + IsPlaying : bool
+    + Play() : void
+    + Pause() : void
+    + Seek(sec) : void
+    + Tick(elapsedSec) : void
+  }
+
+  class FrameMath {
+    {static} + SecondsToFrame(sec, rate) : long
+    {static} + FrameToSeconds(frame, rate) : double
+    {static} + DurationForSpeed(srcLen, speed) : double
+    {static} + SnapToFrame(sec, rate) : double
+  }
+
+}
+
+package "fig.Models" {
+  class Timeline
+  class Track
+  abstract class Clip
+}
+
+TimelineEditor *-- Timeline : "operates on"
+TimelineEditor *-- CommandHistory
+TimelineEditor *-- SelectionState
+TimelineEditor *-- PlayheadController
+TimelineEditor ..> FrameMath : "uses"
+TimelineEditor ..> IEditCommand : "creates"
+
+CommandHistory o-- IEditCommand : "stacks"
+IEditCommand <|-- CutCommand
+IEditCommand <|-- TrimCommand
+IEditCommand <|-- MoveCommand
+IEditCommand <|-- RippleDeleteCommand
+
+Track o-- Clip : "orders"
+Timeline o-- Track : "stacks"
+
+note bottom of TimelineEditor
+  Facade for all edit operations. Raises
+  TimelineChanged so ViewModels/UI can
+  refresh. Pure C# - no Avalonia types.
+end note
+
+note bottom of IEditCommand
+  Command pattern: every edit is an object
+  with Execute/Undo/Redo, so undo survives
+  as long as the CommandHistory lives.
+end note
+
+note bottom of CommandHistory
+  In-memory only (per session), bounded
+  depth. Not persisted - matches the
+  "rolling backups + in-memory undo"
+  decision.
+end note
+
+note bottom of FrameMath
+  All frame math uses Models.FrameRate
+  (rational num/den) - never float seconds
+  as ground truth.
+end note
+
+@enduml

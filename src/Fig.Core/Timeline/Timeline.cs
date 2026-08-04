@@ -1,0 +1,82 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
+
+namespace Fig.Core.Timeline
+{
+    public readonly struct FrameRate
+    {
+        public int Num { get; }
+        public int Den { get; }
+
+        [JsonConstructor]
+        public FrameRate(int num, int den)
+        {
+            if (den <= 0)
+                throw new ArgumentOutOfRangeException(nameof(den), "Denominator must be positive");
+
+            var g = Gcd(num, den);
+            Num = num / g;
+            Den = den / g;
+        }
+
+        public double Fps => (double)Num / Den;
+
+        public long FramesPerSecond => Fps >= 1 ? (long)Fps : 1;
+
+        public long ToFrame(double seconds) => (long)Math.Round(seconds * Num / Den);
+
+        public double ToSeconds(long frame) => (double)frame * Den / Num;
+
+        public static FrameRate FromFps(double fps)
+        {
+            // find a rational approx: fps * 1000 / 1000 then reduce
+            return new FrameRate((int)Math.Round(fps * 1000), 1000);
+        }
+
+        public static FrameRate Common(double fps)
+        {
+            return Math.Abs(fps - 23.976) < 0.001 ? new FrameRate(24000, 1001)
+                 : Math.Abs(fps - 29.97) < 0.001 ? new FrameRate(30000, 1001)
+                 : new FrameRate((int)Math.Round(fps), 1);
+        }
+
+        private static int Gcd(int a, int b)
+        {
+            while (b != 0)
+            {
+                var t = b;
+                b = a % b;
+                a = t;
+            }
+            return a;
+        }
+
+        public override string ToString() => $"{Num}/{Den}";
+    }
+
+    public class Timeline
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public FrameRate Rate { get; set; }
+        public int Revision { get; set; }
+        public bool IsAutosave { get; set; }
+        public List<Track> Tracks { get; set; } = new();
+    }
+
+    public class Track
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public TrackKind Kind { get; set; }
+        public int Index { get; set; }
+        public string? Name { get; set; }
+        public bool Muted { get; set; }
+        public List<Clip> Clips { get; set; } = new();
+    }
+
+    public enum TrackKind
+    {
+        Video,
+        Audio
+    }
+}

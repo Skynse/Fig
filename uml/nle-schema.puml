@@ -1,0 +1,151 @@
+@startuml
+' NLE project schema - compact CapCut-scale model (C# / fig)
+' Single project file, media referenced in place, JSON timeline document.
+
+entity Project {
+  * id : string
+  --
+  name : string
+  appVersion : string
+  createdAt : timestamp
+  updatedAt : timestamp
+  media : MediaAsset[]      ' flat list, no bins
+  timelines : Timeline[]
+}
+
+entity MediaAsset {
+  * id : string
+  --
+  url : string              ' absolute path, referenced in place
+  hash : string
+  durationSec : float
+  width : int
+  height : int
+  thumbnail : string        ' local path ref, null = not generated
+  proxyUrl : string         ' low-res playback copy
+  proxyStatus : enum(none, pending, ready, failed)
+  offline : boolean         ' true when url no longer resolves
+  tags : string[]
+}
+
+entity Timeline {
+  * id : string
+  --
+  rate : FrameRate          ' rational num/den (e.g. 24000/1001)
+  revision : int
+  isAutosave : boolean
+  tracks : Track[]
+}
+
+entity FrameRate {
+  num : int
+  den : int
+}
+
+entity Track {
+  * id : string
+  --
+  kind : enum(video, audio)
+  index : int
+  name : string
+  muted : boolean
+  clips : Clip[]
+}
+
+abstract class Clip {
+  * id : string
+  --
+  startSec : float
+  durSec : float
+  speed : float
+  volume : float
+  opacity : float
+  effects : json
+}
+
+class VideoClip {
+  sourceId : string
+  srcInSec : float
+  srcOutSec : float
+}
+
+class AudioClip {
+  sourceId : string
+  srcInSec : float
+  srcOutSec : float
+}
+
+class TextClip {
+  text : string
+  font : string
+  size : int
+  color : string
+}
+
+entity ExportSettings {
+  width : int
+  height : int
+  fps : int
+  codec : string
+}
+
+entity SaveService {
+  ' single-file atomic writes
+  path : string
+  autosaveThrottleMs : int
+  backupCount : int
+}
+
+entity Backups {
+  path : string
+  createdAt : timestamp
+}
+
+entity Cache {
+  assetId : string
+  kind : enum(thumb, preview, waveform)
+  path : string
+  derivedFromHash : string
+}
+
+Clip <|-- VideoClip
+Clip <|-- AudioClip
+Clip <|-- TextClip
+
+Project ||--o{ MediaAsset : "imports"
+Project ||--o{ Timeline : "contains"
+Project ||--|| ExportSettings : "configures"
+Timeline ||--o{ Track : "stacks"
+Track ||--o{ Clip : "orders"
+VideoClip }o--|| MediaAsset : "src"
+AudioClip }o--|| MediaAsset : "src"
+MediaAsset ||--o{ Cache : "regenerable"
+
+note right of MediaAsset
+  Referenced in place, never embedded.
+  url is absolute; if it stops resolving
+  offline=true and UI offers relink.
+  thumbnail/proxyUrl are path refs,
+  regenerable from the source.
+end note
+
+note right of Clip
+  JSON-discriminated polymorphism:
+  "$kind": "video|audio|text" on the wire.
+  Cuts are non-destructive: new Clip with
+  same src, new in/out. Source never mutates.
+end note
+
+note right of Timeline
+  rate is rational (FrameRate num/den) so
+  23.976/29.97 timelines stay frame-accurate.
+end note
+
+note right of SaveService
+  Lives outside the project document:
+  atomic write to project file, throttled
+  autosave, N rolling backups. Undo stack
+  is in-memory in the editor session only.
+end note
+
+@enduml
