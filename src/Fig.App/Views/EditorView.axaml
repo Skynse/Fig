@@ -16,7 +16,6 @@
 
     <DockPanel Margin="8" Background="#1e1e1e">
 
-        <!-- toolbar pinned to top -->
         <Menu DockPanel.Dock="Top" Margin="0,0,0,4" Background="Transparent">
             <MenuItem Header="_File">
                 <MenuItem Header="_Import..." Command="{Binding ImportCommand}"
@@ -32,19 +31,19 @@
                 <MenuItem Header="_Undo" Command="{Binding UndoCommand}" InputGesture="Ctrl+Z"/>
                 <MenuItem Header="_Redo" Command="{Binding RedoCommand}" InputGesture="Ctrl+Y">
                     <MenuItem.Icon>
-                        <PathIcon Data="{Binding IconRedo}" Width="16" Height="16"/>
+                        <local:StrokeIcon Icon="redo" Width="16" Height="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
                 <MenuItem Header="S_plit at Playhead" Command="{Binding SplitAtPlayheadCommand}"
                           InputGesture="Ctrl+K">
                     <MenuItem.Icon>
-                        <PathIcon Data="{Binding IconSplit}" Width="16" Height="16"/>
+                        <local:StrokeIcon Icon="split" Width="16" Height="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="_Ripple Delete" Command="{Binding RippleDeleteSelectedCommand}">
                     <MenuItem.Icon>
-                        <PathIcon Data="{Binding IconRipple}" Width="16" Height="16"/>
+                        <local:StrokeIcon Icon="ripple" Width="16" Height="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
@@ -52,36 +51,14 @@
 
         <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
                 Background="#252526" CornerRadius="6">
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Import"
-                        Command="{Binding ImportCommand}"
-                        CommandParameter="{Binding $parent[Window]}"/>
-                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="8,0"/>
-                <Button Command="{Binding UndoCommand}" ToolTip.Tip="Undo"
-                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                    <PathIcon Data="{Binding IconUndo}" Width="18" Height="18"/>
-                </Button>
-                <Button Command="{Binding RedoCommand}" ToolTip.Tip="Redo"
-                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                    <PathIcon Data="{Binding IconRedo}" Width="18" Height="18"/>
-                </Button>
-                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="8,0"/>
-                <Button Command="{Binding SplitAtPlayheadCommand}" ToolTip.Tip="Split at playhead"
-                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                    <PathIcon Data="{Binding IconSplit}" Width="18" Height="18"/>
-                </Button>
-                <Button Command="{Binding RippleDeleteSelectedCommand}" ToolTip.Tip="Ripple delete"
-                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                    <PathIcon Data="{Binding IconRipple}" Width="18" Height="18"/>
-                </Button>
-            </StackPanel>
+            <Button Content="Import"
+                    Command="{Binding ImportCommand}"
+                    CommandParameter="{Binding $parent[Window]}"/>
         </Border>
 
-        <!-- main two-column area + timeline -->
-        <Grid RowDefinitions="*,180" ColumnDefinitions="2*,3*">
+        <Grid RowDefinitions="*,4,220" ColumnDefinitions="2*,4,3*">
 
-            <!-- media library -->
-            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,8,8"
+            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,0"
                     Padding="8" Background="#252526" CornerRadius="6">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Media Library"
@@ -139,21 +116,60 @@
                 </DockPanel>
             </Border>
 
-            <!-- preview -->
-            <Border Grid.Row="0" Grid.Column="1" Margin="0,0,0,8"
+            <GridSplitter Grid.Row="0" Grid.Column="1"
+                          Width="4" Margin="0,0,0,0"
+                          Background="Transparent"
+                          ShowsPreview="True"/>
+
+            <Border Grid.Row="0" Grid.Column="2" Margin="0,0,0,0"
                     Padding="8" Background="#252526" CornerRadius="6">
-                <TextBlock Text="Preview"
-                           Foreground="#cccccc"
-                           FontSize="14" FontWeight="SemiBold" />
+                <local:PreviewView x:Name="PreviewHost"
+                                   DataContext="{Binding Preview}"/>
             </Border>
 
-            <!-- timeline -->
-            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+            <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                          Height="4" Margin="0,0,0,0"
+                          Background="Transparent"
+                          HorizontalAlignment="Stretch"
+                          ShowsPreview="True"/>
+
+            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
                     Padding="8" Background="#252526" CornerRadius="6">
-                <local:TimelineView Editor="{Binding Editor}"
-                                     MediaById="{Binding MediaById}"
-                                     Gestures="{Binding Gestures}"
-                                     ClipToBounds="True"/>
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,4"
+                            Background="#1e1e1e" CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" Spacing="2">
+                            <Button Command="{Binding UndoCommand}" ToolTip.Tip="Undo"
+                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
+                            </Button>
+                            <Button Command="{Binding RedoCommand}" ToolTip.Tip="Redo"
+                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
+                            </Button>
+                            <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
+                            <Button Command="{Binding SplitAtPlayheadCommand}" ToolTip.Tip="Split at playhead"
+                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <local:StrokeIcon Icon="split" Width="18" Height="18"/>
+                                    <TextBlock Text="Split" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{Binding RippleDeleteSelectedCommand}" ToolTip.Tip="Ripple delete"
+                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
+                                    <TextBlock Text="Ripple" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                    <local:TimelineView x:Name="Timeline"
+                                         Editor="{Binding Editor}"
+                                         MediaById="{Binding MediaById}"
+                                         Gestures="{Binding Gestures}"
+                                         ClipToBounds="True"/>
+                </DockPanel>
             </Border>
         </Grid>
     </DockPanel>

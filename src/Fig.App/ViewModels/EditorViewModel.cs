@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Fig.App.Services;
 using Fig.Core.Input;
 using Fig.Core.Media;
 using Fig.Core.Project;
@@ -18,6 +19,11 @@ public partial class EditorViewModel : ViewModelBase
     public ProjectModel? Project { get; private set; }
     public ProjectManager? ProjectManager { get; private set; }
     public TimelineEditor Editor { get; private set; }
+    public PreviewViewModel Preview { get; }
+    public PlaybackEngine? Playback { get; private set; }
+    private readonly MediaService _mediaService = new();
+
+    public event Action<PlaybackEngine?>? PlaybackAssigned;
 
     public IReadOnlyDictionary<string, MediaAsset> MediaById =>
         Media.ToDictionary(m => m.Id);
@@ -28,6 +34,12 @@ public partial class EditorViewModel : ViewModelBase
     [ObservableProperty]
     private string? _lastImportError;
 
+    [ObservableProperty]
+    private double _playheadTimeSec;
+
+    [ObservableProperty]
+    private bool _isPlaying;
+
     private ProjectStore? _store;
     private System.Threading.CancellationTokenSource? _autosaveCts;
     private readonly object _autosaveLock = new();
@@ -36,12 +48,86 @@ public partial class EditorViewModel : ViewModelBase
     {
         Gestures = gestures;
         Editor = CreateSeededEditor();
+        Preview = new PreviewViewModel(_mediaService, ResolvePreviewSource);
+        Preview.AttachEditor(this);
         Media.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(MediaById));
             OnPropertyChanged(nameof(Media));
+            OnPropertyChanged(nameof(SequenceEndSec));
         };
+        Editor.TimelineChanged += OnEditorTimelineChanged;
         Editor.TimelineChanged += ScheduleAutosave;
+        InitializePlaybackForCurrentEditor();
+    }
+
+    private void OnEditorTimelineChanged()
+    {
+        OnPropertyChanged(nameof(SequenceEndSec));
+    }
+
+    public double SequenceEndSec
+    {
+        get
+        {
+            double end = 0;
+            foreach (var track in Editor.Document.Tracks)
+                foreach (var clip in track.Clips)
+                    end = Math.Max(end, clip.StartSec + clip.DurSec);
+            return end;
+        }
+    }
+
+    public double FrameDurationSec => 1.0 / Math.Max(Editor.Document.Rate.Fps, 1);
+
+    /// <summary>Timeline scrub or transport seek (not driven by playback clock).</summary>
+    public void SeekFromUser(double sec)
+    {
+        PlayheadTimeSec = Math.Max(0, sec);
+        Playback?.Seek(PlayheadTimeSec);
+        Preview.PlayheadSec = PlayheadTimeSec;
+    }
+
+    /// <summary>Audio master clock position during playback.</summary>
+    public void NotifyPlaybackPosition(double sec)
+    {
+        PlayheadTimeSec = Math.Max(0, sec);
+        Preview.PlayheadSec = PlayheadTimeSec;
+        IsPlaying = Playback?.IsPlaying ?? false;
+    }
+
+    /// <summary>
+    /// Finds the topmost visible video clip at a timeline time so the preview can
+    /// decode its frame. Returns null when nothing should be shown (no clip, hidden
+    /// track, or offline source).
+    /// </summary>
+    private (string SourcePath, double TimeSec)? ResolvePreviewSource(double timeSec)
+    {
+        if (Editor is null || MediaById.Count == 0)
+            return null;
+
+        var document = Editor.Document;
+        for (var i = document.Tracks.Count - 1; i >= 0; i--)
+        {
+            var track = document.Tracks[i];
+            if (track.Kind != TrackKind.Video || !track.Visible)
+                continue;
+
+            foreach (var clip in track.Clips)
+            {
+                if (clip is not VideoClip vc)
+                    continue;
+                if (timeSec < clip.StartSec || timeSec >= clip.StartSec + clip.DurSec)
+                    continue;
+
+                if (!MediaById.TryGetValue(vc.SourceId, out var asset) || string.IsNullOrEmpty(asset.Url) || asset.Offline)
+                    return null;
+
+                var srcTime = vc.SrcInSec + (timeSec - clip.StartSec) * vc.Speed;
+                return (asset.Url, srcTime);
+            }
+        }
+        return null;
     }
 
     private void ScheduleAutosave()
@@ -93,18 +179,38 @@ public partial class EditorViewModel : ViewModelBase
         if (project.Timelines.Count == 0)
             project.Timelines.Add(new TimelineModel { Rate = FrameRate.Common(30) });
 
+        Editor.TimelineChanged -= OnEditorTimelineChanged;
+        Editor.TimelineChanged -= ScheduleAutosave;
         Editor = new TimelineEditor(project.Timelines[0]);
-
+        Editor.TimelineChanged += OnEditorTimelineChanged;
         Editor.TimelineChanged += ScheduleAutosave;
         OnPropertyChanged(nameof(Editor));
+        OnPropertyChanged(nameof(SequenceEndSec));
+        OnPropertyChanged(nameof(FrameDurationSec));
+
+        InitializePlaybackForCurrentEditor();
+        SeekFromUser(0);
     }
 
-    /// <summary>
-    /// Runs the project-open validation (check sources, repair stale/missing previews)
-    /// on a background thread. <paramref name="progress"/> is invoked with status lines
-    /// as validation proceeds; it may be called from the background thread, so callers
-    /// must marshal to the UI thread if updating bound properties.
-    /// </summary>
+    private void InitializePlaybackForCurrentEditor()
+    {
+        if (Playback is not null)
+            Playback.PositionChanged -= OnPlaybackPositionChanged;
+        Playback?.Dispose();
+        Playback = new PlaybackEngine(Editor, _mediaService, sourceId => FindAssetById(sourceId));
+        Playback.PositionChanged += OnPlaybackPositionChanged;
+        Preview.AttachPlayback(Playback);
+        OnPropertyChanged(nameof(Playback));
+        PlaybackAssigned?.Invoke(Playback);
+    }
+
+    private void OnPlaybackPositionChanged(double sec) => NotifyPlaybackPosition(sec);
+
+    private MediaAsset? FindAssetById(string sourceId)
+    {
+        return MediaById.TryGetValue(sourceId, out var asset) ? asset : null;
+    }
+
     public async Task<ProjectValidationReport> ValidateProjectAsync(Action<string>? progress = null)
     {
         var manager = ProjectManager;
@@ -216,12 +322,32 @@ public partial class EditorViewModel : ViewModelBase
             Editor.RippleDelete(clipId);
     }
 
-    public double PlayheadTimeSec { get; set; }
+    [RelayCommand]
+    private void TogglePlayback()
+    {
+        if (Playback is null)
+            return;
+        if (Playback.IsPlaying)
+            Playback.Pause();
+        else
+            Playback.Play();
+        IsPlaying = Playback.IsPlaying;
+    }
 
-    public Avalonia.Media.Geometry? IconUndo => Fig.App.Services.IconService.Undo;
-    public Avalonia.Media.Geometry? IconRedo => Fig.App.Services.IconService.Ripple;
-    public Avalonia.Media.Geometry? IconSplit => Fig.App.Services.IconService.Split;
-    public Avalonia.Media.Geometry? IconRipple => Fig.App.Services.IconService.Ripple;
+    [RelayCommand]
+    private void JumpToStart()
+    {
+        if (Playback is { IsPlaying: true })
+            Playback.Pause();
+        SeekFromUser(0);
+        IsPlaying = false;
+    }
+
+    [RelayCommand]
+    private void StepBackFrame() => SeekFromUser(Math.Max(0, PlayheadTimeSec - FrameDurationSec));
+
+    [RelayCommand]
+    private void StepForwardFrame() => SeekFromUser(PlayheadTimeSec + FrameDurationSec);
 
     private static TimelineEditor CreateSeededEditor()
     {

@@ -416,6 +416,207 @@ namespace Fig.Core.Media
             }
         }
 
+        public unsafe DecodedFrame? DecodeFrameAt(string sourcePath, double timeSec, int width, int height)
+        {
+            AVFormatContext* inCtx = null;
+            AVCodecContext* decCtx = null;
+            AVFrame* frame = null;
+            AVFrame* rgb = null;
+            AVPacket* packet = null;
+            SwsContext* sws = null;
+
+            try
+            {
+                var pIn = inCtx;
+                ThrowIfError(ffmpeg.avformat_open_input(&pIn, sourcePath, null, null), "avformat_open_input");
+                inCtx = pIn;
+                ThrowIfError(ffmpeg.avformat_find_stream_info(inCtx, null), "avformat_find_stream_info");
+
+                var vIdx = ffmpeg.av_find_best_stream(inCtx, AVMediaType.AVMEDIA_TYPE_VIDEO, -1, -1, null, 0);
+                ThrowIfError(vIdx, "av_find_best_stream(video)");
+                var inStream = inCtx->streams[vIdx];
+                var inCodecPar = inStream->codecpar;
+
+                var dec = ffmpeg.avcodec_find_decoder(inCodecPar->codec_id);
+                if (dec == null)
+                    throw new InvalidOperationException("No video decoder found");
+                decCtx = ffmpeg.avcodec_alloc_context3(dec);
+                ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, inCodecPar), "avcodec_parameters_to_context");
+                decCtx->pkt_timebase = inStream->time_base;
+                ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
+
+                // seek to the requested time (backward to keyframe, then decode forward)
+                var targetTs = (long)(timeSec * inStream->time_base.den / inStream->time_base.num);
+                var seekRet = ffmpeg.av_seek_frame(inCtx, vIdx, Math.Max(0, targetTs), ffmpeg.AVSEEK_FLAG_BACKWARD);
+                if (seekRet < 0)
+                    ffmpeg.av_seek_frame(inCtx, vIdx, 0, ffmpeg.AVSEEK_FLAG_BACKWARD);
+                ffmpeg.avcodec_flush_buffers(decCtx);
+
+                frame = ffmpeg.av_frame_alloc();
+                packet = ffmpeg.av_packet_alloc();
+
+                var got = false;
+                while (!got && ffmpeg.av_read_frame(inCtx, packet) >= 0)
+                {
+                    if (packet->stream_index == vIdx && ffmpeg.avcodec_send_packet(decCtx, packet) >= 0)
+                    {
+                        while (!got && ffmpeg.avcodec_receive_frame(decCtx, frame) == 0)
+                        {
+                            // take the first frame at/after the target
+                            got = true;
+                        }
+                    }
+                    ffmpeg.av_packet_unref(packet);
+                }
+                if (!got)
+                    return null;
+
+                // scale to requested size and convert to BGRA
+                rgb = ffmpeg.av_frame_alloc();
+                rgb->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
+                rgb->width = width;
+                rgb->height = height;
+                ThrowIfError(ffmpeg.av_frame_get_buffer(rgb, 32), "av_frame_get_buffer");
+
+                sws = ffmpeg.sws_getContext(
+                    inCodecPar->width, inCodecPar->height, decCtx->pix_fmt,
+                    width, height, AVPixelFormat.AV_PIX_FMT_BGRA, SWS_BILINEAR, null, null, null);
+                if (sws == null)
+                    return null;
+
+                ffmpeg.sws_scale(sws, frame->data, frame->linesize, 0, inCodecPar->height, rgb->data, rgb->linesize);
+
+                var bytes = new byte[width * height * 4];
+                var rowSize = width * 4;
+                for (var y = 0; y < height; y++)
+                {
+                    var src = rgb->data[0] + y * rgb->linesize[0];
+                    var dst = y * rowSize;
+                    for (var x = 0; x < rowSize; x++)
+                        bytes[dst + x] = src[x];
+                }
+
+                return new DecodedFrame { Width = width, Height = height, Pixels = bytes };
+            }
+            finally
+            {
+                if (sws != null) ffmpeg.sws_freeContext(sws);
+                if (frame != null) ffmpeg.av_frame_free(&frame);
+                if (rgb != null) ffmpeg.av_frame_free(&rgb);
+                if (packet != null) ffmpeg.av_packet_free(&packet);
+                if (decCtx != null) ffmpeg.avcodec_free_context(&decCtx);
+                if (inCtx != null)
+                {
+                    var pIn = inCtx;
+                    ffmpeg.avformat_close_input(&pIn);
+                }
+            }
+        }
+
+        public IVideoFrameSource OpenVideoSource(string sourcePath, int width, int height)
+        {
+            return new VideoFrameSource(sourcePath, width, height);
+        }
+
+        public unsafe float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000)
+        {
+            AVFormatContext* inCtx = null;
+            AVCodecContext* decCtx = null;
+            AVFrame* frame = null;
+            AVPacket* packet = null;
+            SwrContext* swr = null;
+
+            try
+            {
+                var pIn = inCtx;
+                ThrowIfError(ffmpeg.avformat_open_input(&pIn, sourcePath, null, null), "avformat_open_input");
+                inCtx = pIn;
+                ThrowIfError(ffmpeg.avformat_find_stream_info(inCtx, null), "avformat_find_stream_info");
+
+                var aIdx = ffmpeg.av_find_best_stream(inCtx, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
+                ThrowIfError(aIdx, "av_find_best_stream(audio)");
+                var inStream = inCtx->streams[aIdx];
+                var inCodecPar = inStream->codecpar;
+
+                var dec = ffmpeg.avcodec_find_decoder(inCodecPar->codec_id);
+                if (dec == null)
+                    throw new InvalidOperationException("No audio decoder found");
+                decCtx = ffmpeg.avcodec_alloc_context3(dec);
+                ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, inCodecPar), "avcodec_parameters_to_context");
+                decCtx->pkt_timebase = inStream->time_base;
+                ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
+
+                // resample everything to stereo float at the requested rate
+                swr = ffmpeg.swr_alloc();
+                AVChannelLayout stereo = default;
+                ffmpeg.av_channel_layout_default(&stereo, 2);
+                ffmpeg.swr_alloc_set_opts2(&swr,
+                    &stereo, AVSampleFormat.AV_SAMPLE_FMT_FLT, sampleRate,
+                    &inCodecPar->ch_layout, (AVSampleFormat)inCodecPar->format, inCodecPar->sample_rate,
+                    0, null);
+                ThrowIfError(ffmpeg.swr_init(swr), "swr_init");
+                ffmpeg.av_channel_layout_uninit(&stereo);
+
+                // seek to the start time
+                var targetTs = (long)(startSec * inStream->time_base.den / inStream->time_base.num);
+                var seekRet = ffmpeg.av_seek_frame(inCtx, aIdx, Math.Max(0, targetTs), ffmpeg.AVSEEK_FLAG_BACKWARD);
+                if (seekRet < 0)
+                    ffmpeg.av_seek_frame(inCtx, aIdx, 0, ffmpeg.AVSEEK_FLAG_BACKWARD);
+                ffmpeg.avcodec_flush_buffers(decCtx);
+
+                var totalFrames = (int)Math.Ceiling(durationSec * sampleRate);
+                var output = new float[totalFrames * 2];
+                var written = 0;
+                var decodeStartPts = Math.Max(0, targetTs);
+
+                frame = ffmpeg.av_frame_alloc();
+                packet = ffmpeg.av_packet_alloc();
+
+                while (written < output.Length && ffmpeg.av_read_frame(inCtx, packet) >= 0)
+                {
+                    if (packet->stream_index == aIdx && ffmpeg.avcodec_send_packet(decCtx, packet) >= 0)
+                    {
+                        while (written < output.Length && ffmpeg.avcodec_receive_frame(decCtx, frame) == 0)
+                        {
+                            // skip frames before the seek target (backward seek lands on a keyframe)
+                            var framePts = frame->best_effort_timestamp;
+                            if (framePts >= 0 && framePts < decodeStartPts)
+                                continue;
+
+                            var outSamples = ffmpeg.swr_get_out_samples(swr, frame->nb_samples);
+                            var outBuf = (byte*)ffmpeg.av_malloc((ulong)(outSamples * 2 * sizeof(float)));
+                            var got = ffmpeg.swr_convert(swr, &outBuf, outSamples, frame->extended_data, frame->nb_samples);
+                            if (got > 0)
+                            {
+                                var src = (float*)outBuf;
+                                var take = Math.Min(got * 2, output.Length - written);
+                                for (var n = 0; n < take; n++)
+                                    output[written + n] = src[n];
+                                written += take;
+                            }
+                            ffmpeg.av_free(outBuf);
+                        }
+                    }
+                    ffmpeg.av_packet_unref(packet);
+                }
+
+                Array.Resize(ref output, written);
+                return output;
+            }
+            finally
+            {
+                if (packet != null) ffmpeg.av_packet_free(&packet);
+                if (frame != null) ffmpeg.av_frame_free(&frame);
+                if (swr != null) ffmpeg.swr_free(&swr);
+                if (decCtx != null) ffmpeg.avcodec_free_context(&decCtx);
+                if (inCtx != null)
+                {
+                    var pIn = inCtx;
+                    ffmpeg.avformat_close_input(&pIn);
+                }
+            }
+        }
+
         private static unsafe long EncodeFrame(AVCodecContext* encCtx, AVFormatContext* outCtx, AVStream* outStream, AVFrame* frame, long outPts)
         {
             if (frame is not null)

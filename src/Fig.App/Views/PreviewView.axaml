@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="using:Fig.App.ViewModels"
+             xmlns:local="using:Fig.App.Views"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="420"
+             x:Class="Fig.App.Views.PreviewView"
+             x:DataType="vm:PreviewViewModel">
+
+    <Border Background="#111111" CornerRadius="4">
+        <DockPanel>
+            <Border DockPanel.Dock="Bottom" Background="#1c1c1e" Padding="8,6"
+                    BorderBrush="#2a2a2b" BorderThickness="0,1,0,0">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2">
+                        <Button Command="{Binding JumpToStartCommand}"
+                                ToolTip.Tip="Jump to start"
+                                Background="Transparent" BorderThickness="0"
+                                Padding="6,4" Foreground="#cccccc">
+                            <local:StrokeIcon Icon="skip-start" Width="14" Height="14"/>
+                        </Button>
+                        <Button Command="{Binding StepBackFrameCommand}"
+                                ToolTip.Tip="Previous frame"
+                                Background="Transparent" BorderThickness="0"
+                                Padding="6,4" Foreground="#cccccc">
+                            <local:StrokeIcon Icon="step-back" Width="14" Height="14"/>
+                        </Button>
+                        <Button Command="{Binding TogglePlaybackCommand}"
+                                ToolTip.Tip="Play / Pause"
+                                Background="Transparent" BorderThickness="0"
+                                Padding="8,4" Foreground="#cccccc">
+                            <local:StrokeIcon Icon="{Binding PlaybackIconKey}" Width="16" Height="16"/>
+                        </Button>
+                        <Button Command="{Binding StepForwardFrameCommand}"
+                                ToolTip.Tip="Next frame"
+                                Background="Transparent" BorderThickness="0"
+                                Padding="6,4" Foreground="#cccccc">
+                            <local:StrokeIcon Icon="step-forward" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding TimeDisplay}"
+                               Foreground="#cccccc" FontSize="12"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding DecodeStatus}"
+                               Foreground="#8a8a8a" FontSize="11"
+                               MinWidth="90" TextAlignment="Right"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </Grid>
+            </Border>
+            <Border CornerRadius="4" Background="#000000"
+                    BorderBrush="#333333" BorderThickness="1"
+                    ClipToBounds="True">
+                <Image Source="{Binding Frame}" Stretch="Uniform"
+                       StretchDirection="DownOnly"/>
+            </Border>
+        </DockPanel>
+    </Border>
+</UserControl>

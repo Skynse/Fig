@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Fig.App.Services;
+using Fig.App.ViewModels;
 using Fig.Core.Media;
 
 namespace Fig.App.Views;
@@ -16,11 +18,49 @@ public partial class EditorView : UserControl
     private bool _dragArmed;
     private Point _pressPoint;
     private PointerPressedEventArgs? _pressEvent;
+    private EditorViewModel? _boundVm;
 
     public EditorView()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
     }
+
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        if (_boundVm is not null)
+        {
+            _boundVm.PlaybackAssigned -= OnPlaybackAssigned;
+            _boundVm = null;
+        }
+
+        if (DataContext is not EditorViewModel vm)
+            return;
+
+        _boundVm = vm;
+        Timeline.PlayheadChanged += sec => vm.SeekFromUser(sec);
+        vm.PlaybackAssigned += OnPlaybackAssigned;
+        if (vm.Playback is not null)
+            WirePlayback(vm.Playback);
+    }
+
+    private PlaybackEngine? _wiredPlayback;
+
+    private void OnPlaybackAssigned(PlaybackEngine? playback)
+    {
+        if (playback is null)
+            return;
+        if (_wiredPlayback == playback)
+            return;
+        if (_wiredPlayback is not null)
+            _wiredPlayback.PositionChanged -= OnPlaybackPositionChanged;
+        _wiredPlayback = playback;
+        playback.PositionChanged += OnPlaybackPositionChanged;
+    }
+
+    private void OnPlaybackPositionChanged(double sec) => Timeline.SetPlayheadFromPlayback(sec);
+
+    private void WirePlayback(PlaybackEngine playback) => OnPlaybackAssigned(playback);
 
     private void MediaCard_PointerPressed(object? sender, PointerPressedEventArgs e)
     {

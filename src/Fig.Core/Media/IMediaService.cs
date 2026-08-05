@@ -17,6 +17,46 @@ namespace Fig.Core.Media
 
         /// <summary>Decodes the audio stream and returns normalized peak magnitudes (0..1) per bucket.</summary>
         float[] ExtractPeaks(string sourcePath, int buckets);
+
+        /// <summary>Decodes the video frame closest to <paramref name="timeSec"/> and returns BGRA pixels.</summary>
+        DecodedFrame? DecodeFrameAt(string sourcePath, double timeSec, int width, int height);
+
+        /// <summary>
+        /// Opens a persistent sequential video decoder. It decodes forward from the last
+        /// position so playback does not seek on every frame; call <see cref="IVideoFrameSource.Seek"/>
+        /// when scrubbing backwards or switching sources.
+        /// </summary>
+        IVideoFrameSource OpenVideoSource(string sourcePath, int width, int height);
+
+        /// <summary>
+        /// Decodes a contiguous chunk of audio starting at <paramref name="startSec"/> for
+        /// <paramref name="durationSec"/>, resampled to stereo float at <paramref name="sampleRate"/>.
+        /// Returns interleaved L/R samples; may return fewer than requested at the end of the media.
+        /// </summary>
+        float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000);
+    }
+
+    /// <summary>A decoded video frame as raw BGRA32 pixels (bottom-up row order, like ffmpeg).</summary>
+    public class DecodedFrame
+    {
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public byte[] Pixels { get; set; } = Array.Empty<byte>();
+    }
+
+    /// <summary>
+    /// A persistent video decoder for smooth forward playback. Keeps the decode context
+    /// open so consecutive frames decode without re-seeking.
+    /// </summary>
+    public interface IVideoFrameSource : IDisposable
+    {
+        /// <summary>Decodes frames until one at/after <paramref name="timeSec"/> is ready, returning BGRA pixels.</summary>
+        DecodedFrame? DecodeForward(double timeSec);
+
+        /// <summary>Random-access seek (used when scrubbing backwards or jumping).</summary>
+        void Seek(double timeSec);
+
+        double LastPresentedTimeSec { get; }
     }
 
     public class ProbeResult

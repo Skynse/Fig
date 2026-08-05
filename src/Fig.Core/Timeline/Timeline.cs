@@ -70,6 +70,11 @@ namespace Fig.Core.Timeline
         public TrackKind Kind { get; set; }
         public int Index { get; set; }
         public string? Name { get; set; }
+
+        /// <summary>Video tracks: hides/shows the video clip content in the preview.</summary>
+        public bool Visible { get; set; } = true;
+
+        /// <summary>Audio tracks: mutes the track's audio.</summary>
         public bool Muted { get; set; }
         public List<Clip> Clips { get; set; } = new();
     }

@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Fig.App.Services;
 using Fig.Core.Input;
 using Fig.Core.Media;
 using Fig.Core.Timeline;
@@ -77,7 +78,23 @@ namespace Fig.App.Views
 
         // playhead
         public double PlayheadTimeSec { get; private set; }
+        public event Action<double>? PlayheadChanged;
         private bool _draggingPlayhead;
+
+        /// <summary>User-scrub: moves the playhead and notifies listeners (seek happens in the view model).</summary>
+        private void SetPlayhead(double sec)
+        {
+            PlayheadTimeSec = sec;
+            PlayheadChanged?.Invoke(sec);
+            InvalidateVisual();
+        }
+
+        /// <summary>Playback-driven: moves the playhead visually without re-triggering a seek.</summary>
+        public void SetPlayheadFromPlayback(double sec)
+        {
+            PlayheadTimeSec = sec;
+            InvalidateVisual();
+        }
 
         // pan state
         private bool _panning;
@@ -103,16 +120,16 @@ namespace Fig.App.Views
         private Track? _dropPreviewTrack;
         private MediaAsset? _dropPreviewAsset;
 
-        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.Parse("#4da3ff"));
+        private static readonly IBrush SelectionBrush = EditorTheme.AccentBrush;
 
-        // Base palette
-        private static readonly IBrush SurfaceBackground = new SolidColorBrush(Color.Parse("#1e1e1e"));
-        private static readonly IBrush TrackBackground = new SolidColorBrush(Color.Parse("#252526"));
-        private static readonly IBrush TrackBackgroundAlt = new SolidColorBrush(Color.Parse("#2a2a2b"));
-        private static readonly IBrush RulerBackground = new SolidColorBrush(Color.Parse("#1a1a1a"));
-        private static readonly IBrush BorderBrush = new SolidColorBrush(Color.Parse("#333333"));
+        private static readonly IBrush SurfaceBackground = EditorTheme.CardBrush;
+        private static readonly IBrush TrackLaneBrush = EditorTheme.CardBrush;
+        private static readonly IBrush TrackLaneAltBrush = new SolidColorBrush(EditorTheme.TrackLaneAlt);
+        private static readonly IBrush RulerBackground = new SolidColorBrush(EditorTheme.RulerBackground);
+        private static readonly IBrush BorderBrush = EditorTheme.BorderBrush;
         private static readonly IBrush RulerTickBrush = new SolidColorBrush(Color.Parse("#4a4a4a"));
-        private static readonly IBrush RulerTextBrush = new SolidColorBrush(Color.Parse("#8a8a8a"));
+        private static readonly IBrush RulerTextBrush = EditorTheme.TextMutedBrush;
+        private static readonly IBrush SelectedLaneTintBrush = new SolidColorBrush(EditorTheme.SelectedLaneTint);
 
         // Clip fills
         private static readonly IBrush VideoBrush = new SolidColorBrush(Color.Parse("#3b82f6"));
@@ -125,19 +142,17 @@ namespace Fig.App.Views
         private static readonly IBrush TextBorder = new SolidColorBrush(Color.Parse("#a16207"));
 
         private static readonly IBrush ClipShadow = new SolidColorBrush(Color.Parse("#00000060"));
-        private static readonly IBrush TrackHeaderBrush = new SolidColorBrush(Color.Parse("#222222"));
-        private static readonly IBrush TrackHeaderTextBrush = new SolidColorBrush(Color.Parse("#9a9a9a"));
+        private static readonly IBrush TrackHeaderTextBrush = EditorTheme.TextMutedBrush;
+        private static readonly IBrush HeaderIconDimBrush = new SolidColorBrush(Color.Parse("#6a6a6a"));
 
         private const double RulerHeight = 24;
         private const double ClipCornerRadius = 4;
-        private const double TrackHeaderWidth = 120;
+        private const double TrackHeaderWidth = 76;
         private const double ZoomFactor = 1.25;
-        private const double HeaderButtonSize = 18;
-        private const double HeaderButtonGap = 4;
-
-        private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#3d3d3e"));
-        private static readonly IBrush MutedTextBrush = new SolidColorBrush(Color.Parse("#6a6a6a"));
-        private static readonly IBrush DeleteBrush = new SolidColorBrush(Color.Parse("#4a2020"));
+        private const double HeaderButtonSize = 16;
+        private const double HeaderButtonGap = 2;
+        private const double HeaderPaddingLeft = 4;
+        private const double TrackAccentBarWidth = 3;
 
         public TimelineView()
         {
@@ -353,6 +368,13 @@ namespace Fig.App.Views
         /// range (SrcIn..SrcOut) is mapped linearly to the visible width, so zooming in
         /// just spreads the same samples wider (more detail, never distorted).
         /// </summary>
+        private void DrawResizeHandle(DrawingContext context, double x, double y, double height)
+        {
+            var handleBrush = new SolidColorBrush(Color.FromArgb(200, 0x4d, 0xa3, 0xff));
+            var width = 3.0;
+            context.DrawRectangle(handleBrush, null, new Rect(x - width / 2, y + 3, width, height - 6));
+        }
+
         private void DrawAudioWaveform(DrawingContext context, Rect rect, AudioClip clip, MediaAsset asset)
         {
             var peaks = asset.WaveformPeaks;
@@ -393,32 +415,58 @@ namespace Fig.App.Views
             }
         }
 
-        private enum ButtonKind { Mute, Delete }
         private enum DragMode { None, Move, ResizeStart, ResizeEnd }
 
         private DragMode _dragMode = DragMode.None;
+        private enum EdgeKind { None, Left, Right }
+        private EdgeKind _hoverEdge;
 
-        private Rect HeaderButtonRect(Track track, ButtonKind kind)
+        // header button columns: [0] = mute/visibility, [1] = delete
+        private const int HeaderToggleColumn = 0;
+        private const int HeaderDeleteColumn = 1;
+
+        private Rect HeaderButtonRect(Track track, int column)
         {
             var top = TimelineGeometry.TrackTop(track.Index) + RulerHeight;
             var center = (top + TimelineGeometry.TrackHeight) / 2;
-            var x = kind == ButtonKind.Mute
-                ? TrackHeaderWidth - HeaderButtonSize * 2 - HeaderButtonGap
-                : TrackHeaderWidth - HeaderButtonSize;
+            var x = HeaderPaddingLeft + column * (HeaderButtonSize + HeaderButtonGap);
             return new Rect(x, center - HeaderButtonSize / 2, HeaderButtonSize, HeaderButtonSize);
         }
 
-        private void DrawHeaderButton(DrawingContext context, string label, IBrush bg, Rect rect, bool isActive)
+        private static double HeaderLabelX()
         {
-            context.DrawRectangle(bg, null, new RoundedRect(rect, 3));
-            var text = new FormattedText(
-                label,
-                System.Globalization.CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight,
-                Typeface.Default,
-                10,
-                isActive ? Brushes.White : TrackHeaderTextBrush);
-            context.DrawText(text, new Point(rect.X + (rect.Width - text.Width) / 2, rect.Y + (rect.Height - text.Height) / 2));
+            return HeaderPaddingLeft + 2 * (HeaderButtonSize + HeaderButtonGap) + 2;
+        }
+
+        private static string ToggleIconKey(Track track)
+        {
+            return track.Kind switch
+            {
+                TrackKind.Video => track.Visible ? "eye" : "eye-off",
+                _ => track.Muted ? "volume-x" : "volume",
+            };
+        }
+
+        private void DrawHeaderIcon(DrawingContext context, string key, Rect rect, bool dimmed)
+        {
+            var brush = dimmed ? HeaderIconDimBrush : TrackHeaderTextBrush;
+            IconService.DrawStroked(context, key, rect.Inflate(-3), brush, 1.4);
+        }
+
+        private void DrawHeaderToggle(DrawingContext context, Track track, Rect rect)
+        {
+            var dimmed = track.Kind == TrackKind.Video ? !track.Visible : track.Muted;
+            DrawHeaderIcon(context, ToggleIconKey(track), rect, dimmed);
+        }
+
+        private void DrawHeaderDelete(DrawingContext context, Rect rect)
+        {
+            DrawHeaderIcon(context, "trash", rect, false);
+        }
+
+        private void DrawHeaderAdd(DrawingContext context, Rect rect)
+        {
+            DrawHeaderIcon(context, "plus", rect, false);
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -446,8 +494,7 @@ namespace Fig.App.Views
             if (pos.Y <= RulerHeight)
             {
                 _draggingPlayhead = true;
-                PlayheadTimeSec = Editor.SnapTime(XToTime(pos.X));
-                InvalidateVisual();
+                SetPlayhead(Editor.SnapTime(XToTime(pos.X)));
                 e.Handled = true;
                 return;
             }
@@ -457,11 +504,15 @@ namespace Fig.App.Views
                 var track = HitTestTrack(pos.Y);
                 if (track is not null)
                 {
-                    var muteRect = HeaderButtonRect(track, ButtonKind.Mute);
-                    var delRect = HeaderButtonRect(track, ButtonKind.Delete);
-                    if (muteRect.Contains(pos))
+                    var toggleRect = HeaderButtonRect(track, HeaderToggleColumn);
+                    var delRect = HeaderButtonRect(track, HeaderDeleteColumn);
+                    if (toggleRect.Contains(pos))
                     {
-                        track.Muted = !track.Muted;
+                        // video -> visibility toggle; audio -> mute toggle
+                        if (track.Kind == TrackKind.Video)
+                            track.Visible = !track.Visible;
+                        else
+                            track.Muted = !track.Muted;
                         InvalidateVisual();
                         e.Handled = true;
                         return;
@@ -535,8 +586,7 @@ namespace Fig.App.Views
 
             if (_draggingPlayhead)
             {
-                PlayheadTimeSec = Math.Max(0, Editor.SnapTime(XToTime(pos.X)));
-                InvalidateVisual();
+                SetPlayhead(Math.Max(0, Editor.SnapTime(XToTime(pos.X))));
                 return;
             }
 
@@ -560,6 +610,19 @@ namespace Fig.App.Views
                 }
                 InvalidateVisual();
                 return;
+            }
+
+            // idle: reflect resize affordance when hovering a clip edge
+            var overEdge = HoverClipEdge(pos);
+            Cursor = overEdge switch
+            {
+                EdgeKind.Left or EdgeKind.Right => new Cursor(StandardCursorType.SizeWestEast),
+                _ => Cursor.Default,
+            };
+            if (_hoverEdge != overEdge)
+            {
+                _hoverEdge = overEdge;
+                InvalidateVisual();
             }
         }
 
@@ -648,8 +711,15 @@ namespace Fig.App.Views
             return asset.DurationSec > 0 ? asset.DurationSec : null;
         }
 
-        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        protected override void OnPointerExited(PointerEventArgs e)
         {
+            base.OnPointerExited(e);
+            _hoverEdge = EdgeKind.None;
+            Cursor = Cursor.Default;
+            InvalidateVisual();
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)        {
             base.OnPointerReleased(e);
 
             if (_draggingClip && _dragClip is not null)
@@ -726,6 +796,51 @@ namespace Fig.App.Views
                 time >= c.StartSec && time < c.StartSec + c.DurSec);
         }
 
+        /// <summary>True when a clip has a neighbor touching it on the left/right in the same track.</summary>
+        private static (bool HasPrev, bool HasNext) HasAdjacent(Track track, Clip clip)
+        {
+            const double eps = 1e-6;
+            var hasPrev = false;
+            var hasNext = false;
+            foreach (var other in track.Clips)
+            {
+                if (other.Id == clip.Id)
+                    continue;
+                if (Math.Abs(other.StartSec + other.DurSec - clip.StartSec) < eps)
+                    hasPrev = true;
+                if (Math.Abs(other.StartSec - (clip.StartSec + clip.DurSec)) < eps)
+                    hasNext = true;
+            }
+            return (hasPrev, hasNext);
+        }
+
+        /// <summary>Returns whether the pointer is over a clip's left/right resize edge.</summary>
+        private EdgeKind HoverClipEdge(Point pos)
+        {
+            if (Editor is null || pos.X <= TrackHeaderWidth)
+                return EdgeKind.None;
+
+            var px = Viewport.PixelsPerSecond;
+            var edgePx = 6;
+            var time = Viewport.XToTime(pos.X - TrackHeaderWidth);
+            var track = HitTestTrack(pos.Y);
+            if (track is null)
+                return EdgeKind.None;
+
+            foreach (var clip in track.Clips)
+            {
+                if (!(time >= clip.StartSec && time < clip.StartSec + clip.DurSec))
+                    continue;
+                var leftX = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
+                var rightX = leftX + clip.DurSec * px;
+                if (Math.Abs(pos.X - leftX) <= edgePx)
+                    return EdgeKind.Left;
+                if (Math.Abs(pos.X - rightX) <= edgePx)
+                    return EdgeKind.Right;
+            }
+            return EdgeKind.None;
+        }
+
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
@@ -791,9 +906,15 @@ namespace Fig.App.Views
                 var top = TimelineGeometry.TrackTop(i) + RulerHeight;
                 var height = TimelineGeometry.TrackHeight;
 
-                // track header (left column)
                 var isTrackSelected = track.Id == _selectedTrackId;
-                context.DrawRectangle(isTrackSelected ? SelectionBrush : TrackHeaderBrush, null, new Rect(0, top, TrackHeaderWidth, height));
+                var rowRect = new Rect(0, top, Bounds.Width, height);
+                var laneBrush = i % 2 == 0 ? TrackLaneBrush : TrackLaneAltBrush;
+                context.DrawRectangle(laneBrush, null, rowRect);
+                if (isTrackSelected)
+                {
+                    context.DrawRectangle(SelectedLaneTintBrush, null, rowRect);
+                    context.DrawRectangle(SelectionBrush, null, new Rect(0, top, TrackAccentBarWidth, height));
+                }
                 context.DrawLine(new Pen(BorderBrush, 1), new Point(TrackHeaderWidth, top), new Point(TrackHeaderWidth, top + height));
                 context.DrawLine(new Pen(BorderBrush, 1), new Point(0, top + height), new Point(Bounds.Width, top + height));
 
@@ -803,13 +924,12 @@ namespace Fig.App.Views
                     System.Globalization.CultureInfo.CurrentCulture,
                     FlowDirection.LeftToRight,
                     Typeface.Default,
-                    12,
+                    11,
                     TrackHeaderTextBrush);
-                context.DrawText(trackText, new Point(8, top + (height - trackText.Height) / 2));
+                context.DrawText(trackText, new Point(HeaderLabelX(), top + (height - trackText.Height) / 2));
 
-                // mute + delete buttons in header
-                DrawHeaderButton(context, "M", track.Muted ? MutedBrush : BorderBrush, HeaderButtonRect(track, ButtonKind.Mute), track.Muted);
-                DrawHeaderButton(context, "x", DeleteBrush, HeaderButtonRect(track, ButtonKind.Delete), false);
+                DrawHeaderToggle(context, track, HeaderButtonRect(track, HeaderToggleColumn));
+                DrawHeaderDelete(context, HeaderButtonRect(track, HeaderDeleteColumn));
 
                 // clip area, offset by header + viewport scroll
                 using (context.PushClip(clipArea))
@@ -835,11 +955,24 @@ namespace Fig.App.Views
                         var labelHeight = TimelineGeometry.ClipLabelHeight;
                         var bodyHeight = TimelineGeometry.ClipHeight;
 
-                        var widgetRect = new Rect(x, clipTop, w, totalHeight);
-                        var rounded = new RoundedRect(widgetRect, ClipCornerRadius);
+                        // square the corners on edges shared with an adjacent clip so split
+                        // halves butt cleanly instead of showing overlapping rounded corners
+                        var (hasPrev, hasNext) = HasAdjacent(track, clip);
+                        var topLeft = hasPrev ? 0 : ClipCornerRadius;
+                        var topRight = hasNext ? 0 : ClipCornerRadius;
+                        var bottomLeft = hasPrev ? 0 : ClipCornerRadius;
+                        var bottomRight = hasNext ? 0 : ClipCornerRadius;
+                        var corner = new CornerRadius(topLeft, topRight, bottomRight, bottomLeft);
 
-                        var shadowRect = new RoundedRect(widgetRect.Translate(new Vector(0, 1)), ClipCornerRadius);
-                        context.DrawRectangle(ClipShadow, null, shadowRect);
+                        var widgetRect = new Rect(x, clipTop, w, totalHeight);
+
+                        // only the first clip of a contiguous run casts a shadow, so split
+                        // halves don't stack shadows and read as overlapping
+                        if (!hasPrev)
+                        {
+                            var shadowRect = new RoundedRect(widgetRect.Translate(new Vector(0, 1)), corner);
+                            context.DrawRectangle(ClipShadow, null, shadowRect);
+                        }
 
                         var isClipSelected = _selectedClipId is not null
                             && Editor.Selection.IsSelected(clip.Id);
@@ -850,7 +983,7 @@ namespace Fig.App.Views
                         var labelBrush = isClipSelected
                             ? new SolidColorBrush(Color.FromArgb(80, 0x4d, 0xa3, 0xff))
                             : new SolidColorBrush(Color.Parse("#1c1c1e"));
-                        context.DrawRectangle(labelBrush, null, new RoundedRect(labelRect, new CornerRadius(ClipCornerRadius, ClipCornerRadius, 0, 0)));
+                        context.DrawRectangle(labelBrush, null, new RoundedRect(labelRect, new CornerRadius(topLeft, topRight, 0, 0)));
 
                         var clipName = ClipName(clip);
                         if (clipName is not null)
@@ -867,7 +1000,7 @@ namespace Fig.App.Views
 
                         // --- clip body ---
                         var rect = new Rect(x, clipTop + labelHeight, w, bodyHeight);
-                        var bodyRounded = new RoundedRect(rect, new CornerRadius(0, 0, ClipCornerRadius, ClipCornerRadius));
+                        var bodyRounded = new RoundedRect(rect, new CornerRadius(0, 0, bottomRight, bottomLeft));
 
                         // draw filmstrip as video clip background
                         if (clip is VideoClip vc && MediaById is not null
@@ -890,6 +1023,14 @@ namespace Fig.App.Views
                         {
                             context.DrawRectangle(fill, new Pen(outline, isClipSelected ? 2 : 1), bodyRounded);
                         }
+
+                        // resize-handle indicator on the edge under the cursor (or both edges when selected)
+                        var hoverLeft = _hoverEdge == EdgeKind.Left;
+                        var hoverRight = _hoverEdge == EdgeKind.Right;
+                        if (isClipSelected || hoverLeft)
+                            DrawResizeHandle(context, x, rect.Y, rect.Height);
+                        if (isClipSelected || hoverRight)
+                            DrawResizeHandle(context, x + w, rect.Y, rect.Height);
                     }   // foreach clip
                 }   // PushClip(clipArea)
             }   // for tracks
@@ -898,7 +1039,7 @@ namespace Fig.App.Views
             if (Editor.Document.Tracks.Count > 0)
             {
                 var addRect = AddTrackButtonRect();
-                DrawHeaderButton(context, "+", BorderBrush, addRect, false);
+                DrawHeaderAdd(context, addRect);
             }
 
             // drop preview: highlight target track + ghost clip rect
@@ -928,9 +1069,17 @@ namespace Fig.App.Views
             var playheadX = TrackHeaderWidth + Viewport.TimeToX(PlayheadTimeSec);
             if (playheadX >= TrackHeaderWidth)
             {
-                context.DrawLine(new Pen(Brushes.Red, 1.5), new Point(playheadX, 0), new Point(playheadX, Bounds.Height));
-                // handle in ruler
-                context.DrawRectangle(Brushes.Red, null, new Rect(playheadX - 4, 0, 8, 10));
+                var playheadPen = new Pen(EditorTheme.PlayheadBrush, 1);
+                context.DrawLine(playheadPen, new Point(playheadX, 0), new Point(playheadX, Bounds.Height));
+                var cap = new StreamGeometry();
+                using (var gc = cap.Open())
+                {
+                    gc.BeginFigure(new Point(playheadX - 5, 0), true);
+                    gc.LineTo(new Point(playheadX + 5, 0));
+                    gc.LineTo(new Point(playheadX, 8));
+                    gc.EndFigure(true);
+                }
+                context.DrawGeometry(EditorTheme.PlayheadBrush, null, cap);
             }
         }
 

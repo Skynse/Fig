@@ -10,6 +10,13 @@ namespace Fig.Core.Timeline
         private readonly string _clipId;
         private readonly double _atSec;
 
+        /// <summary>
+        /// When set, the produced second half gets this link group id (distinct from the
+        /// original) so a split breaks the link between the two halves while still pairing
+        /// the right video half with its right audio half.
+        /// </summary>
+        private readonly string? _secondGroupId;
+
         private Clip? _first;
         private Track? _track;
         private Clip? _second;
@@ -21,11 +28,12 @@ namespace Fig.Core.Timeline
 
         public IReadOnlyList<Clip> ProducedClips { get; private set; } = Array.Empty<Clip>();
 
-        public CutCommand(TimelineEditor editor, string clipId, double atSec)
+        public CutCommand(TimelineEditor editor, string clipId, double atSec, string? secondGroupId = null)
         {
             _editor = editor;
             _clipId = clipId;
             _atSec = atSec;
+            _secondGroupId = secondGroupId;
         }
 
         public void Execute()
@@ -127,7 +135,9 @@ namespace Fig.Core.Timeline
                 },
                 _ => throw new NotSupportedException($"Unsupported clip kind '{first.Kind}'")
             };
-            result.LinkGroupId = first.LinkGroupId;
+            // break the link: the right half gets a fresh group id (or none if unlinked),
+            // so the two halves no longer drag together
+            result.LinkGroupId = _secondGroupId;
             return result;
         }
 

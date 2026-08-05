@@ -25,17 +25,23 @@ namespace Fig.Core.Timeline
 
         public IReadOnlyList<Clip> Cut(string clipId, double atSec)
         {
-            var commands = LinkGroup(clipId)
+            var group = LinkGroup(clipId)
                 .Where(c => c.StartSec < atSec && atSec < c.StartSec + c.DurSec)
-                .Select(c => (IEditCommand)new CutCommand(this, c.Id, atSec))
-                .ToArray();
-            if (commands.Length == 0)
+                .ToList();
+            if (group.Count == 0)
             {
                 var cmd = new CutCommand(this, clipId, atSec);
                 History.Execute(cmd);
                 RaiseChanged();
                 return cmd.ProducedClips;
             }
+
+            // one fresh group id for the right halves of the whole group
+            var secondGroup = group[0].LinkGroupId is null ? null : Guid.NewGuid().ToString("N");
+            var commands = group
+                .Select(c => (IEditCommand)new CutCommand(this, c.Id, atSec, secondGroup))
+                .ToArray();
+
             History.Execute(commands.Length == 1 ? commands[0] : new CompositeCommand(commands));
             RaiseChanged();
             return commands.Cast<CutCommand>().SelectMany(c => c.ProducedClips).ToList();
@@ -166,7 +172,7 @@ namespace Fig.Core.Timeline
 
             // collect every clip overlapping the playhead across the whole timeline,
             // expanding link groups so a linked video+audio pair cuts together exactly once
-            var targets = new List<Clip>();
+            var targets = new List<(Clip Clip, string? SecondGroupId)>();
             var seenGroups = new HashSet<string>();
             foreach (var t in Document.Tracks)
             {
@@ -176,14 +182,19 @@ namespace Fig.Core.Timeline
                         continue;
                     if (clip.LinkGroupId is string g)
                     {
-                        if (!seenGroups.Add(g))
-                            continue;
-                        foreach (var member in LinkGroup(clip.Id))
-                            targets.Add(member);
+                        // one fresh group id for the right halves of this whole group, so
+                        // the right video half stays paired with its right audio half
+                        if (!seenGroups.Contains(g))
+                        {
+                            seenGroups.Add(g);
+                            var secondGroup = Guid.NewGuid().ToString("N");
+                            foreach (var member in LinkGroup(clip.Id))
+                                targets.Add((member, secondGroup));
+                        }
                     }
                     else
                     {
-                        targets.Add(clip);
+                        targets.Add((clip, null));
                     }
                 }
             }
@@ -193,9 +204,9 @@ namespace Fig.Core.Timeline
 
             var produced = new List<Clip>();
             var commands = new List<IEditCommand>();
-            foreach (var clip in targets)
+            foreach (var (clip, secondGroup) in targets)
             {
-                var cmd = new CutCommand(this, clip.Id, snapped);
+                var cmd = new CutCommand(this, clip.Id, snapped, secondGroup);
                 commands.Add(cmd);
             }
 

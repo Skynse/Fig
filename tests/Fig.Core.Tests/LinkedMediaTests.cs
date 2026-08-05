@@ -90,11 +90,52 @@ public class LinkedMediaTests
 
         Assert.Equal(2, videoTrack.Clips.Count);
         Assert.Equal(2, audioTrack.Clips.Count);
-        // both tracks keep matching link groups on each half
+        // the two halves must no longer be linked to each other (split breaks the link)
+        Assert.NotEqual(videoTrack.Clips[0].LinkGroupId, videoTrack.Clips[1].LinkGroupId);
+        Assert.NotEqual(audioTrack.Clips[0].LinkGroupId, audioTrack.Clips[1].LinkGroupId);
+        // but each side keeps its video+audio pairing
         Assert.Equal(videoTrack.Clips[0].LinkGroupId, audioTrack.Clips[0].LinkGroupId);
         Assert.Equal(videoTrack.Clips[1].LinkGroupId, audioTrack.Clips[1].LinkGroupId);
         Assert.Equal(4, videoTrack.Clips[0].DurSec);
         Assert.Equal(6, videoTrack.Clips[1].DurSec);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_MovingOneHalf_DoesNotMoveTheOther()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid4b");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        editor.SplitAtPlayhead(videoTrack.Id, 4);
+        var left = videoTrack.Clips[0];
+        var right = videoTrack.Clips[1];
+        var leftAudio = audioTrack.Clips[0];
+
+        editor.Move(left.Id, 2.0);
+
+        Assert.Equal(2.0, left.StartSec);
+        Assert.Equal(2.0, leftAudio.StartSec);   // paired audio follows the left half
+        Assert.Equal(4.0, right.StartSec);       // unaffected by moving the left half
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_Undo_RestoresOriginalLinkGroup()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid4c");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var originalGroup = video.LinkGroupId;
+
+        editor.SplitAtPlayhead(videoTrack.Id, 4);
+        editor.Undo();
+
+        Assert.Single(videoTrack.Clips);
+        Assert.Equal(originalGroup, videoTrack.Clips[0].LinkGroupId);
+        Assert.Equal(10, videoTrack.Clips[0].DurSec);
     }
 
     [Fact]
