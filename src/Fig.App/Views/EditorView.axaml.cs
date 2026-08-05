@@ -100,4 +100,11 @@ public partial class EditorView : UserControl
         if (VisualRoot is Window window)
             window.Close();
     }
+
+    private async void CloseProjectMenu_Click(object? sender, RoutedEventArgs e)
+    {
+        var window = VisualRoot as Window;
+        if (window?.DataContext is ViewModels.AppViewModel app)
+            await app.CloseProjectAsync(window);
+    }
 }

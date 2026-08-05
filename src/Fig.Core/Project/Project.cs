@@ -14,6 +14,9 @@ namespace Fig.Core.Project
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
+        /// <summary>Absolute path to the project card thumbnail (first composited timeline frame).</summary>
+        public string? Thumbnail { get; set; }
+
         public List<MediaAsset> Media { get; set; } = new();
         public List<TimelineModel> Timelines { get; set; } = new();
         public ExportSettings Export { get; set; } = new();

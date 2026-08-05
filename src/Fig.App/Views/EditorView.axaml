@@ -5,7 +5,7 @@
              xmlns:conv="using:Fig.App.Converters"
              xmlns:vm="using:Fig.App.ViewModels"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="700"
+             mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="900"
              x:Class="Fig.App.Views.EditorView"
              x:DataType="vm:EditorViewModel">
 
@@ -24,6 +24,8 @@
                 <MenuItem Header="_Save" Command="{Binding SaveCommand}" InputGesture="Ctrl+S"/>
                 <MenuItem Header="Save _As..." Command="{Binding SaveAsCommand}"
                           CommandParameter="{Binding $parent[Window]}"/>
+                <Separator/>
+                <MenuItem Header="_Close Project" Click="CloseProjectMenu_Click" InputGesture="Ctrl+W"/>
                 <Separator/>
                 <MenuItem Header="E_xit" Click="ExitMenu_Click"/>
             </MenuItem>
@@ -56,7 +58,7 @@
                     CommandParameter="{Binding $parent[Window]}"/>
         </Border>
 
-        <Grid RowDefinitions="*,4,220" ColumnDefinitions="2*,4,3*">
+        <Grid RowDefinitions="*,4,520" ColumnDefinitions="2*,4,3*">
 
             <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,0"
                     Padding="8" Background="#252526" CornerRadius="6">
@@ -160,6 +162,20 @@
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
                                     <TextBlock Text="Ripple" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
+                            <Button Command="{Binding ToggleMagneticSnapCommand}" ToolTip.Tip="Magnetic snap"
+                                    Classes.active="{Binding MagneticSnap}"
+                                    Background="Transparent" BorderThickness="0" Padding="6">
+                                <Button.Styles>
+                                    <Style Selector="Button.active">
+                                        <Setter Property="Background" Value="#2a4a7a" />
+                                    </Style>
+                                </Button.Styles>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <local:StrokeIcon Icon="magnet" Width="18" Height="18"/>
+                                    <TextBlock Text="Snap" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>

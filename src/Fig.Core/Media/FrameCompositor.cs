@@ -1,0 +1,151 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
+
+namespace Fig.Core.Media
+{
+    /// <summary>A single image layer to composite, in BGRA32 bottom-up pixel order.</summary>
+    public sealed class CompositeLayer
+    {
+        public DecodedFrame? Frame { get; set; }
+        public double Opacity { get; set; } = 1.0;
+        public RectI? Crop { get; set; }
+    }
+
+    /// <summary>Integer pixel rectangle (in source pixel space) for cropping a layer.</summary>
+    public readonly struct RectI
+    {
+        public int X { get; }
+        public int Y { get; }
+        public int Width { get; }
+        public int Height { get; }
+
+        public RectI(int x, int y, int width, int height)
+        {
+            X = x;
+            Y = y;
+            Width = width;
+            Height = height;
+        }
+    }
+
+    /// <summary>
+    /// Composites image layers onto a canvas using the painters algorithm. The list is
+    /// ordered topmost-first, so the first layer is the top of the stack. Layers are blended
+    /// bottom-to-top so the top layer is applied last and wins (covers the layers below).
+    /// Each layer is alpha-blended by its opacity. All layers share the canvas dimensions.
+    /// </summary>
+    public static class FrameCompositor
+    {
+        public static DecodedFrame Compose(IReadOnlyList<CompositeLayer> layers, int width, int height)
+        {
+            var pixels = new byte[width * height * 4];
+            ComposeInto(layers, width, height, pixels);
+            return new DecodedFrame { Width = width, Height = height, Pixels = pixels };
+        }
+
+        /// <summary>
+        /// Composites into a caller-provided buffer (avoiding per-frame allocation).
+        /// The buffer must be at least <c>width * height * 4</c> bytes; it is treated as BGRA.
+        /// </summary>
+        public static void ComposeInto(IReadOnlyList<CompositeLayer> layers, int width, int height, byte[] pixels)
+        {
+            // start with an opaque black canvas
+            Array.Clear(pixels, 0, pixels.Length);
+            for (var i = 3; i < pixels.Length; i += 4)
+                pixels[i] = 255;
+
+            // layers are topmost-first: blend bottom-to-top so the first (topmost) layer
+            // is applied last and wins over the layers below it
+            for (var li = layers.Count - 1; li >= 0; li--)
+            {
+                var layer = layers[li];
+                if (layer.Frame is null)
+                    continue;
+                if (layer.Frame.Width != width || layer.Frame.Height != height)
+                    continue;
+                if (layer.Opacity <= 0)
+                    continue;
+
+                var src = layer.Frame.Pixels;
+                var opacity = (byte)Math.Clamp((int)Math.Round(layer.Opacity * 255), 0, 255);
+
+                if (opacity >= 255)
+                    BlendOpaque(pixels, src, width, height);
+                else
+                    BlendAlpha(pixels, src, width, height, opacity);
+            }
+        }
+
+        private static unsafe void BlendOpaque(byte[] dst, byte[] src, int width, int height)
+        {
+            var total = width * height * 4;
+            if (Avx2.IsSupported)
+            {
+                fixed (byte* d = dst)
+                fixed (byte* s = src)
+                {
+                    var i = 0;
+                    for (; i + 32 <= total; i += 32)
+                        Avx.Store(d + i, Avx.LoadDquVector256(s + i));
+                    for (; i < total; i++)
+                        d[i] = s[i];
+                }
+                return;
+            }
+
+            Buffer.BlockCopy(src, 0, dst, 0, total);
+        }
+
+        private static unsafe void BlendAlpha(byte[] dst, byte[] src, int width, int height, byte alpha)
+        {
+            var total = width * height * 4;
+            if (Avx2.IsSupported)
+            {
+                var inv = (byte)(255 - alpha);
+                var alphaV = Vector256.Create((ushort)alpha);
+                var invV = Vector256.Create((ushort)inv);
+                var magicV = Vector256.Create((ushort)257);   // (x * 257) >> 16 ≈ x / 255
+                var zeroV = Vector256<ushort>.Zero;
+
+                fixed (byte* d = dst)
+                fixed (byte* s = src)
+                {
+                    var i = 0;
+                    for (; i + 32 <= total; i += 32)
+                    {
+                        var dVec = Avx.LoadDquVector256(d + i);
+                        var sVec = Avx.LoadDquVector256(s + i);
+
+                        // widen each 16-byte half to 16-bit lanes (0..255 -> ushort)
+                        var dLo = Avx2.UnpackLow(dVec, Vector256<byte>.Zero).AsUInt16();
+                        var dHi = Avx2.UnpackHigh(dVec, Vector256<byte>.Zero).AsUInt16();
+                        var sLo = Avx2.UnpackLow(sVec, Vector256<byte>.Zero).AsUInt16();
+                        var sHi = Avx2.UnpackHigh(sVec, Vector256<byte>.Zero).AsUInt16();
+
+                        // (dst*inv + src*alpha) <= 255*255 = 65025, fits ushort
+                        var sumLo = Avx2.Add(Avx2.MultiplyLow(dLo, invV), Avx2.MultiplyLow(sLo, alphaV));
+                        var sumHi = Avx2.Add(Avx2.MultiplyLow(dHi, invV), Avx2.MultiplyLow(sHi, alphaV));
+
+                        var outLo = Avx2.MultiplyHigh(sumLo, magicV);   // /255
+                        var outHi = Avx2.MultiplyHigh(sumHi, magicV);
+
+                        // pack two 16-lane ushort vectors into 32 bytes; AVX2 packs per-128-bit
+                        // lane, so reorder lanes to restore the original byte order
+                        var packed = Avx2.PackUnsignedSaturate(outLo.AsInt16(), outHi.AsInt16());
+                        var reordered = Avx2.Permute4x64(packed.AsUInt64(), 0b11_01_10_00).AsByte();
+                        Avx.Store(d + i, reordered);
+                    }
+                    for (; i < total; i++)
+                        d[i] = (byte)((d[i] * inv + s[i] * alpha) / 255);
+                }
+                return;
+            }
+
+            var invScalar = 255 - alpha;
+            for (var i = 0; i < total; i++)
+                dst[i] = (byte)((dst[i] * invScalar + src[i] * alpha) / 255);
+        }
+    }
+}

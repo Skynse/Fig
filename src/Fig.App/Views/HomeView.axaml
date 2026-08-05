@@ -2,10 +2,15 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="using:Fig.App.ViewModels"
+             xmlns:conv="using:Fig.App.Converters"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
              x:Class="Fig.App.Views.HomeView"
              x:DataType="vm:HomeViewModel">
+
+    <UserControl.Resources>
+        <conv:PathToBitmapConverter x:Key="PathToBitmap"/>
+    </UserControl.Resources>
 
     <DockPanel Background="#1e1e1e">
 
@@ -39,7 +44,12 @@
                                     <Border Width="220" Height="140"
                                             Background="#252526" CornerRadius="8"
                                             BorderBrush="#333333" BorderThickness="1"
-                                            ClipToBounds="True"/>
+                                            ClipToBounds="True">
+                                        <Grid>
+                                            <Image Source="{Binding Thumbnail, Converter={StaticResource PathToBitmap}}"
+                                                   Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
                                     <TextBlock Text="{Binding Name}" FontSize="13"
                                                Foreground="#cccccc"
                                                Margin="4,6,4,0"

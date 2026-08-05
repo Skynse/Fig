@@ -130,6 +130,7 @@ namespace Fig.App.Views
         private static readonly IBrush RulerTickBrush = new SolidColorBrush(Color.Parse("#4a4a4a"));
         private static readonly IBrush RulerTextBrush = EditorTheme.TextMutedBrush;
         private static readonly IBrush SelectedLaneTintBrush = new SolidColorBrush(EditorTheme.SelectedLaneTint);
+        private static readonly IBrush DeleteHoverBrush = new SolidColorBrush(Color.Parse("#5a1f1f"));
 
         // Clip fills
         private static readonly IBrush VideoBrush = new SolidColorBrush(Color.Parse("#3b82f6"));
@@ -147,11 +148,11 @@ namespace Fig.App.Views
 
         private const double RulerHeight = 24;
         private const double ClipCornerRadius = 4;
-        private const double TrackHeaderWidth = 76;
+        private const double TrackHeaderWidth = 130;
         private const double ZoomFactor = 1.25;
-        private const double HeaderButtonSize = 16;
-        private const double HeaderButtonGap = 2;
-        private const double HeaderPaddingLeft = 4;
+        private const double HeaderButtonSize = 26;
+        private const double HeaderButtonGap = 8;
+        private const double HeaderPaddingLeft = 6;
         private const double TrackAccentBarWidth = 3;
 
         public TimelineView()
@@ -228,9 +229,9 @@ namespace Fig.App.Views
             {
                 e.DragEffects = DragDropEffects.Copy;
                 var pos = e.GetPosition(this);
-                _dropPreviewTime = Editor.SnapTime(XToTime(pos.X));
+                _dropPreviewTime = Editor.SnapTimeMagnetic(XToTime(pos.X));
                 _dropPreviewAsset = e.DataTransfer.TryGetValue(MediaFormat);
-                _dropPreviewTrack = ResolveDropTrack(pos.Y);
+                _dropPreviewTrack = HitTestTrack(pos.Y);   // null = empty space -> will create new tracks on drop
                 _dropTimeSec = _dropPreviewTime;
                 InvalidateVisual();
             }
@@ -258,29 +259,26 @@ namespace Fig.App.Views
             if (asset is null)
                 return;
 
-            var snapped = Editor.SnapTime(XToTime(e));
-            var targetTrack = ResolveDropTrack(e.GetPosition(this).Y);
+            var snapped = Editor.SnapTimeMagnetic(XToTime(e));
+            var dropY = e.GetPosition(this).Y;
+            var targetTrack = HitTestTrack(dropY);
 
-            // creates the clip (plus a linked audio clip + audio track if the asset has audio)
-            Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
+            if (targetTrack is not null)
+            {
+                // dropping onto a track: reject if it would overlap an existing clip
+                Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
+            }
+            else
+            {
+                // empty space: create a brand-new video + audio track pair for this drop
+                Editor.AddMediaNewTracks(asset, snapped);
+            }
 
             _dropTimeSec = -1;
             _dropPreviewTime = -1;
             _dropPreviewTrack = null;
             _dropPreviewAsset = null;
             InvalidateVisual();
-        }
-
-        /// <summary>Returns the track under the cursor, or creates a new one of the asset's kind when dropping on empty space.</summary>
-        private Track ResolveDropTrack(double y)
-        {
-            var track = HitTestTrack(y);
-            if (track is not null)
-                return track;
-
-            // empty space below tracks (or no tracks): create a matching track
-            var kind = _dropPreviewAsset?.Kind == MediaKind.Audio ? TrackKind.Audio : TrackKind.Video;
-            return Editor!.EnsureTrack(kind);
         }
 
         private double XToTime(double x) => Viewport.XToTime(x - TrackHeaderWidth);
@@ -421,14 +419,19 @@ namespace Fig.App.Views
         private enum EdgeKind { None, Left, Right }
         private EdgeKind _hoverEdge;
 
+        // header button hover: (track id, column) or null
+        private (string TrackId, int Column)? _hoverHeaderButton;
+
         // header button columns: [0] = mute/visibility, [1] = delete
         private const int HeaderToggleColumn = 0;
         private const int HeaderDeleteColumn = 1;
 
         private Rect HeaderButtonRect(Track track, int column)
         {
-            var top = TimelineGeometry.TrackTop(track.Index) + RulerHeight;
-            var center = (top + TimelineGeometry.TrackHeight) / 2;
+            // use the track's list position (matching render), not a possibly-stale Index
+            var listIndex = Editor?.Document.Tracks.IndexOf(track) ?? track.Index;
+            var top = TimelineGeometry.TrackTop(listIndex) + RulerHeight;
+            var center = top + TimelineGeometry.TrackHeight / 2;
             var x = HeaderPaddingLeft + column * (HeaderButtonSize + HeaderButtonGap);
             return new Rect(x, center - HeaderButtonSize / 2, HeaderButtonSize, HeaderButtonSize);
         }
@@ -450,7 +453,7 @@ namespace Fig.App.Views
         private void DrawHeaderIcon(DrawingContext context, string key, Rect rect, bool dimmed)
         {
             var brush = dimmed ? HeaderIconDimBrush : TrackHeaderTextBrush;
-            IconService.DrawStroked(context, key, rect.Inflate(-3), brush, 1.4);
+            IconService.DrawStroked(context, key, rect.Inflate(-4), brush, 1.8);
         }
 
         private void DrawHeaderToggle(DrawingContext context, Track track, Rect rect)
@@ -459,8 +462,11 @@ namespace Fig.App.Views
             DrawHeaderIcon(context, ToggleIconKey(track), rect, dimmed);
         }
 
-        private void DrawHeaderDelete(DrawingContext context, Rect rect)
+        private void DrawHeaderDelete(DrawingContext context, Track track, Rect rect)
         {
+            var hovered = _hoverHeaderButton is (string tid, int col) && tid == track.Id && col == HeaderDeleteColumn;
+            if (hovered)
+                context.DrawRectangle(DeleteHoverBrush, null, new RoundedRect(rect, 3));
             DrawHeaderIcon(context, "trash", rect, false);
         }
 
@@ -533,13 +539,31 @@ namespace Fig.App.Views
                 }
             }
 
-            // add-track button at bottom of header column
+            // add-track button at bottom of header column: ask which kind first
             var addRect = AddTrackButtonRect();
             if (addRect.Contains(pos))
             {
-                var kind = LastTrackKind();
-                Editor.AddTrack(kind == TrackKind.Video ? TrackKind.Audio : TrackKind.Video);
-                InvalidateVisual();
+                var menu = new ContextMenu
+                {
+                    Items =
+                    {
+                        new MenuItem { Header = "Video clip" },
+                        new MenuItem { Header = "Audio clip" },
+                    },
+                };
+                if (menu.Items[0] is MenuItem addVideo)
+                    addVideo.Click += (_, _) =>
+                    {
+                        Editor.AddTrack(TrackKind.Video);
+                        InvalidateVisual();
+                    };
+                if (menu.Items[1] is MenuItem addAudio)
+                    addAudio.Click += (_, _) =>
+                    {
+                        Editor.AddTrack(TrackKind.Audio);
+                        InvalidateVisual();
+                    };
+                menu.Open(this);
                 e.Handled = true;
                 return;
             }
@@ -598,8 +622,31 @@ namespace Fig.App.Views
                 switch (_dragMode)
                 {
                     case DragMode.Move:
-                        foreach (var c in Editor.LinkGroup(_dragClip.Id))
-                            c.StartSec = Math.Max(0, _dragOriginals[c.Id] + deltaTime);
+                        // snap the primary clip's new start, then move the group by the same delta
+                        var rawStart = Math.Max(0, _dragOriginals[_dragClip.Id] + deltaTime);
+                        var snappedStart = Editor.SnapTimeMagnetic(rawStart);
+                        var delta = snappedStart - _dragOriginals[_dragClip.Id];
+
+                        // track under the cursor: allow moving between tracks (validated)
+                        var hoverTrack = HitTestTrack(pos.Y);
+                        if (hoverTrack is not null && hoverTrack.Id != _dragOriginalTrack?.Id
+                            && Editor.MoveClipToTrack(_dragClip.Id, hoverTrack.Id))
+                        {
+                            _dragOriginalTrack = hoverTrack;
+                        }
+                        else
+                        {
+                            // same-track move: reject if it would overlap another clip
+                            var groupIds = Editor.LinkGroup(_dragClip.Id).Select(g => g.Id).ToHashSet();
+                            var currentTrack = Editor.FindClipTrackId(_dragClip.Id);
+                            var wouldOverlap = currentTrack is not null && Editor.WouldOverlapGroup(
+                                currentTrack, groupIds, rawStart, _dragOriginalDurs[_dragClip.Id]);
+                            if (!wouldOverlap)
+                            {
+                                foreach (var c in Editor.LinkGroup(_dragClip.Id))
+                                    c.StartSec = Math.Max(0, _dragOriginals[c.Id] + delta);
+                            }
+                        }
                         break;
                     case DragMode.ResizeStart:
                         ApplyLiveResizeStart(deltaTime);
@@ -619,11 +666,34 @@ namespace Fig.App.Views
                 EdgeKind.Left or EdgeKind.Right => new Cursor(StandardCursorType.SizeWestEast),
                 _ => Cursor.Default,
             };
-            if (_hoverEdge != overEdge)
+            var hoverChanged = _hoverEdge != overEdge;
+            _hoverEdge = overEdge;
+
+            // header button hover (for delete/toggle affordance)
+            var newHeaderHover = HoverHeaderButton(pos);
+            if (newHeaderHover != _hoverHeaderButton)
             {
-                _hoverEdge = overEdge;
-                InvalidateVisual();
+                _hoverHeaderButton = newHeaderHover;
+                hoverChanged = true;
             }
+
+            if (hoverChanged)
+                InvalidateVisual();
+        }
+
+        /// <summary>Returns the header button under the cursor (track id + column), or null.</summary>
+        private (string TrackId, int Column)? HoverHeaderButton(Point pos)
+        {
+            if (Editor is null || pos.X > TrackHeaderWidth)
+                return null;
+            var track = HitTestTrack(pos.Y);
+            if (track is null)
+                return null;
+            if (HeaderButtonRect(track, HeaderToggleColumn).Contains(pos))
+                return (track.Id, HeaderToggleColumn);
+            if (HeaderButtonRect(track, HeaderDeleteColumn).Contains(pos))
+                return (track.Id, HeaderDeleteColumn);
+            return null;
         }
 
         private void ApplyLiveResizeStart(double deltaTime)
@@ -631,11 +701,16 @@ namespace Fig.App.Views
             if (_dragClip is null)
                 return;
 
-            foreach (var c in Editor!.LinkGroup(_dragClip.Id))
+            // the moving edge is the clip start; snap it to other clips' boundaries
+            var rawStart = Math.Max(0, _dragOriginals[_dragClip.Id] + deltaTime);
+            var snappedStart = Editor!.SnapTimeMagnetic(rawStart, _dragClip.Id);
+            var snapDelta = snappedStart - _dragOriginals[_dragClip.Id];
+
+            foreach (var c in Editor.LinkGroup(_dragClip.Id))
             {
                 var orig = _dragOriginals[c.Id];
                 var origEnd = orig + _dragOriginalDurs[c.Id];
-                var memberStart = Math.Max(0, orig + deltaTime);
+                var memberStart = Math.Max(0, orig + snapDelta);
                 var memberDur = Math.Max(0.1, origEnd - memberStart);
 
                 c.StartSec = memberStart;
@@ -665,6 +740,11 @@ namespace Fig.App.Views
             if (_dragClip is null)
                 return;
 
+            // the moving edge is the clip end; snap it to other clips' boundaries
+            var rawEnd = Math.Max(_dragOriginals[_dragClip.Id] + 0.1, _dragOriginals[_dragClip.Id] + _dragOriginalDurs[_dragClip.Id] + deltaTime);
+            var snappedEnd = Editor!.SnapTimeMagnetic(rawEnd, _dragClip.Id);
+            var snapDelta = snappedEnd - (_dragOriginals[_dragClip.Id] + _dragOriginalDurs[_dragClip.Id]);
+
             foreach (var c in Editor!.LinkGroup(_dragClip.Id))
             {
                 var orig = _dragOriginals[c.Id];
@@ -679,7 +759,7 @@ namespace Fig.App.Views
                     ? (max - srcIn) / speed
                     : _dragOriginalDurs[c.Id];
 
-                var newEnd = Math.Max(orig + 0.1, origEnd + deltaTime);
+                var newEnd = Math.Max(orig + 0.1, origEnd + snapDelta);
                 var newDur = Math.Max(0.1, newEnd - orig);
                 if (maxDur > 0.1)
                     newDur = Math.Min(newDur, maxDur);
@@ -715,6 +795,7 @@ namespace Fig.App.Views
         {
             base.OnPointerExited(e);
             _hoverEdge = EdgeKind.None;
+            _hoverHeaderButton = null;
             Cursor = Cursor.Default;
             InvalidateVisual();
         }
@@ -781,10 +862,12 @@ namespace Fig.App.Views
         {
             if (Editor is null)
                 return null;
-            foreach (var track in Editor.Document.Tracks)
+            // iterate by list position so hit-testing matches rendering, regardless of stale Index values
+            for (var i = 0; i < Editor.Document.Tracks.Count; i++)
             {
-                if (y >= TimelineGeometry.TrackTop(track.Index) + RulerHeight
-                    && y < TimelineGeometry.TrackBottom(track.Index) + RulerHeight)
+                var track = Editor.Document.Tracks[i];
+                if (y >= TimelineGeometry.TrackTop(i) + RulerHeight
+                    && y < TimelineGeometry.TrackBottom(i) + RulerHeight)
                     return track;
             }
             return null;
@@ -874,13 +957,6 @@ namespace Fig.App.Views
             return new Rect(8, y, HeaderButtonSize, HeaderButtonSize);
         }
 
-        private TrackKind LastTrackKind()
-        {
-            if (Editor is null || Editor.Document.Tracks.Count == 0)
-                return TrackKind.Video;
-            return Editor.Document.Tracks[^1].Kind;
-        }
-
         // ---- rendering ----
 
         public override void Render(DrawingContext context)
@@ -929,7 +1005,7 @@ namespace Fig.App.Views
                 context.DrawText(trackText, new Point(HeaderLabelX(), top + (height - trackText.Height) / 2));
 
                 DrawHeaderToggle(context, track, HeaderButtonRect(track, HeaderToggleColumn));
-                DrawHeaderDelete(context, HeaderButtonRect(track, HeaderDeleteColumn));
+                DrawHeaderDelete(context, track, HeaderButtonRect(track, HeaderDeleteColumn));
 
                 // clip area, offset by header + viewport scroll
                 using (context.PushClip(clipArea))

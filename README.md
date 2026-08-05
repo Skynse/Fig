@@ -2,6 +2,9 @@
 
 Fig is an open-source non-linear video editor built with C# and Avalonia. It is designed around a single idea: professional editing should not be locked behind paywalls or painfully slow exports.
 
+![assets/preview.png](assets/preview.png)
+
+
 This is an early-stage project. The core engine (timeline, media pipeline, and playback) is being built first, with the interface growing around it.
 
 ## Status
@@ -58,8 +61,8 @@ tests/
 ## Goals
 
 - [ ] Free video transitions. A core pain point of other editors is that most transitions are pay-to-use.
-- [ ] Fast export. Rendering should be measured in seconds, not minutes.
-- [ ] A clean, intuitive interface that stays out of the way.
+- [ ] Fast export. Rendering should take a few seconds to a few minutes for short projects.
+- [ ] A clean, intuitive interface that's easy to navigate. This is where capcut was attractive.
 - [ ] Smart editing aids: automatic cuts when voice is not detected, and AI transcription.
 
 ## Contributing

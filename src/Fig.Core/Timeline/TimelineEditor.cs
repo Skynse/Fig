@@ -87,24 +87,90 @@ namespace Fig.Core.Timeline
 
         /// <summary>
         /// Adds a media asset to the timeline as a clip. If the asset has audio, a linked
-        /// audio clip is created on an audio track (created if needed) and grouped with the
+        /// audio clip is created on a free audio track (created if needed) and grouped with the
         /// video clip so they move/resize/cut/delete together.
+        /// Returns null only when the drop would overlap an existing clip on the targeted
+        /// track of the matching kind. Linked audio never silently fails: if the first audio
+        /// track is busy, another free one is used (or created).
         /// </summary>
-        public Clip AddMediaLinked(MediaAsset asset, string videoTrackId, double startSec)
+        public Clip? AddMediaLinked(MediaAsset asset, string targetTrackId, double startSec)
         {
-            var videoTrack = FindTrack(videoTrackId)
-                ?? throw new InvalidOperationException($"Track '{videoTrackId}' not found");
+            var target = FindTrack(targetTrackId)
+                ?? throw new InvalidOperationException($"Track '{targetTrackId}' not found");
 
             var clip = CreateClipFromAsset(asset);
             clip.StartSec = FrameMath.SnapToFrame(startSec, Document.Rate);
             ClipFactory.SetSourceRange(clip, 0, asset.DurationSec);
+
+            var desiredKind = asset.Kind == MediaKind.Audio ? TrackKind.Audio : TrackKind.Video;
+
+            // drop on a matching-kind track: honor that target and reject on overlap.
+            // drop on the wrong kind (e.g. video onto an audio lane): place on a free
+            // matching track instead of inserting the wrong clip type.
+            Track placeTrack;
+            if (target.Kind == desiredKind)
+            {
+                if (WouldOverlap(target.Id, clip.StartSec, clip.DurSec))
+                    return null;
+                placeTrack = target;
+            }
+            else
+            {
+                placeTrack = FindFreeTrack(desiredKind, clip, current: null)!;
+            }
 
             if (asset.HasAudio && asset.Kind == MediaKind.Video)
             {
                 var groupId = Guid.NewGuid().ToString("N");
                 clip.LinkGroupId = groupId;
 
-                var audioTrack = EnsureTrack(TrackKind.Audio);
+                var audioClip = new AudioClip
+                {
+                    SourceId = asset.Id,
+                    StartSec = clip.StartSec,
+                    DurSec = clip.DurSec,
+                    SrcInSec = 0,
+                    SrcOutSec = asset.DurationSec,
+                    LinkGroupId = groupId,
+                };
+                // never reject just because A1 is busy — reuse a free audio lane or make one.
+                // this is what broke re-drops onto empty V2/A2 after deleting a second clip.
+                var audioTrack = FindFreeTrack(TrackKind.Audio, audioClip, current: null)!;
+                InsertClip(audioTrack, audioClip);
+            }
+
+            InsertClip(placeTrack, clip);
+            RaiseChanged();
+            return clip;
+        }
+
+        /// <summary>
+        /// Adds a media asset to a brand-new video track (and a brand-new audio track with a
+        /// linked audio clip, when the asset has audio). Used when dropping into empty space so
+        /// the new clips get their own track pair instead of sharing the track above.
+        /// </summary>
+        public Clip AddMediaNewTracks(MediaAsset asset, double startSec)
+        {
+            var clip = CreateClipFromAsset(asset);
+            clip.StartSec = FrameMath.SnapToFrame(startSec, Document.Rate);
+            ClipFactory.SetSourceRange(clip, 0, asset.DurationSec);
+
+            if (asset.Kind == MediaKind.Audio)
+            {
+                var audioTrack = AddTrack(TrackKind.Audio);
+                InsertClip(audioTrack, clip);
+                RaiseChanged();
+                return clip;
+            }
+
+            var videoTrack = AddTrack(TrackKind.Video);
+
+            if (asset.HasAudio)
+            {
+                var groupId = Guid.NewGuid().ToString("N");
+                clip.LinkGroupId = groupId;
+
+                var audioTrack = AddTrack(TrackKind.Audio);
                 var audioClip = new AudioClip
                 {
                     SourceId = asset.Id,
@@ -151,6 +217,120 @@ namespace Fig.Core.Timeline
             var track = FindTrackForClip(clip);
             InsertClip(track, clip);
             RaiseChanged();
+        }
+
+        /// <summary>
+        /// Moves a clip (and its linked partner) onto the track under the cursor, keeping the
+        /// same timeline position. The primary clip goes to <paramref name="targetTrackId"/>;
+        /// each linked member goes to a track of its own kind (video→video, audio→audio), creating
+        /// one if none is free. Refuses if the move would overlap any clip. Returns true on success.
+        /// </summary>
+        public bool MoveClipToTrack(string clipId, string targetTrackId)
+        {
+            var clip = FindClip(clipId);
+            if (clip is null)
+                return false;
+            var target = FindTrack(targetTrackId);
+            if (target is null)
+                return false;
+
+            // the primary clip must be placed on a track of matching kind
+            var clipKind = clip.Kind == ClipKind.Audio ? TrackKind.Audio : TrackKind.Video;
+            if (target.Kind != clipKind)
+                return false;
+
+            var group = LinkGroup(clipId);
+
+            // compute each member's target track (same kind), skipping ones already there
+            var destinations = new List<(Clip Member, Track Target)>();
+            foreach (var member in group)
+            {
+                var memberKind = member.Kind == ClipKind.Audio ? TrackKind.Audio : TrackKind.Video;
+                var current = FindClipTrack(member.Id);
+                var targetForMember = member.Id == clip.Id ? target : FindFreeTrack(memberKind, member, current);
+
+                if (targetForMember is null || (current is not null && current.Id == targetForMember.Id))
+                    continue;
+
+                destinations.Add((member, targetForMember));
+            }
+
+            // overlap check on every destination
+            foreach (var (member, dest) in destinations)
+            {
+                if (WouldOverlap(dest.Id, member.StartSec, member.DurSec, member.Id))
+                    return false;
+            }
+
+            foreach (var (member, dest) in destinations)
+            {
+                var current = FindClipTrack(member.Id);
+                current?.Clips.Remove(member);
+                InsertClip(dest, member);
+            }
+
+            RaiseChanged();
+            return true;
+        }
+
+        /// <summary>Finds a track of <paramref name="kind"/> where <paramref name="clip"/> fits without overlap, else null.</summary>
+        private Track? FindFreeTrack(TrackKind kind, Clip clip, Track? current)
+        {
+            foreach (var track in Document.Tracks)
+            {
+                if (track.Kind != kind)
+                    continue;
+                if (current is not null && track.Id == current.Id)
+                    continue;
+                if (WouldOverlap(track.Id, clip.StartSec, clip.DurSec, clip.Id))
+                    continue;
+                return track;
+            }
+            // no free track of this kind -> create one
+            return AddTrack(kind);
+        }
+
+        /// <summary>True when placing a clip of <paramref name="durSec"/> at <paramref name="startSec"/> on a track would overlap another clip.</summary>
+        public bool WouldOverlap(string trackId, double startSec, double durSec, string? excludeClipId = null)
+        {
+            var track = FindTrack(trackId);
+            if (track is null)
+                return false;
+            var end = startSec + durSec;
+            foreach (var clip in track.Clips)
+            {
+                if (excludeClipId is not null && clip.Id == excludeClipId)
+                    continue;
+                if (clip.StartSec < end && clip.StartSec + clip.DurSec > startSec)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Returns the id of the track holding <paramref name="clipId"/>, or null.</summary>
+        public string? FindClipTrackId(string clipId)
+        {
+            return FindClipTrack(clipId)?.Id;
+        }
+
+        /// <summary>
+        /// True when moving a link group to <paramref name="startSec"/> on <paramref name="trackId"/>
+        /// would overlap a clip outside the group. Assumes all group members share the same start.
+        /// </summary>
+        public bool WouldOverlapGroup(string trackId, IReadOnlyCollection<string> groupIds, double startSec, double durSec)
+        {
+            var track = FindTrack(trackId);
+            if (track is null)
+                return false;
+            var end = startSec + durSec;
+            foreach (var clip in track.Clips)
+            {
+                if (groupIds.Contains(clip.Id))
+                    continue;
+                if (clip.StartSec < end && clip.StartSec + clip.DurSec > startSec)
+                    return true;
+            }
+            return false;
         }
 
         public void RippleInsert(string trackId, Clip clip, double posSec)
@@ -228,6 +408,66 @@ namespace Fig.Core.Timeline
         public double SnapTime(double sec)
         {
             return FrameMath.SnapToFrame(sec, Document.Rate);
+        }
+
+        /// <summary>
+        /// When enabled, drag/drop positions also snap to nearby clip boundaries
+        /// (magnetic snapping) in addition to the frame grid.
+        /// </summary>
+        public bool MagneticSnap { get; set; }
+
+        /// <summary>Snap threshold in seconds; scales with how zoomed in you are is overkill, fixed value is fine.</summary>
+        public const double MagneticSnapWindowSec = 0.25;
+
+        /// <summary>
+        /// Snaps a timeline time to the frame grid and, when magnetic snapping is on,
+        /// to the edge of any clip within the snap window.
+        /// </summary>
+        public double SnapTimeMagnetic(double sec)
+        {
+            return SnapTimeMagnetic(sec, excludeClipId: null);
+        }
+
+        /// <summary>
+        /// Snaps to the frame grid and nearby clip boundaries, ignoring the clip with
+        /// <paramref name="excludeClipId"/> (and its link group). Used when resizing so a
+        /// clip snaps to *other* clips' edges, not its own.
+        /// </summary>
+        public double SnapTimeMagnetic(double sec, string? excludeClipId)
+        {
+            var frame = SnapTime(sec);
+            if (!MagneticSnap)
+                return frame;
+
+            var excludeGroup = excludeClipId is null ? null : FindClip(excludeClipId)?.LinkGroupId;
+
+            // find the nearest clip boundary across all tracks
+            double? best = null;
+            var bestDelta = double.MaxValue;
+            foreach (var track in Document.Tracks)
+            {
+                foreach (var clip in track.Clips)
+                {
+                    if (clip.Id == excludeClipId || (excludeGroup is not null && clip.LinkGroupId == excludeGroup))
+                        continue;
+                    Consider(clip.StartSec);
+                    Consider(clip.StartSec + clip.DurSec);
+                }
+            }
+
+            // if any clip boundary is within the snap window, prefer the closest one;
+            // otherwise fall back to the frame grid
+            return best is double b ? b : frame;
+
+            void Consider(double boundary)
+            {
+                var delta = Math.Abs(boundary - sec);
+                if (delta <= MagneticSnapWindowSec && delta < bestDelta)
+                {
+                    bestDelta = delta;
+                    best = boundary;
+                }
+            }
         }
 
         public Clip? FindClipAt(string trackId, double posSec)
@@ -381,6 +621,15 @@ namespace Fig.Core.Timeline
                 else
                     track.Name = $"A{++a}";
             }
+        }
+
+        /// <summary>
+        /// Re-syncs each track's <see cref="Track.Index"/> (and name) with its position in the
+        /// list. Called on project load because Index is serialized and can be stale.
+        /// </summary>
+        public void RefreshTrackIndices()
+        {
+            ReindexTracks();
         }
 
         public Track EnsureTrack(TrackKind kind)

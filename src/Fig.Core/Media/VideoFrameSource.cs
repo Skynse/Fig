@@ -23,6 +23,7 @@ namespace Fig.Core.Media
 
         private AVFrame* _pendingFrame;
         private double _lastPresentedSec = -1;
+        private DecodedFrame? _lastFrame;
         private bool _disposed;
 
         public double LastPresentedTimeSec => _lastPresentedSec;
@@ -86,6 +87,7 @@ namespace Fig.Core.Media
                 ffmpeg.av_seek_frame(ctx, _vIdx, 0, ffmpeg.AVSEEK_FLAG_BACKWARD);
             ffmpeg.avcodec_flush_buffers(dec);
             _lastPresentedSec = -1;
+            _lastFrame = null;
         }
 
         public DecodedFrame? DecodeForward(double timeSec)
@@ -98,9 +100,11 @@ namespace Fig.Core.Media
             SwsContext* sws = null;
             try
             {
-                // keep a presented frame from the previous call if we still haven't caught up
+                // clock often asks for a time still covered by the last decoded PTS
+                // (audio updates ~20ms, video frames ~33ms). hold the last frame instead
+                // of returning null — null was composited as black and looked like jitter.
                 if (_lastPresentedSec >= 0 && timeSec <= _lastPresentedSec)
-                    return null;   // caller should seek back; don't rewind implicitly
+                    return _lastFrame;
 
                 while (true)
                 {
@@ -143,7 +147,7 @@ namespace Fig.Core.Media
                     }
 
                     if (!got)
-                        return null;   // EOF
+                        return _lastFrame;   // EOF: hold last frame (null only if nothing decoded yet)
 
                     // we have the frame; scale+convert
                     rgb = ffmpeg.av_frame_alloc();
@@ -154,7 +158,7 @@ namespace Fig.Core.Media
 
                     sws = ffmpeg.sws_getContext(_srcW, _srcH, _decCtx->pix_fmt, _outW, _outH, AVPixelFormat.AV_PIX_FMT_BGRA, SWS_BILINEAR, null, null, null);
                     if (sws == null)
-                        return null;
+                        return _lastFrame;
                     ffmpeg.sws_scale(sws, _pendingFrame->data, _pendingFrame->linesize, 0, _srcH, rgb->data, rgb->linesize);
 
                     var bytes = new byte[_outW * _outH * 4];
@@ -167,7 +171,8 @@ namespace Fig.Core.Media
                             bytes[dst + x] = src[x];
                     }
 
-                    return new DecodedFrame { Width = _outW, Height = _outH, Pixels = bytes };
+                    _lastFrame = new DecodedFrame { Width = _outW, Height = _outH, Pixels = bytes };
+                    return _lastFrame;
                 }
             }
             finally

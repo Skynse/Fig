@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="using:Fig.App.ViewModels"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="400" d:DesignHeight="300"
+             x:Class="Fig.App.Views.ToastHost"
+             x:DataType="vm:ToastViewModel"
+             IsHitTestVisible="False">
+
+    <ItemsControl ItemsSource="{Binding Toasts}"
+                  HorizontalAlignment="Right" VerticalAlignment="Top"
+                  Margin="0,16,16,0">
+        <ItemsControl.ItemTemplate>
+            <DataTemplate>
+                <Border Margin="0,0,0,8" Padding="14,10"
+                        Background="#2a2a2b" CornerRadius="6"
+                        BorderBrush="#4da3ff" BorderThickness="1"
+                        Classes.visible="{Binding Visible}">
+                    <Border.Styles>
+                        <Style Selector="Border.visible">
+                            <Setter Property="Opacity" Value="1"/>
+                        </Style>
+                    </Border.Styles>
+                    <TextBlock Text="{Binding Message}" Foreground="#eeeeee" FontSize="13"/>
+                </Border>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

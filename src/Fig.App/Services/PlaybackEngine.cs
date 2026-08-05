@@ -55,26 +55,36 @@ namespace Fig.App.Services
         private CancellationTokenSource? _cts;
         private Task? _producerTask;
 
-        private double _seekBaseSec;          // timeline time when the queue was (re)started
-        private long _baseConsumedFrames;     // frames consumed at that seek point
+        private double _seekBaseSec;          // timeline time of queue frame 0 (after Reset, Position starts at 0)
         private bool _disposed;
+        private int _positionPostPending;    // coalesce UI position posts so the dispatcher never floods
 
         public event Action<double>? PositionChanged;
 
         /// <summary>
         /// Raises <see cref="PositionChanged"/> on the UI thread. The producer loop runs on a
         /// background thread; subscribers (timeline playhead, preview) mutate Avalonia controls,
-        /// so the event must be marshaled via the dispatcher.
+        /// so the event must be marshaled via the dispatcher. Concurrent raises are coalesced
+        /// to the latest <see cref="PositionSec"/> so a slow UI never queues a backlog of
+        /// stale playhead updates (a major source of perceived jitter).
         /// </summary>
         private void RaisePositionChanged()
         {
-            var sec = PositionSec;
             if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
             {
-                PositionChanged?.Invoke(sec);
+                PositionChanged?.Invoke(PositionSec);
                 return;
             }
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => PositionChanged?.Invoke(sec));
+
+            // already a post in flight: it will read the latest PositionSec when it runs
+            if (System.Threading.Interlocked.CompareExchange(ref _positionPostPending, 1, 0) != 0)
+                return;
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                System.Threading.Interlocked.Exchange(ref _positionPostPending, 0);
+                PositionChanged?.Invoke(PositionSec);
+            }, Avalonia.Threading.DispatcherPriority.Render);
         }
 
         public PlaybackEngine(TimelineEditor editor, IMediaService media, Func<string, MediaAsset?> findAsset)
@@ -111,15 +121,15 @@ namespace Fig.App.Services
             {
                 if (_device is null)
                     return 0;
-                var consumed = _device.IsRunning ? _queue.Position : (int)_baseConsumedFrames;
-                return _seekBaseSec + (consumed - _baseConsumedFrames) / 2.0 / AudioMixer.SampleRate;
+                // Position counts interleaved L/R floats, so /2 gives stereo frames
+                return _seekBaseSec + _queue.Position / (2.0 * AudioMixer.SampleRate);
             }
         }
 
         public void Seek(double timelineSec)
         {
+            // Reset() zeroes Position, so the base becomes the exact seek target
             _seekBaseSec = Math.Max(0, timelineSec);
-            _baseConsumedFrames = _queue.Position;
             _queue.Reset();
             RaisePositionChanged();
         }
@@ -131,7 +141,6 @@ namespace Fig.App.Services
                 return;
 
             _queue.Reset();
-            _baseConsumedFrames = 0;
             _device.Start();
             IsPlaying = true;
 
@@ -141,23 +150,17 @@ namespace Fig.App.Services
 
         public void Pause()
         {
-            // need to ensure that when we pause, then play, we don't restart.
-            // fix: don't drop position when pausing
             if (!IsPlaying)
                 return;
 
-            // compute position before the pause, then overwrite seekBaseSec
-            // divide by 2 * the sample rate so that we don't skip ahead by twice the time
-            _seekBaseSec += (_queue.Position - _baseConsumedFrames) / (2.0 * (double)AudioMixer.SampleRate);
-
-            // reset consumed base to 0, then drain the queue to reset the buffer
-            _baseConsumedFrames = _queue.Position;
+            // freeze the position: advance the base by however much the device has consumed
+            _seekBaseSec += _queue.Position / (2.0 * AudioMixer.SampleRate);
             _queue.Reset();
 
             IsPlaying = false;
             _cts?.Cancel();
             _device?.Stop();
-            _baseConsumedFrames = _queue.Position;
+            RaisePositionChanged();
         }
 
         /// <summary>Decode+mix ahead of the device until cancelled or the timeline ends.</summary>

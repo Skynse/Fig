@@ -56,6 +56,7 @@ namespace Fig.Core.Project
                     Name = project.Name,
                     UpdatedAt = project.UpdatedAt,
                     MediaCount = project.Media.Count,
+                    Thumbnail = project.Thumbnail,
                 });
             }
             return summaries.OrderByDescending(s => s.UpdatedAt).ToList();
@@ -98,5 +99,6 @@ namespace Fig.Core.Project
         public string Name { get; set; } = "";
         public DateTime UpdatedAt { get; set; }
         public int MediaCount { get; set; }
+        public string? Thumbnail { get; set; }
     }
 }

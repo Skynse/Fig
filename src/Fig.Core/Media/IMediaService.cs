@@ -21,6 +21,9 @@ namespace Fig.Core.Media
         /// <summary>Decodes the video frame closest to <paramref name="timeSec"/> and returns BGRA pixels.</summary>
         DecodedFrame? DecodeFrameAt(string sourcePath, double timeSec, int width, int height);
 
+        /// <summary>Decodes the frame at <paramref name="timeSec"/> and writes it as a JPEG to <paramref name="outputPath"/>.</summary>
+        void SaveFrameAsJpeg(string sourcePath, double timeSec, string outputPath, int width = 320);
+
         /// <summary>
         /// Opens a persistent sequential video decoder. It decodes forward from the last
         /// position so playback does not seek on every frame; call <see cref="IVideoFrameSource.Seek"/>
@@ -50,7 +53,12 @@ namespace Fig.Core.Media
     /// </summary>
     public interface IVideoFrameSource : IDisposable
     {
-        /// <summary>Decodes frames until one at/after <paramref name="timeSec"/> is ready, returning BGRA pixels.</summary>
+        /// <summary>
+        /// Decodes frames until one at/after <paramref name="timeSec"/> is ready, returning BGRA pixels.
+        /// When the request is still covered by the last decoded PTS, returns that held frame
+        /// (never null solely because the clock hasn't advanced to the next frame).
+        /// Returns null only when nothing has been decoded yet (e.g. past EOF on a fresh source).
+        /// </summary>
         DecodedFrame? DecodeForward(double timeSec);
 
         /// <summary>Random-access seek (used when scrubbing backwards or jumping).</summary>

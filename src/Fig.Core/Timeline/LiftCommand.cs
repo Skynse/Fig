@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Fig.Core.Timeline
 {
@@ -7,11 +9,9 @@ namespace Fig.Core.Timeline
         private readonly TimelineEditor _editor;
         private readonly string _clipId;
 
-        private Clip? _clip;
-        private Track? _track;
-        private int _index;
+        private readonly List<(Clip Clip, Track Track, int Index)> _removed = new();
 
-        public string Description => $"Lift clip {_clipId}";
+        public string Description => $"Lift linked group of {_clipId}";
 
         public LiftCommand(TimelineEditor editor, string clipId)
         {
@@ -21,26 +21,33 @@ namespace Fig.Core.Timeline
 
         public void Execute()
         {
-            _clip = _editor.FindClip(_clipId)
-                    ?? throw new InvalidOperationException($"Clip '{_clipId}' not found");
-            _track = _editor.FindClipTrack(_clipId)!;
-            _index = _track.Clips.IndexOf(_clip);
-            _track.Clips.RemoveAt(_index);
+            // lift the whole link group so a deleted video clip doesn't leave its audio orphaned
+            var group = _editor.LinkGroup(_clipId);
+            if (group.Count == 0)
+                throw new InvalidOperationException($"Clip '{_clipId}' not found");
+
+            _removed.Clear();
+            foreach (var clip in group)
+            {
+                var track = _editor.FindClipTrack(clip.Id)!;
+                _removed.Add((clip, track, track.Clips.IndexOf(clip)));
+            }
+            foreach (var (clip, track, _) in _removed)
+                track.Clips.Remove(clip);
         }
 
         public void Undo()
         {
-            if (_clip is null || _track is null)
-                return;
-            _track.Clips.Insert(Math.Min(_index, _track.Clips.Count), _clip);
+            foreach (var (clip, track, index) in _removed)
+                track.Clips.Insert(Math.Min(index, track.Clips.Count), clip);
         }
 
         public void Redo()
         {
-            if (_clip is null || _track is null)
-                return;
-            if (!_track.Clips.Contains(_clip))
-                _track.Clips.Insert(Math.Min(_index, _track.Clips.Count), _clip);
+            // re-remove in descending index order so restored positions stay valid
+            foreach (var (clip, track, index) in _removed.OrderByDescending(r => r.Index))
+                if (track.Clips.Contains(clip))
+                    track.Clips.Remove(clip);
         }
     }
 }

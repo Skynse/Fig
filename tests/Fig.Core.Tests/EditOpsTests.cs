@@ -384,3 +384,89 @@ public class QueryHelpersTests
         Assert.Equal(0.9667, editor.SnapTime(0.97), 3);  // 29.1 -> frame 29
     }
 }
+
+public class MagneticSnapTests
+{
+    [Fact]
+    public void SnapTimeMagnetic_SnapsToNearbyClipBoundary()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = true;
+        // clip at 0-5, so its end boundary is at 5
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 5));
+
+        // 5.1 is within the snap window (0.25s) of the boundary at 5
+        var snapped = editor.SnapTimeMagnetic(5.1);
+
+        Assert.Equal(5.0, snapped);
+    }
+
+    [Fact]
+    public void SnapTimeMagnetic_Off_OnlySnapsToFrameGrid()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = false;
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 5));
+
+        var snapped = editor.SnapTimeMagnetic(5.1);
+
+        Assert.Equal(5.1, snapped);
+    }
+
+    [Fact]
+    public void SnapTimeMagnetic_IgnoresBoundariesOutsideWindow()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = true;
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 5));
+
+        // 5.5 is too far from the 5 boundary; frame grid keeps it as-is
+        var snapped = editor.SnapTimeMagnetic(5.5);
+
+        Assert.Equal(5.5, snapped);
+    }
+}
+
+public class MagneticSnapResizeTests
+{
+    [Fact]
+    public void SnapTimeMagnetic_ExcludeClip_IgnoresOwnEdges()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = true;
+        // clip "a" spans 0-10; its own end boundary is at 10
+        var a = TimelineFixtures.Video("a", 0, 10);
+        editor.AddClip(track.Id, a);
+
+        // 9.9 would snap to a's own end (10) if not excluded; excluded it stays frame-gridged
+        var snapped = editor.SnapTimeMagnetic(9.9, "a");
+        Assert.Equal(9.9, snapped);
+    }
+
+    [Fact]
+    public void SnapTimeMagnetic_ExcludeClip_SnapsToOtherClipEdges()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = true;
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 5));
+        // clip "b" at 8-12 -> boundary at 8
+        editor.AddClip(track.Id, TimelineFixtures.Video("b", 8, 4));
+
+        // resizing a's end near 8 should snap to b's start
+        var snapped = editor.SnapTimeMagnetic(7.9, "a");
+        Assert.Equal(8.0, snapped);
+    }
+
+    [Fact]
+    public void SnapTimeMagnetic_ResizeStart_SnapsToFrameGrid_WhenNoNearClip()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.MagneticSnap = true;
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 2, 5));
+        editor.AddClip(track.Id, TimelineFixtures.Video("b", 10, 3));
+
+        // 0.03 has no clip boundary nearby, so it snaps to the frame grid (30fps -> 0.0333)
+        var snapped = editor.SnapTimeMagnetic(0.03, "a");
+        Assert.Equal(0.033333333333333333, snapped, 4);
+    }
+}

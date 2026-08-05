@@ -257,4 +257,34 @@ public class VideoFrameSourceTests
         var nearEnd = source.DecodeForward(probe.DurationSec + 1.0);
         Assert.Null(nearEnd);
     }
+
+    [Fact]
+    public void DecodeForward_WithinLastFramePts_HoldsFrame()
+    {
+        // audio clock asks for times still covered by the last decoded PTS; returning null
+        // used to flash black between video frames
+        using var source = new MediaService().OpenVideoSource(AssetPath, 320, 180);
+
+        var first = source.DecodeForward(0.1);
+        Assert.NotNull(first);
+        var heldPts = source.LastPresentedTimeSec;
+
+        var held = source.DecodeForward(heldPts - 0.001);
+        Assert.NotNull(held);
+        Assert.Same(first, held);
+        Assert.Equal(heldPts, source.LastPresentedTimeSec);
+    }
+
+    [Fact]
+    public void DecodeForward_PastEof_AfterFrames_HoldsLast()
+    {
+        var probe = new MediaService().Probe(AssetPath);
+        using var source = new MediaService().OpenVideoSource(AssetPath, 320, 180);
+
+        Assert.NotNull(source.DecodeForward(1.0));
+
+        var held = source.DecodeForward(probe.DurationSec + 1.0);
+        Assert.NotNull(held);
+        Assert.True(source.LastPresentedTimeSec >= 1.0);
+    }
 }

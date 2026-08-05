@@ -114,6 +114,7 @@ public class ProjectManagerTests
         var (manager, project, _) = Create();
 
         var asset = manager.ImportMedia(AssetPath).Asset!;
+        manager.FinalizeMediaArtifacts(asset);
 
         Assert.Equal(MediaKind.Video, asset.Kind);
         Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
@@ -214,6 +215,7 @@ public class ProjectManagerTests
 
         var result = manager.ImportMedia(AssetPath);
         var asset = result.Asset!;
+        manager.FinalizeMediaArtifacts(asset);
 
         Assert.True(asset.HasAudio, "test asset should have audio");
         Assert.NotNull(asset.WaveformPeaks);
@@ -285,5 +287,69 @@ public class SaveServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"fig_missing_{Guid.NewGuid():N}.figproj");
         var save = new SaveService(path);
         Assert.Null(save.Load());
+    }
+}
+
+public class ProjectThumbnailTests
+{
+    private const string AssetPath = "/home/neckles/projects/fig/tests/assets/3 seconds timer [fxqE27gIZcc].webm";
+
+    private static (ProjectManager Manager, ProjectModel Project) CreateWithTimeline()
+    {
+        var project = ProjectModel.Create("thumb");
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var track = new Track { Kind = TrackKind.Video, Index = 0, Name = "V1" };
+        timeline.Tracks.Add(track);
+        project.Timelines.Add(timeline);
+        var cache = Path.Combine(Path.GetTempPath(), $"fig_thumb_{Guid.NewGuid():N}");
+        return (new ProjectManager(project, new MediaService(), cache), project);
+    }
+
+    [Fact]
+    public void UpdateProjectThumbnail_GeneratesJpeg_FromFirstVisibleClip()
+    {
+        var (manager, project) = CreateWithTimeline();
+        var timeline = project.Timelines[0];
+        var track = timeline.Tracks[0];
+
+        var asset = manager.ImportMedia(AssetPath).Asset!;
+        track.Clips.Add(new VideoClip { SourceId = asset.Id, StartSec = 0, DurSec = 3, SrcInSec = 0, SrcOutSec = 3 });
+
+        var ok = manager.UpdateProjectThumbnail(160);
+
+        Assert.True(ok);
+        Assert.False(string.IsNullOrEmpty(project.Thumbnail));
+        Assert.True(File.Exists(project.Thumbnail));
+        var bytes = File.ReadAllBytes(project.Thumbnail!);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
+    }
+
+    [Fact]
+    public void UpdateProjectThumbnail_EmptyTimeline_ReturnsFalse()
+    {
+        var (manager, project) = CreateWithTimeline();
+
+        var ok = manager.UpdateProjectThumbnail();
+
+        Assert.False(ok);
+        Assert.Null(project.Thumbnail);
+    }
+
+    [Fact]
+    public void UpdateProjectThumbnail_HiddenVideoTrack_ReturnsFalse()
+    {
+        var (manager, project) = CreateWithTimeline();
+        var timeline = project.Timelines[0];
+        var track = timeline.Tracks[0];
+        track.Visible = false;
+
+        var asset = manager.ImportMedia(AssetPath).Asset!;
+        track.Clips.Add(new VideoClip { SourceId = asset.Id, StartSec = 0, DurSec = 3, SrcInSec = 0, SrcOutSec = 3 });
+
+        var ok = manager.UpdateProjectThumbnail();
+
+        Assert.False(ok);
+        Assert.Null(project.Thumbnail);
     }
 }

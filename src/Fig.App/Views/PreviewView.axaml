@@ -51,8 +51,7 @@
             <Border CornerRadius="4" Background="#000000"
                     BorderBrush="#333333" BorderThickness="1"
                     ClipToBounds="True">
-                <Image Source="{Binding Frame}" Stretch="Uniform"
-                       StretchDirection="DownOnly"/>
+                <local:PreviewSurface x:Name="Surface"/>
             </Border>
         </DockPanel>
     </Border>

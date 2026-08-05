@@ -51,28 +51,55 @@ namespace Fig.Core.Project
             if (existing is not null)
                 return new ProbeResult { Asset = existing };
 
-            var thumbPath = Path.Combine(CacheDirectory, $"{asset.Hash}.jpg");
-            var stripPath = Path.Combine(CacheDirectory, $"{asset.Hash}_strip.jpg");
-            if (!File.Exists(thumbPath))
+            if (asset.Kind == MediaKind.Video)
             {
-                Directory.CreateDirectory(CacheDirectory);
-                _media.GenerateThumbnail(path, thumbPath);
+                var thumbPath = Path.Combine(CacheDirectory, $"{asset.Hash}.jpg");
+                if (!File.Exists(thumbPath))
+                {
+                    Directory.CreateDirectory(CacheDirectory);
+                    _media.GenerateThumbnail(path, thumbPath);
+                }
+                asset.Thumbnail = thumbPath;
             }
-            asset.Thumbnail = thumbPath;
-
-            if (asset.Kind == MediaKind.Video && !File.Exists(stripPath))
-            {
-                var info = _media.GenerateFilmstrip(path, stripPath);
-                ApplyFilmstripInfo(asset, info);
-            }
-            asset.Filmstrip = File.Exists(stripPath) ? stripPath : null;
-
-            if (asset.HasAudio)
-                asset.WaveformPeaks = DecodePeaks(path, asset.DurationSec);
 
             Project.Media.Add(asset);
             ProjectChanged?.Invoke();
             return new ProbeResult { Asset = asset };
+        }
+
+        /// <summary>
+        /// Generates the heavy derived artifacts (filmstrip, audio waveform peaks) for an
+        /// already-imported asset. These are slow (full decode), so callers invoke this on a
+        /// background thread after the fast import returns. Caches by file presence so it can
+        /// be called multiple times cheaply. <paramref name="onDone"/> is invoked after the
+        /// asset's previews are ready (on the calling thread).
+        /// </summary>
+        public void FinalizeMediaArtifacts(MediaAsset asset, Action<MediaAsset>? onDone = null)
+        {
+            if (string.IsNullOrEmpty(asset.Url) || !File.Exists(asset.Url))
+            {
+                asset.Offline = true;
+                return;
+            }
+
+            var stripPath = Path.Combine(CacheDirectory, $"{asset.Hash}_strip.jpg");
+            if (asset.Kind == MediaKind.Video
+                && (string.IsNullOrEmpty(asset.Filmstrip) || !File.Exists(asset.Filmstrip)))
+            {
+                if (!File.Exists(stripPath))
+                {
+                    Directory.CreateDirectory(CacheDirectory);
+                    var info = _media.GenerateFilmstrip(asset.Url, stripPath);
+                    ApplyFilmstripInfo(asset, info);
+                }
+                asset.Filmstrip = File.Exists(stripPath) ? stripPath : null;
+            }
+
+            if (asset.HasAudio && asset.WaveformPeaks is null)
+                asset.WaveformPeaks = DecodePeaks(asset.Url, asset.DurationSec);
+
+            ProjectChanged?.Invoke();
+            onDone?.Invoke(asset);
         }
 
         /// <summary>
@@ -119,6 +146,71 @@ namespace Fig.Core.Project
         public MediaAsset? FindById(string assetId)
         {
             return Project.Media.FirstOrDefault(m => m.Id == assetId);
+        }
+
+        /// <summary>
+        /// Renders the first composited frame of the timeline (topmost visible video clip at
+        /// the earliest covered position) to a JPEG and stores its path on
+        /// <see cref="Project.Thumbnail"/>. Returns false when there is nothing to show.
+        /// </summary>
+        public bool UpdateProjectThumbnail(int width = 320)
+        {
+            var timeline = Project.Timelines.FirstOrDefault();
+            if (timeline is null)
+                return false;
+
+            // find the earliest timeline time covered by a visible video clip
+            double? earliest = null;
+            foreach (var track in timeline.Tracks)
+            {
+                if (track.Kind != Timeline.TrackKind.Video || !track.Visible)
+                    continue;
+                foreach (var clip in track.Clips)
+                {
+                    if (clip is not Timeline.VideoClip vc)
+                        continue;
+                    if (earliest is null || clip.StartSec < earliest)
+                        earliest = clip.StartSec;
+                }
+            }
+
+            if (earliest is null)
+                return false;
+
+            // topmost visible clip at that time wins (painters algorithm)
+            for (var i = timeline.Tracks.Count - 1; i >= 0; i--)
+            {
+                var track = timeline.Tracks[i];
+                if (track.Kind != Timeline.TrackKind.Video || !track.Visible)
+                    continue;
+
+                var clip = track.Clips.LastOrDefault(c =>
+                    c is Timeline.VideoClip vc
+                    && earliest >= c.StartSec
+                    && earliest < c.StartSec + c.DurSec);
+                if (clip is not Timeline.VideoClip top)
+                    continue;
+
+                var asset = Project.Media.FirstOrDefault(m => m.Id == top.SourceId);
+                if (asset is null || string.IsNullOrEmpty(asset.Url) || asset.Offline)
+                    continue;
+
+                var srcTime = top.SrcInSec + (earliest.Value - clip.StartSec) * top.Speed;
+                var thumbPath = Path.Combine(CacheDirectory, "project-thumb.jpg");
+                try
+                {
+                    Directory.CreateDirectory(CacheDirectory);
+                    _media.SaveFrameAsJpeg(asset.Url, srcTime, thumbPath, width);
+                    Project.Thumbnail = thumbPath;
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            return false;
         }
 
         private static void ApplyFilmstripInfo(MediaAsset asset, FilmstripInfo info)

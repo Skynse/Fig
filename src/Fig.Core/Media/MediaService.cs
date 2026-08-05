@@ -518,6 +518,124 @@ namespace Fig.Core.Media
             return new VideoFrameSource(sourcePath, width, height);
         }
 
+        public unsafe void SaveFrameAsJpeg(string sourcePath, double timeSec, string outputPath, int width = 320)
+        {
+            var (srcW, srcH) = ProbeDimensions(sourcePath);
+            if (srcW <= 0 || srcH <= 0)
+                throw new InvalidOperationException("Could not determine source dimensions");
+            var height = Math.Max(1, (int)Math.Round(srcH * (width / (double)srcW)));
+            var decoded = DecodeFrameAt(sourcePath, timeSec, width, height);
+            if (decoded is null)
+                throw new InvalidOperationException("Could not decode frame");
+            EncodeBgraAsJpeg(decoded, outputPath);
+        }
+
+        private static unsafe void EncodeBgraAsJpeg(DecodedFrame frame, string outputPath)
+        {
+            AVCodecContext* encCtx = null;
+            AVFrame* yuv = null;
+            AVFrame* bgra = null;
+            SwsContext* sws = null;
+            try
+            {
+                var w = frame.Width;
+                var h = frame.Height;
+
+                // wrap the BGRA bytes in a frame
+                bgra = ffmpeg.av_frame_alloc();
+                bgra->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
+                bgra->width = w;
+                bgra->height = h;
+                ThrowIfError(ffmpeg.av_frame_get_buffer(bgra, 32), "av_frame_get_buffer");
+                var linesize = bgra->linesize[0];
+                for (var y = 0; y < h; y++)
+                {
+                    var src = y * w * 4;
+                    var dst = bgra->data[0] + y * linesize;
+                    for (var x = 0; x < w * 4; x++)
+                        dst[x] = frame.Pixels[src + x];
+                }
+
+                var enc = ffmpeg.avcodec_find_encoder(AVCodecID.AV_CODEC_ID_MJPEG);
+                if (enc == null)
+                    throw new InvalidOperationException("No mjpeg encoder found");
+                encCtx = ffmpeg.avcodec_alloc_context3(enc);
+                encCtx->width = w;
+                encCtx->height = h;
+                encCtx->pix_fmt = AVPixelFormat.AV_PIX_FMT_YUV420P;
+                encCtx->color_range = AVColorRange.AVCOL_RANGE_JPEG;
+                encCtx->time_base = new AVRational { num = 1, den = 30 };
+                encCtx->qmin = 3;
+                encCtx->qmax = 5;
+                ThrowIfError(ffmpeg.avcodec_open2(encCtx, enc, null), "avcodec_open2");
+
+                yuv = ffmpeg.av_frame_alloc();
+                yuv->format = (int)AVPixelFormat.AV_PIX_FMT_YUV420P;
+                yuv->color_range = AVColorRange.AVCOL_RANGE_JPEG;
+                yuv->width = w;
+                yuv->height = h;
+                ThrowIfError(ffmpeg.av_frame_get_buffer(yuv, 32), "av_frame_get_buffer");
+
+                sws = ffmpeg.sws_getContext(w, h, AVPixelFormat.AV_PIX_FMT_BGRA, w, h, AVPixelFormat.AV_PIX_FMT_YUV420P, SWS_BILINEAR, null, null, null);
+                if (sws == null)
+                    return;
+                ffmpeg.sws_scale(sws, bgra->data, bgra->linesize, 0, h, yuv->data, yuv->linesize);
+
+                yuv->pts = 0;
+                ThrowIfError(ffmpeg.avcodec_send_frame(encCtx, yuv), "avcodec_send_frame");
+
+                var outPkt = ffmpeg.av_packet_alloc();
+                try
+                {
+                    while (ffmpeg.avcodec_receive_packet(encCtx, outPkt) == 0)
+                    {
+                        using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
+                        fs.Write(new ReadOnlySpan<byte>(outPkt->data, outPkt->size));
+                    }
+                }
+                finally
+                {
+                    ffmpeg.av_packet_free(&outPkt);
+                }
+            }
+            finally
+            {
+                if (sws != null) ffmpeg.sws_freeContext(sws);
+                if (yuv != null) ffmpeg.av_frame_free(&yuv);
+                if (bgra != null) ffmpeg.av_frame_free(&bgra);
+                if (encCtx != null)
+                {
+                    var p = encCtx;
+                    ffmpeg.avcodec_free_context(&p);
+                }
+            }
+        }
+
+        private static unsafe (int Width, int Height) ProbeDimensions(string sourcePath)
+        {
+            AVFormatContext* inCtx = null;
+            try
+            {
+                var pIn = inCtx;
+                ffmpeg.avformat_open_input(&pIn, sourcePath, null, null);
+                inCtx = pIn;
+                ffmpeg.avformat_find_stream_info(inCtx, null);
+                var vIdx = ffmpeg.av_find_best_stream(inCtx, AVMediaType.AVMEDIA_TYPE_VIDEO, -1, -1, null, 0);
+                if (vIdx < 0)
+                    return (0, 0);
+                var par = inCtx->streams[vIdx]->codecpar;
+                return (par->width, par->height);
+            }
+            finally
+            {
+                if (inCtx != null)
+                {
+                    var p = inCtx;
+                    ffmpeg.avformat_close_input(&p);
+                }
+            }
+        }
+
         public unsafe float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000)
         {
             AVFormatContext* inCtx = null;

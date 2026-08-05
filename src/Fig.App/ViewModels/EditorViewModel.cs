@@ -12,6 +12,23 @@ using TimelineModel = Fig.Core.Timeline.Timeline;
 
 namespace Fig.App.ViewModels;
 
+/// <summary>A single video layer to composite, ordered topmost-first.</summary>
+public sealed class PreviewLayer
+{
+    public string SourcePath { get; }
+    public double TimeSec { get; }
+    public double Opacity { get; }
+    public Fig.Core.Timeline.VideoClip Clip { get; }
+
+    public PreviewLayer(string sourcePath, double timeSec, double opacity, Fig.Core.Timeline.VideoClip clip)
+    {
+        SourcePath = sourcePath;
+        TimeSec = timeSec;
+        Opacity = opacity;
+        Clip = clip;
+    }
+}
+
 public partial class EditorViewModel : ViewModelBase
 {
     public GestureRegistry Gestures { get; }
@@ -24,6 +41,7 @@ public partial class EditorViewModel : ViewModelBase
     private readonly MediaService _mediaService = new();
 
     public event Action<PlaybackEngine?>? PlaybackAssigned;
+    public Action<string>? Notify { get; set; }
 
     public IReadOnlyDictionary<string, MediaAsset> MediaById =>
         Media.ToDictionary(m => m.Id);
@@ -40,6 +58,18 @@ public partial class EditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isPlaying;
 
+    [ObservableProperty]
+    private bool _magneticSnap = true;
+
+    [ObservableProperty]
+    private bool _isDirty;
+
+    partial void OnMagneticSnapChanged(bool value)
+    {
+        if (Editor is not null)
+            Editor.MagneticSnap = value;
+    }
+
     private ProjectStore? _store;
     private System.Threading.CancellationTokenSource? _autosaveCts;
     private readonly object _autosaveLock = new();
@@ -48,7 +78,7 @@ public partial class EditorViewModel : ViewModelBase
     {
         Gestures = gestures;
         Editor = CreateSeededEditor();
-        Preview = new PreviewViewModel(_mediaService, ResolvePreviewSource);
+        Preview = new PreviewViewModel(_mediaService, ResolvePreviewLayers);
         Preview.AttachEditor(this);
         Media.CollectionChanged += (_, _) =>
         {
@@ -63,6 +93,7 @@ public partial class EditorViewModel : ViewModelBase
 
     private void OnEditorTimelineChanged()
     {
+        IsDirty = true;
         OnPropertyChanged(nameof(SequenceEndSec));
     }
 
@@ -97,17 +128,20 @@ public partial class EditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Finds the topmost visible video clip at a timeline time so the preview can
-    /// decode its frame. Returns null when nothing should be shown (no clip, hidden
-    /// track, or offline source).
+    /// Collects every visible video clip covering a timeline time, ordered topmost-first
+    /// (the last track drawn on top), so the compositor can layer them painters-style.
+    /// Returns an empty list when nothing is shown.
     /// </summary>
-    private (string SourcePath, double TimeSec)? ResolvePreviewSource(double timeSec)
+    private IReadOnlyList<PreviewLayer> ResolvePreviewLayers(double timeSec)
     {
+        var layers = new List<PreviewLayer>();
         if (Editor is null || MediaById.Count == 0)
-            return null;
+            return layers;
 
         var document = Editor.Document;
-        for (var i = document.Tracks.Count - 1; i >= 0; i--)
+        // tracks are ordered top-to-bottom in the list: track[0] is the top/foreground layer.
+        // walk them in that order so the top track ends up first (topmost) in the layer stack.
+        for (var i = 0; i < document.Tracks.Count; i++)
         {
             var track = document.Tracks[i];
             if (track.Kind != TrackKind.Video || !track.Visible)
@@ -121,13 +155,13 @@ public partial class EditorViewModel : ViewModelBase
                     continue;
 
                 if (!MediaById.TryGetValue(vc.SourceId, out var asset) || string.IsNullOrEmpty(asset.Url) || asset.Offline)
-                    return null;
+                    continue;
 
                 var srcTime = vc.SrcInSec + (timeSec - clip.StartSec) * vc.Speed;
-                return (asset.Url, srcTime);
+                layers.Add(new PreviewLayer(asset.Url, srcTime, vc.Opacity, vc));
             }
         }
-        return null;
+        return layers;
     }
 
     private void ScheduleAutosave()
@@ -182,6 +216,8 @@ public partial class EditorViewModel : ViewModelBase
         Editor.TimelineChanged -= OnEditorTimelineChanged;
         Editor.TimelineChanged -= ScheduleAutosave;
         Editor = new TimelineEditor(project.Timelines[0]);
+        Editor.MagneticSnap = MagneticSnap;
+        Editor.RefreshTrackIndices();
         Editor.TimelineChanged += OnEditorTimelineChanged;
         Editor.TimelineChanged += ScheduleAutosave;
         OnPropertyChanged(nameof(Editor));
@@ -202,6 +238,18 @@ public partial class EditorViewModel : ViewModelBase
         Preview.AttachPlayback(Playback);
         OnPropertyChanged(nameof(Playback));
         PlaybackAssigned?.Invoke(Playback);
+    }
+
+    /// <summary>Stops playback and frees the device when leaving the editor (e.g. closing the project).</summary>
+    public void DisposePlayback()
+    {
+        if (Playback is not null)
+            Playback.PositionChanged -= OnPlaybackPositionChanged;
+        Playback?.Dispose();
+        Playback = null;
+        Preview.AttachPlayback(null);
+        PlaybackAssigned?.Invoke(null);
+        OnPropertyChanged(nameof(Playback));
     }
 
     private void OnPlaybackPositionChanged(double sec) => NotifyPlaybackPosition(sec);
@@ -243,7 +291,12 @@ public partial class EditorViewModel : ViewModelBase
             {
                 new FilePickerFileType("Media")
                 {
-                    Patterns = new[] { "*.mp4", "*.webm", "*.mov", "*.mkv", "*.avi", "*.png", "*.jpg" },
+                    Patterns = new[]
+                    {
+                        "*.mp4", "*.webm", "*.mov", "*.mkv", "*.avi", "*.m4v",
+                        "*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a", "*.aac", "*.wma",
+                        "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.webp",
+                    },
                 },
             },
         });
@@ -254,11 +307,23 @@ public partial class EditorViewModel : ViewModelBase
             if (path is null)
                 continue;
 
+            // fast: probe + thumbnail so the card appears immediately
             var result = ProjectManager.ImportMedia(path);
             if (result.Asset is not null)
             {
                 if (!Media.Contains(result.Asset))
                     Media.Add(result.Asset);
+
+                // slow: filmstrip + waveform peaks on a background thread; previews pop in when done
+                var asset = result.Asset;
+                _ = System.Threading.Tasks.Task.Run(() => ProjectManager.FinalizeMediaArtifacts(asset, _ =>
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        OnPropertyChanged(nameof(MediaById));
+                        Editor.NotifyMediaChanged();
+                    });
+                }));
             }
             else
             {
@@ -270,7 +335,36 @@ public partial class EditorViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void Save() => _store?.SaveProject(Project!);
+    private void Save() => SaveWithThumbnail();
+
+    /// <summary>Public entry point used by the close-project dialog and other callers.</summary>
+    public void SaveNow() => SaveWithThumbnail();
+
+    private void SaveWithThumbnail()
+    {
+        if (_store is null || Project is null)
+            return;
+        var manager = ProjectManager;
+        var project = Project;
+        var name = project.Name;
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            // render the first composited frame as the project card thumbnail
+            try
+            {
+                manager?.UpdateProjectThumbnail();
+            }
+            catch
+            {
+            }
+            lock (_autosaveLock)
+            {
+                _store?.SaveProject(project);
+            }
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsDirty = false);
+            Notify?.Invoke($"Saved \"{name}\"");
+        });
+    }
 
     [RelayCommand]
     private async Task SaveAsAsync(Window? owner)
@@ -295,12 +389,24 @@ public partial class EditorViewModel : ViewModelBase
         if (path is null)
             return;
 
+        try
+        {
+            ProjectManager?.UpdateProjectThumbnail();
+        }
+        catch
+        {
+        }
         new SaveService(path).Save(Project!);
         _store?.SaveProject(Project!);
+        IsDirty = false;
+        Notify?.Invoke($"Saved \"{Project.Name}\"");
     }
 
     [RelayCommand]
     private void Undo() => Editor.Undo();
+
+    [RelayCommand]
+    private void ToggleMagneticSnap() => MagneticSnap = !MagneticSnap;
 
     [RelayCommand]
     private void Redo() => Editor.Redo();
