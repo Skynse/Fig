@@ -148,7 +148,7 @@ namespace Fig.App.Services
 
             // compute position before the pause, then overwrite seekBaseSec
             // divide by 2 * the sample rate so that we don't skip ahead by twice the time
-            _seekBaseSec + (_queue.Position - _baseConsumedFrames) / (2.0 * SampleRate)
+            _seekBaseSec + (_queue.Position - _baseConsumedFrames) / (2.0 * SampleRate);
 
             // reset consumed base to 0, then drain the queue to reset the buffer
             _baseConsumedFrames = _queue.Position;
