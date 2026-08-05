@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace Fig.Core.Media
 {
@@ -18,8 +20,13 @@ namespace Fig.Core.Media
         Image
     }
 
-    public class MediaAsset
+    public class MediaAsset : INotifyPropertyChanged
     {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private void Notify([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
         public string Id { get; set; } = Guid.NewGuid().ToString();
         public MediaKind Kind { get; set; } = MediaKind.Video;
         public string Url { get; set; } = "";
@@ -42,13 +49,57 @@ namespace Fig.Core.Media
         /// </summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public float[]? WaveformPeaks { get; set; }
-        public string? ProxyUrl { get; set; }
-        public ProxyStatus ProxyStatus { get; set; } = ProxyStatus.None;
+
+        private string? _proxyUrl;
+        public string? ProxyUrl
+        {
+            get => _proxyUrl;
+            set
+            {
+                if (_proxyUrl == value)
+                    return;
+                _proxyUrl = value;
+                Notify();
+                Notify(nameof(HasProxy));
+                Notify(nameof(PlaybackVideoPath));
+            }
+        }
+
+        private ProxyStatus _proxyStatus = ProxyStatus.None;
+        public ProxyStatus ProxyStatus
+        {
+            get => _proxyStatus;
+            set
+            {
+                if (_proxyStatus == value)
+                    return;
+                _proxyStatus = value;
+                Notify();
+                Notify(nameof(HasProxy));
+                Notify(nameof(PlaybackVideoPath));
+            }
+        }
+
         public bool Offline { get; set; }
         public List<string> Tags { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonIgnore]
         public string FileName => Path.GetFileName(Url);
+
+        /// <summary>True when a usable playback proxy file is ready.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool HasProxy =>
+            ProxyStatus == ProxyStatus.Ready
+            && !string.IsNullOrEmpty(ProxyUrl)
+            && File.Exists(ProxyUrl);
+
+        /// <summary>
+        /// Path to use for preview video decode: the proxy when ready, otherwise the original.
+        /// Audio and derived artifacts (filmstrip/peaks) always use <see cref="Url"/>.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string PlaybackVideoPath =>
+            HasProxy ? ProxyUrl! : Url;
     }
 
     public enum CacheKind

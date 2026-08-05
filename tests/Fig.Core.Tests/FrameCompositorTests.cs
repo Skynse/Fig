@@ -128,4 +128,42 @@ public class FrameCompositorTests
 
         Assert.Equal(255, result.Pixels[0]);
     }
+
+    [Fact]
+    public void Compose_Crop_ScalesInnerRegionToCanvas()
+    {
+        // 4x4: left half red, right half blue (visual coords, bottom-up storage)
+        var w = 4;
+        var h = 4;
+        var px = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+        for (var x = 0; x < w; x++)
+        {
+            var visualY = h - 1 - y;
+            var i = (visualY * w + x) * 4;
+            if (x < 2)
+            {
+                px[i] = 0; px[i + 1] = 0; px[i + 2] = 255; px[i + 3] = 255; // red
+            }
+            else
+            {
+                px[i] = 255; px[i + 1] = 0; px[i + 2] = 0; px[i + 3] = 255; // blue
+            }
+        }
+        var frame = new DecodedFrame { Width = w, Height = h, Pixels = px };
+
+        // crop to right half only → entire canvas should be blue
+        var result = FrameCompositor.Compose(new[]
+        {
+            new CompositeLayer
+            {
+                Frame = frame,
+                Opacity = 1,
+                Crop = new RectI(2, 0, 2, 4),
+            },
+        }, w, h);
+
+        Assert.Equal(255, result.Pixels[0]); // B
+        Assert.Equal(0, result.Pixels[2]);   // R
+    }
 }

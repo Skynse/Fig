@@ -23,8 +23,35 @@ namespace Fig.Core.Timeline
             command.Execute();
             _undo.Push(command);
             _redo.Clear();
-            if (_undo.Count > MaxDepth)
-                _undo.Pop();
+            TrimToMaxDepth();
+        }
+
+        /// <summary>
+        /// Like <see cref="Execute"/>, but if the top undo entry can coalesce with
+        /// <paramref name="command"/>, merges into it instead of pushing a new step.
+        /// Used for scrubbing continuous properties (opacity, crop, volume).
+        /// </summary>
+        public void ExecuteCoalescing(ICoalescingEditCommand command)
+        {
+            if (_undo.Count > 0 && _undo.Peek() is ICoalescingEditCommand prev && prev.CanCoalesceWith(command))
+            {
+                prev.CoalesceFrom(command);
+                _redo.Clear();
+                return;
+            }
+
+            Execute(command);
+        }
+
+        private void TrimToMaxDepth()
+        {
+            if (_undo.Count <= MaxDepth)
+                return;
+            // drop oldest: rebuild without the bottom entry
+            var keep = _undo.ToArray(); // top-first
+            _undo.Clear();
+            for (var i = Math.Min(keep.Length, MaxDepth) - 1; i >= 0; i--)
+                _undo.Push(keep[i]);
         }
 
         public bool Undo()

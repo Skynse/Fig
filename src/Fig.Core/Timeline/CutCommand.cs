@@ -23,6 +23,8 @@ namespace Fig.Core.Timeline
         private int _secondIndex;
 
         private double _snapStart, _snapDur, _snapSrcIn, _snapSrcOut;
+        private double _snapFadeIn, _snapFadeOut;
+        private TransitionRef? _snapTransitionIn, _snapTransitionOut;
 
         public string Description => $"Cut clip {_clipId} at {_atSec}s";
 
@@ -50,6 +52,10 @@ namespace Fig.Core.Timeline
             _snapDur = _first.DurSec;
             _snapSrcIn = _first.SourceIn;
             _snapSrcOut = _first.SourceOut;
+            _snapFadeIn = _first.FadeInSec;
+            _snapFadeOut = _first.FadeOutSec;
+            _snapTransitionIn = _first.TransitionIn?.Clone();
+            _snapTransitionOut = _first.TransitionOut?.Clone();
 
             _second = Split(_first, offset);
 
@@ -69,6 +75,10 @@ namespace Fig.Core.Timeline
             _first.StartSec = _snapStart;
             _first.DurSec = _snapDur;
             SetSourceRange(_first, _snapSrcIn, _snapSrcOut);
+            _first.FadeInSec = _snapFadeIn;
+            _first.FadeOutSec = _snapFadeOut;
+            _first.TransitionIn = _snapTransitionIn?.Clone();
+            _first.TransitionOut = _snapTransitionOut?.Clone();
         }
 
         public void Redo()
@@ -93,50 +103,27 @@ namespace Fig.Core.Timeline
         {
             clip.DurSec = offset;
             SetSourceRange(clip, clip.SourceIn, clip.SourceIn + offset * clip.Speed);
+            clip.FadeInSec = _snapFadeIn;
+            ClipFade.ApplySplitLeft(clip);
+            // left keeps transition-in; clears transition-out (cut breaks the out edge)
+            clip.TransitionIn = _snapTransitionIn?.Clone();
+            clip.TransitionOut = null;
         }
 
         private Clip CloneSecondHalf(Clip first, double offset)
         {
-            Clip result = first.Kind switch
-            {
-                ClipKind.Video => new VideoClip
-                {
-                    SourceId = ((VideoClip)first).SourceId,
-                    SrcInSec = _snapSrcIn + offset * first.Speed,
-                    SrcOutSec = _snapSrcOut,
-                    StartSec = first.StartSec + offset,
-                    DurSec = _snapDur - offset,
-                    Speed = first.Speed,
-                    Volume = first.Volume,
-                    Opacity = first.Opacity,
-                },
-                ClipKind.Audio => new AudioClip
-                {
-                    SourceId = ((AudioClip)first).SourceId,
-                    SrcInSec = _snapSrcIn + offset * first.Speed,
-                    SrcOutSec = _snapSrcOut,
-                    StartSec = first.StartSec + offset,
-                    DurSec = _snapDur - offset,
-                    Speed = first.Speed,
-                    Volume = first.Volume,
-                    Opacity = first.Opacity,
-                },
-                ClipKind.Text => new TextClip
-                {
-                    Text = ((TextClip)first).Text,
-                    Font = ((TextClip)first).Font,
-                    Size = ((TextClip)first).Size,
-                    Color = ((TextClip)first).Color,
-                    StartSec = first.StartSec + offset,
-                    DurSec = _snapDur - offset,
-                    Speed = first.Speed,
-                    Volume = first.Volume,
-                    Opacity = first.Opacity,
-                },
-                _ => throw new NotSupportedException($"Unsupported clip kind '{first.Kind}'")
-            };
-            // break the link: the right half gets a fresh group id (or none if unlinked),
-            // so the two halves no longer drag together
+            // Prefer ClipFactory so effects / crops stay in lockstep, then fix range + fades.
+            var result = ClipFactory.Clone(first);
+            result.StartSec = first.StartSec + offset;
+            result.DurSec = _snapDur - offset;
+            result.FadeInSec = 0;
+            result.FadeOutSec = _snapFadeOut;
+            ClipFactory.SetSourceRange(result, _snapSrcIn + offset * first.Speed, _snapSrcOut);
+            ClipFade.ApplySplitRight(result);
+            // right keeps transition-out; clears transition-in
+            result.TransitionIn = null;
+            result.TransitionOut = _snapTransitionOut?.Clone();
+            // break the link: the right half gets a fresh group id (or none if unlinked)
             result.LinkGroupId = _secondGroupId;
             return result;
         }

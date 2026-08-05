@@ -14,11 +14,17 @@ namespace Fig.Core.Timeline
                     SourceId = ((VideoClip)source).SourceId,
                     SrcInSec = ((VideoClip)source).SrcInSec,
                     SrcOutSec = ((VideoClip)source).SrcOutSec,
+                    CropL = ((VideoClip)source).CropL,
+                    CropT = ((VideoClip)source).CropT,
+                    CropR = ((VideoClip)source).CropR,
+                    CropB = ((VideoClip)source).CropB,
                     StartSec = source.StartSec,
                     DurSec = source.DurSec,
                     Speed = source.Speed,
                     Volume = source.Volume,
                     Opacity = source.Opacity,
+                    FadeInSec = source.FadeInSec,
+                    FadeOutSec = source.FadeOutSec,
                 },
                 ClipKind.Audio => new AudioClip
                 {
@@ -30,6 +36,8 @@ namespace Fig.Core.Timeline
                     Speed = source.Speed,
                     Volume = source.Volume,
                     Opacity = source.Opacity,
+                    FadeInSec = source.FadeInSec,
+                    FadeOutSec = source.FadeOutSec,
                 },
                 ClipKind.Text => new TextClip
                 {
@@ -42,11 +50,24 @@ namespace Fig.Core.Timeline
                     Speed = source.Speed,
                     Volume = source.Volume,
                     Opacity = source.Opacity,
+                    FadeInSec = source.FadeInSec,
+                    FadeOutSec = source.FadeOutSec,
                 },
                 _ => throw new NotSupportedException($"Unsupported clip kind '{source.Kind}'")
             };
             clone.LinkGroupId = source.LinkGroupId;
+            clone.Effects = CloneEffects(source.Effects);
+            clone.TransitionIn = source.TransitionIn?.Clone();
+            clone.TransitionOut = source.TransitionOut?.Clone();
             return clone;
+        }
+
+        private static List<EffectInstance> CloneEffects(List<EffectInstance> source)
+        {
+            var list = new List<EffectInstance>(source.Count);
+            foreach (var e in source)
+                list.Add(e.Clone());
+            return list;
         }
 
         public static Clip CloneWithRange(Clip source, double startSec, double durSec, double srcInSec, double srcOutSec)

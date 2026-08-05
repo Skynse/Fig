@@ -1,0 +1,37 @@
+@startuml
+' Sequence: drop a transition from library onto a cut
+
+actor User
+participant "Transitions catalog" as Cat
+participant TimelineView
+participant TimelineEditor
+participant Clip
+participant EditorViewModel
+participant TransitionResolver
+participant FrameCompositor
+
+User -> Cat : drag CrossDissolve
+User -> TimelineView : drop on cut between A and B
+activate TimelineView
+TimelineView -> TimelineEditor : SetTransitionOut(A, CrossDissolve, 0.5s)\nSetTransitionIn(B, CrossDissolve, 0.5s)
+activate TimelineEditor
+TimelineEditor -> Clip : A.transitionOut = ref
+TimelineEditor -> Clip : B.transitionIn = ref
+note right
+  Also nudge overlap window:
+  extend A out / B in by duration/2
+  (or require user overlap).
+  Persist via project JSON.
+end note
+deactivate TimelineEditor
+TimelineView -> TimelineView : draw transition badge on cut
+deactivate TimelineView
+
+... scrub into transition window ...
+
+EditorViewModel -> TransitionResolver : FindActive(timeSec)
+TransitionResolver --> EditorViewModel : ActiveTransition(A, B, t01)
+EditorViewModel -> FrameCompositor : blended layer (single)
+FrameCompositor --> EditorViewModel : frame
+
+@enduml

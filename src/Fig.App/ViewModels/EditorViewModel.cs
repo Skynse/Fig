@@ -12,6 +12,23 @@ using TimelineModel = Fig.Core.Timeline.Timeline;
 
 namespace Fig.App.ViewModels;
 
+/// <summary>Left-rail sections in the editor library panel.</summary>
+public enum LibraryPanelTab
+{
+    Media,
+    Transitions,
+    Effects,
+}
+
+/// <summary>One vertical library tab (icon + label).</summary>
+public sealed record LibraryTabItem(LibraryPanelTab Tab, string Icon, string Title);
+
+/// <summary>
+/// One surviving clip that shifted on the timeline. Draw at
+/// <c>StartSec + FromOffsetSec</c> and animate the offset to zero.
+/// </summary>
+public readonly record struct RippleSlideDelta(string ClipId, double FromOffsetSec);
+
 /// <summary>A single video layer to composite, ordered topmost-first.</summary>
 public sealed class PreviewLayer
 {
@@ -37,6 +54,7 @@ public partial class EditorViewModel : ViewModelBase
     public ProjectManager? ProjectManager { get; private set; }
     public TimelineEditor Editor { get; private set; }
     public PreviewViewModel Preview { get; }
+    public PropertiesViewModel Properties { get; }
     public PlaybackEngine? Playback { get; private set; }
     private readonly MediaService _mediaService = new();
 
@@ -48,6 +66,9 @@ public partial class EditorViewModel : ViewModelBase
 
     [ObservableProperty]
     private System.Collections.ObjectModel.ObservableCollection<MediaAsset> _media = new();
+
+    [ObservableProperty]
+    private MediaAsset? _selectedMedia;
 
     [ObservableProperty]
     private string? _lastImportError;
@@ -64,6 +85,29 @@ public partial class EditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isDirty;
 
+    /// <summary>Vertical library rail: Media, Transitions, Effects.</summary>
+    public IReadOnlyList<LibraryTabItem> LibraryTabs { get; } =
+    [
+        new(LibraryPanelTab.Media, "film", "Media"),
+        new(LibraryPanelTab.Transitions, "blend", "Transitions"),
+        new(LibraryPanelTab.Effects, "wand-sparkles", "Effects"),
+    ];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsLibraryMedia))]
+    [NotifyPropertyChangedFor(nameof(IsLibraryTransitions))]
+    [NotifyPropertyChangedFor(nameof(IsLibraryEffects))]
+    [NotifyPropertyChangedFor(nameof(LibraryPanelTitle))]
+    private LibraryTabItem? _selectedLibraryTab;
+
+    public bool IsLibraryMedia => SelectedLibraryTab?.Tab == LibraryPanelTab.Media;
+    public bool IsLibraryTransitions => SelectedLibraryTab?.Tab == LibraryPanelTab.Transitions;
+    public bool IsLibraryEffects => SelectedLibraryTab?.Tab == LibraryPanelTab.Effects;
+    public string LibraryPanelTitle => SelectedLibraryTab?.Title ?? "Media";
+
+    public IReadOnlyList<EffectCatalogEntry> EffectCatalogItems => EffectCatalog.All;
+    public IReadOnlyList<TransitionCatalogEntry> TransitionCatalogItems => TransitionCatalog.All;
+
     partial void OnMagneticSnapChanged(bool value)
     {
         if (Editor is not null)
@@ -77,24 +121,83 @@ public partial class EditorViewModel : ViewModelBase
     public EditorViewModel(GestureRegistry gestures)
     {
         Gestures = gestures;
+        SelectedLibraryTab = LibraryTabs[0];
         Editor = CreateSeededEditor();
         Preview = new PreviewViewModel(_mediaService, ResolvePreviewLayers);
         Preview.AttachEditor(this);
+        Properties = new PropertiesViewModel(this);
         Media.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(MediaById));
             OnPropertyChanged(nameof(Media));
             OnPropertyChanged(nameof(SequenceEndSec));
+            Properties.Refresh();
         };
-        Editor.TimelineChanged += OnEditorTimelineChanged;
-        Editor.TimelineChanged += ScheduleAutosave;
+        WireEditorEvents(Editor);
         InitializePlaybackForCurrentEditor();
+        Properties.Refresh();
+    }
+
+    private void WireEditorEvents(TimelineEditor editor)
+    {
+        editor.TimelineChanged += OnEditorTimelineChanged;
+        editor.TimelineChanged += ScheduleAutosave;
+        editor.Selection.Changed += OnSelectionChanged;
+    }
+
+    private void UnwireEditorEvents(TimelineEditor editor)
+    {
+        editor.TimelineChanged -= OnEditorTimelineChanged;
+        editor.TimelineChanged -= ScheduleAutosave;
+        editor.Selection.Changed -= OnSelectionChanged;
+    }
+
+    private bool _syncingSelection;
+
+    private void OnSelectionChanged()
+    {
+        if (_syncingSelection)
+            return;
+        if (Editor.Selection.Count > 0 || Editor.Selection.ActiveTrackId is not null)
+        {
+            _syncingSelection = true;
+            SelectedMedia = null;
+            _syncingSelection = false;
+        }
+        Properties.Refresh();
     }
 
     private void OnEditorTimelineChanged()
     {
         IsDirty = true;
         OnPropertyChanged(nameof(SequenceEndSec));
+        Properties.Refresh();
+        // property edits (opacity/crop) need an immediate preview redraw
+        if (!IsPlaying)
+            Preview.RefreshFrame();
+    }
+
+    partial void OnSelectedMediaChanged(MediaAsset? value)
+    {
+        if (!_syncingSelection
+            && value is not null
+            && (Editor.Selection.Count > 0 || Editor.Selection.ActiveTrackId is not null))
+        {
+            _syncingSelection = true;
+            Editor.Selection.Clear();
+            _syncingSelection = false;
+        }
+        Properties.Refresh();
+    }
+
+    /// <summary>Called when derived media artifacts (proxy/filmstrip) change so UI can refresh.</summary>
+    public void NotifyMediaArtifactsChanged()
+    {
+        OnPropertyChanged(nameof(MediaById));
+        Editor.NotifyMediaChanged();
+        Properties.Refresh();
+        if (Project is not null)
+            _store?.SaveProject(Project);
     }
 
     public double SequenceEndSec
@@ -139,8 +242,7 @@ public partial class EditorViewModel : ViewModelBase
             return layers;
 
         var document = Editor.Document;
-        // tracks are ordered top-to-bottom in the list: track[0] is the top/foreground layer.
-        // walk them in that order so the top track ends up first (topmost) in the layer stack.
+
         for (var i = 0; i < document.Tracks.Count; i++)
         {
             var track = document.Tracks[i];
@@ -158,10 +260,56 @@ public partial class EditorViewModel : ViewModelBase
                     continue;
 
                 var srcTime = vc.SrcInSec + (timeSec - clip.StartSec) * vc.Speed;
-                layers.Add(new PreviewLayer(asset.Url, srcTime, vc.Opacity, vc));
+                var localT = timeSec - clip.StartSec;
+                var opacity = ClipFade.EffectiveOpacity(vc, localT);
+                layers.Add(new PreviewLayer(asset.PlaybackVideoPath, srcTime, opacity, vc));
             }
         }
         return layers;
+    }
+
+    [RelayCommand]
+    private void ApplyEffectFromCatalog(EffectCatalogEntry? entry)
+    {
+        if (entry is null || Editor is null)
+            return;
+        var clipId = Editor.Selection.SelectedClipIds.FirstOrDefault();
+        if (clipId is null)
+        {
+            Notify?.Invoke("Select a clip to apply an effect");
+            return;
+        }
+        var clip = Editor.Document.Tracks.SelectMany(t => t.Clips).FirstOrDefault(c => c.Id == clipId);
+        if (clip is not VideoClip)
+        {
+            Notify?.Invoke("Effects apply to video clips");
+            return;
+        }
+        Editor.AddEffect(clipId, entry.CreateInstance());
+        Preview.RefreshFrame();
+        Properties.Refresh();
+        Notify?.Invoke($"Added {entry.DisplayName}");
+    }
+
+    [RelayCommand]
+    private void ApplyTransitionFromCatalog(TransitionCatalogEntry? entry)
+    {
+        if (entry is null || Editor is null)
+            return;
+        var clipId = Editor.Selection.SelectedClipIds.FirstOrDefault();
+        if (clipId is null)
+        {
+            Notify?.Invoke("Select the outgoing clip at a cut");
+            return;
+        }
+        if (!Editor.TryApplyTransitionFromSelection(clipId, entry.CreateRef()))
+        {
+            Notify?.Invoke("Could not apply transition");
+            return;
+        }
+        Preview.RefreshFrame();
+        Properties.Refresh();
+        Notify?.Invoke($"Applied {entry.DisplayName}");
     }
 
     private void ScheduleAutosave()
@@ -213,19 +361,19 @@ public partial class EditorViewModel : ViewModelBase
         if (project.Timelines.Count == 0)
             project.Timelines.Add(new TimelineModel { Rate = FrameRate.Common(30) });
 
-        Editor.TimelineChanged -= OnEditorTimelineChanged;
-        Editor.TimelineChanged -= ScheduleAutosave;
+        UnwireEditorEvents(Editor);
         Editor = new TimelineEditor(project.Timelines[0]);
         Editor.MagneticSnap = MagneticSnap;
         Editor.RefreshTrackIndices();
-        Editor.TimelineChanged += OnEditorTimelineChanged;
-        Editor.TimelineChanged += ScheduleAutosave;
+        WireEditorEvents(Editor);
         OnPropertyChanged(nameof(Editor));
         OnPropertyChanged(nameof(SequenceEndSec));
         OnPropertyChanged(nameof(FrameDurationSec));
 
+        SelectedMedia = null;
         InitializePlaybackForCurrentEditor();
         SeekFromUser(0);
+        Properties.Refresh();
     }
 
     private void InitializePlaybackForCurrentEditor()
@@ -277,6 +425,42 @@ public partial class EditorViewModel : ViewModelBase
         return report;
     }
 
+    /// <summary>
+    /// Generates missing filmstrips / waveforms on a background thread so project open
+    /// and import stay responsive. Safe to call repeatedly.
+    /// </summary>
+    public async Task BackfillMediaPreviewsAsync()
+    {
+        var manager = ProjectManager;
+        if (manager is null)
+            return;
+
+        var pending = Media.Where(ProjectManager.NeedsPreviewBackfill).ToList();
+        if (pending.Count == 0)
+            return;
+
+        await Task.Run(() =>
+        {
+            foreach (var asset in pending)
+            {
+                try
+                {
+                    manager.FinalizeMediaArtifacts(asset);
+                }
+                catch
+                {
+                    // leave the asset without previews; timeline still works
+                }
+            }
+        });
+
+        // proxy paths may have changed — reopen decoders on next frame
+        Preview.InvalidateSources();
+        NotifyMediaArtifactsChanged();
+        if (Project is not null)
+            _store?.SaveProject(Project);
+    }
+
     [RelayCommand]
     private async Task ImportAsync(Window? owner)
     {
@@ -314,14 +498,14 @@ public partial class EditorViewModel : ViewModelBase
                 if (!Media.Contains(result.Asset))
                     Media.Add(result.Asset);
 
-                // slow: filmstrip + waveform peaks on a background thread; previews pop in when done
+                // slow: filmstrip + waveform + proxy on a background thread; previews pop in when done
                 var asset = result.Asset;
                 _ = System.Threading.Tasks.Task.Run(() => ProjectManager.FinalizeMediaArtifacts(asset, _ =>
                 {
                     Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                     {
-                        OnPropertyChanged(nameof(MediaById));
-                        Editor.NotifyMediaChanged();
+                        Preview.InvalidateSources();
+                        NotifyMediaArtifactsChanged();
                     });
                 }));
             }
@@ -389,6 +573,16 @@ public partial class EditorViewModel : ViewModelBase
         if (path is null)
             return;
 
+        // treat Save As as also renaming the project to the chosen file stem
+        var stem = System.IO.Path.GetFileNameWithoutExtension(path);
+        if (stem.EndsWith(".fig", StringComparison.OrdinalIgnoreCase))
+            stem = System.IO.Path.GetFileNameWithoutExtension(stem);
+        if (!string.IsNullOrWhiteSpace(stem))
+        {
+            Project.Name = stem.Trim();
+            OnPropertyChanged(nameof(Project));
+        }
+
         try
         {
             ProjectManager?.UpdateProjectThumbnail();
@@ -402,30 +596,87 @@ public partial class EditorViewModel : ViewModelBase
         Notify?.Invoke($"Saved \"{Project.Name}\"");
     }
 
+    /// <summary>
+    /// Raised after an edit that slid surviving clips (ripple delete, and undo/redo of such).
+    /// <see cref="RippleSlideDelta.FromOffsetSec"/> is oldStart − newStart so the view can
+    /// draw at <c>StartSec + offset</c> and lerp offset → 0.
+    /// </summary>
+    public event Action<IReadOnlyList<RippleSlideDelta>>? RippleSlideStarted;
+
     [RelayCommand]
-    private void Undo() => Editor.Undo();
+    private void Undo() => RunWithRippleSlide(() => Editor.Undo());
 
     [RelayCommand]
     private void ToggleMagneticSnap() => MagneticSnap = !MagneticSnap;
 
     [RelayCommand]
-    private void Redo() => Editor.Redo();
+    private void Redo() => RunWithRippleSlide(() => Editor.Redo());
 
     [RelayCommand]
     private void SplitAtPlayhead()
     {
-        var track = Editor.Document.Tracks.FirstOrDefault();
-        if (track is null)
+        // selection wins: only selected (+ linked) clips are cut. if nothing is selected,
+        // fall back to the active track's clip under the playhead — never every track.
+        if (Editor.Selection.Count > 0)
+        {
+            Editor.SplitAtPlayhead(PlayheadTimeSec);
             return;
-        Editor.SplitAtPlayhead(track.Id, PlayheadTimeSec);
+        }
+
+        var trackId = Editor.Selection.ActiveTrackId
+            ?? Editor.Document.Tracks.FirstOrDefault()?.Id;
+        if (trackId is null)
+            return;
+        Editor.SplitAtPlayhead(trackId, PlayheadTimeSec);
     }
 
     [RelayCommand]
     private void RippleDeleteSelected()
     {
-        var clipId = Editor.Selection.SelectedClipIds.FirstOrDefault();
-        if (clipId is not null)
-            Editor.RippleDelete(clipId);
+        // snapshot before the core mutates StartSec — only survivors that moved get deltas
+        RunWithRippleSlide(() => Editor.RippleDeleteSelected());
+    }
+
+    /// <summary>
+    /// Captures every clip start, runs <paramref name="mutate"/>, then emits slide deltas
+    /// for survivors whose start changed (matches RippleDeleteCommand's following set).
+    /// </summary>
+    private void RunWithRippleSlide(Action mutate)
+    {
+        var before = SnapshotClipStarts();
+        mutate();
+        EmitRippleSlides(before);
+    }
+
+    private Dictionary<string, double> SnapshotClipStarts()
+    {
+        var map = new Dictionary<string, double>();
+        foreach (var track in Editor.Document.Tracks)
+        {
+            foreach (var clip in track.Clips)
+                map[clip.Id] = clip.StartSec;
+        }
+        return map;
+    }
+
+    private void EmitRippleSlides(Dictionary<string, double> before)
+    {
+        var deltas = new List<RippleSlideDelta>();
+        foreach (var track in Editor.Document.Tracks)
+        {
+            foreach (var clip in track.Clips)
+            {
+                if (!before.TryGetValue(clip.Id, out var oldStart))
+                    continue;
+                var offset = oldStart - clip.StartSec;
+                if (Math.Abs(offset) < 1e-9)
+                    continue;
+                deltas.Add(new RippleSlideDelta(clip.Id, offset));
+            }
+        }
+
+        if (deltas.Count > 0)
+            RippleSlideStarted?.Invoke(deltas);
     }
 
     [RelayCommand]

@@ -55,6 +55,9 @@ public partial class AppViewModel : ViewModelBase
 
         CurrentView = Editor;
 
+        // heavy previews (filmstrip / waveform) backfill in the background so open never hangs
+        _ = Editor.BackfillMediaPreviewsAsync();
+
         // the editor needs room to breathe; maximize when we enter it
         var window = MainWindow;
         if (window is not null)

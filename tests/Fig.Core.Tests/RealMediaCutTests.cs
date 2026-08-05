@@ -199,18 +199,38 @@ public class DecodeSamplesTests
     }
 
     [Fact]
-    public void DecodeSamples_MidClip_ReturnsContent_AndTruncatesAtEnd()
+    public void DecodeSamples_MidClip_ReturnsContent_AndPadsAtEnd()
     {
         var media = new MediaService();
         var probe = media.Probe(AssetPath);
 
-        // request past the end of the file -> returns what's available
-        var tail = media.DecodeSamples(AssetPath, probe.DurationSec - 0.2, 1.0, 48000);
-        Assert.True(tail.Length > 0, "expected samples near the end");
+        // this asset is a timer with sparse beeps — sample a whole-second where audio exists
+        var mid = media.DecodeSamples(AssetPath, 1.0, 0.25, 48000);
+        Assert.Equal((int)(48000 * 0.25 * 2), mid.Length);
+        Assert.Contains(mid, s => Math.Abs(s) > 0.001f);
 
-        // request from the middle -> full chunk
-        var mid = media.DecodeSamples(AssetPath, 1.5, 0.25, 48000);
-        Assert.Equal((int)(48000 * 0.25 * 2), mid.Length);    }
+        // request past the end of the file -> full buffer (silence-padded after EOF)
+        var tail = media.DecodeSamples(AssetPath, Math.Max(0, probe.DurationSec - 0.5), 1.0, 48000);
+        Assert.Equal((int)(48000 * 1.0 * 2), tail.Length);
+    }
+
+    [Fact]
+    public void AudioSampleSource_ContiguousReads_DoNotReseek()
+    {
+        using var source = new MediaService().OpenAudioSource(AssetPath, 48000);
+
+        var a = source.Read(0.0, 0.1);
+        var next = source.NextTimeSec;
+        var b = source.Read(next, 0.1);
+
+        Assert.Equal((int)(48000 * 0.1 * 2), a.Length);
+        Assert.Equal((int)(48000 * 0.1 * 2), b.Length);
+        Assert.True(Math.Abs(source.NextTimeSec - (next + 0.1)) < 0.01,
+            $"expected ~{next + 0.1}, got {source.NextTimeSec}");
+        Assert.Contains(a, s => Math.Abs(s) > 0.001f);
+        // second window may be quiet on this timer asset; just require exact sizing + forward progress
+        Assert.True(source.NextTimeSec > next);
+    }
 }
 
 public class VideoFrameSourceTests

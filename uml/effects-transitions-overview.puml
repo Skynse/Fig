@@ -1,0 +1,74 @@
+@startuml
+' Component boundaries for effects / transitions
+
+rectangle App as app {
+  component "Library rail\n(Media | Transitions | Effects)" as rail
+  component "Effects catalog UI\n(stub → list + drag)" as fxUi
+  component "Transitions catalog UI\n(stub → list + drop on cut)" as txUi
+  component "Properties panel\n(effect params / transition dur)" as props
+  component "EditorViewModel\nResolvePreviewLayers" as evm
+  component "TimelineView\ncut badges / effect chips" as tl
+}
+
+rectangle "Fig.Core.Timeline" as timeline {
+  component "Clip +\nEffectInstance[]\nTransitionRef in/out" as clip
+  component "ClipFade\n(edge opacity/volume)" as fade
+  component "Commands\nAdd/Remove/ReorderEffect\nSetTransition" as cmds
+  component "TimelineEditor" as editor
+  component "Catalog metadata\n(typeId, defaults, schema)" as catalog
+}
+
+rectangle "Fig.Core.Media" as media {
+  component "EffectRegistry +\nIEffectProcessor" as fxReg
+  component "TransitionRegistry +\nITransitionBlender" as txReg
+  component "EffectPipeline" as fxPipe
+  component "TransitionResolver" as txRes
+  component "FrameCompositor" as comp
+  component "FFmpeg decode\n(IMediaService)" as ff
+}
+
+rectangle "Fig.Core.Audio" as audio {
+  component "AudioMixer" as mix
+  component "Audio EffectPipeline\n(phase 2)" as afx
+}
+
+rail --> fxUi
+rail --> txUi
+fxUi --> catalog
+txUi --> catalog
+fxUi --> cmds : drop onto clip
+txUi --> cmds : drop onto cut
+props --> cmds
+cmds --> editor
+editor --> clip
+tl --> clip : draw badges
+
+evm --> clip
+evm --> fade
+evm --> fxPipe
+evm --> txRes
+evm --> comp
+
+fxPipe --> fxReg
+fxPipe --> ff : post-decode
+txRes --> txReg
+txRes --> ff
+comp --> fxPipe : layers already effected
+
+mix --> fade
+mix ..> afx : later
+
+note right of catalog
+  Catalog is data (JSON or code
+  constants), not FFmpeg. Processors
+  live only in Media/Audio.
+end note
+
+note bottom of clip
+  Phase 0 (now): fadeIn/Out + empty Effects bag.
+  Phase 1: typed EffectInstance + TransitionRef,
+  cross-dissolve blender, library lists.
+  Phase 2: more processors, audio FX, keyframes.
+end note
+
+@enduml

@@ -60,7 +60,11 @@ abstract class Clip {
   speed : float
   volume : float
   opacity : float
-  effects : json
+  fadeInSec : float
+  fadeOutSec : float
+  effects : EffectInstance[]
+  transitionIn : TransitionRef?
+  transitionOut : TransitionRef?
 }
 
 class VideoClip {
@@ -134,6 +138,13 @@ note right of Clip
   "$kind": "video|audio|text" on the wire.
   Cuts are non-destructive: new Clip with
   same src, new in/out. Source never mutates.
+  fadeInSec / fadeOutSec are linear envelopes
+  (opacity for video, volume for audio);
+  sum <= durSec. Drag from clip ends.
+  effects is an ordered EffectInstance stack.
+  transitionIn/Out are optional TransitionRef
+  at clip edges (library transitions); see
+  uml/effects-transitions-schema.puml.
 end note
 
 note right of Timeline

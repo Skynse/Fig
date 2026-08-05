@@ -56,6 +56,8 @@ namespace Fig.Core.Media
             for (var i = 3; i < pixels.Length; i += 4)
                 pixels[i] = 255;
 
+            byte[]? cropScratch = null;
+
             // layers are topmost-first: blend bottom-to-top so the first (topmost) layer
             // is applied last and wins over the layers below it
             for (var li = layers.Count - 1; li >= 0; li--)
@@ -69,12 +71,58 @@ namespace Fig.Core.Media
                     continue;
 
                 var src = layer.Frame.Pixels;
+                if (layer.Crop is { } crop && IsMeaningfulCrop(crop, width, height))
+                {
+                    cropScratch ??= new byte[width * height * 4];
+                    CropScaleNearest(src, width, height, crop, cropScratch);
+                    src = cropScratch;
+                }
+
                 var opacity = (byte)Math.Clamp((int)Math.Round(layer.Opacity * 255), 0, 255);
 
                 if (opacity >= 255)
                     BlendOpaque(pixels, src, width, height);
                 else
                     BlendAlpha(pixels, src, width, height, opacity);
+            }
+        }
+
+        private static bool IsMeaningfulCrop(RectI crop, int width, int height)
+        {
+            if (crop.Width <= 0 || crop.Height <= 0)
+                return false;
+            if (crop.X <= 0 && crop.Y <= 0 && crop.Width >= width && crop.Height >= height)
+                return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Scales the cropped source region into a full-size BGRA buffer (nearest-neighbor).
+        /// Source/dest are bottom-up row order.
+        /// </summary>
+        private static void CropScaleNearest(byte[] src, int width, int height, RectI crop, byte[] dst)
+        {
+            var cx = Math.Clamp(crop.X, 0, Math.Max(0, width - 1));
+            var cy = Math.Clamp(crop.Y, 0, Math.Max(0, height - 1));
+            var cw = Math.Clamp(crop.Width, 1, width - cx);
+            var ch = Math.Clamp(crop.Height, 1, height - cy);
+
+            for (var y = 0; y < height; y++)
+            {
+                var srcY = cy + y * ch / height;
+                // bottom-up: row 0 is the bottom of the image
+                var srcRow = (height - 1 - srcY) * width * 4;
+                var dstRow = (height - 1 - y) * width * 4;
+                for (var x = 0; x < width; x++)
+                {
+                    var srcX = cx + x * cw / width;
+                    var si = srcRow + srcX * 4;
+                    var di = dstRow + x * 4;
+                    dst[di] = src[si];
+                    dst[di + 1] = src[si + 1];
+                    dst[di + 2] = src[si + 2];
+                    dst[di + 3] = src[si + 3];
+                }
             }
         }
 

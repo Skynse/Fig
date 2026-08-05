@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Fig.Core.Timeline
@@ -25,7 +24,26 @@ namespace Fig.Core.Timeline
         public double Speed { get; set; } = 1.0;
         public double Volume { get; set; } = 1.0;
         public double Opacity { get; set; } = 1.0;
-        public Dictionary<string, JsonElement> Effects { get; set; } = new();
+        /// <summary>
+        /// Seconds of linear fade-in from the clip start (0 = none).
+        /// Multiplies opacity for video and volume for audio.
+        /// </summary>
+        public double FadeInSec { get; set; }
+        /// <summary>
+        /// Seconds of linear fade-out to the clip end (0 = none).
+        /// Multiplies opacity for video and volume for audio.
+        /// </summary>
+        public double FadeOutSec { get; set; }
+
+        /// <summary>Ordered filter stack (video/audio processors keyed by TypeId).</summary>
+        [JsonConverter(typeof(EffectInstanceListConverter))]
+        public List<EffectInstance> Effects { get; set; } = new();
+
+        /// <summary>Optional transition into this clip from the previous abutting clip.</summary>
+        public TransitionRef? TransitionIn { get; set; }
+
+        /// <summary>Optional transition out of this clip into the next abutting clip.</summary>
+        public TransitionRef? TransitionOut { get; set; }
 
         public virtual double SourceIn => throw new NotSupportedException($"{GetType().Name} has no source range");
         public virtual double SourceOut => throw new NotSupportedException($"{GetType().Name} has no source range");
@@ -45,8 +63,20 @@ namespace Fig.Core.Timeline
         public double SrcInSec { get; set; }
         public double SrcOutSec { get; set; }
 
+        /// <summary>Normalized crop inset from the left edge (0..1).</summary>
+        public double CropL { get; set; }
+        /// <summary>Normalized crop inset from the top edge (0..1).</summary>
+        public double CropT { get; set; }
+        /// <summary>Normalized crop inset from the right edge (0..1).</summary>
+        public double CropR { get; set; }
+        /// <summary>Normalized crop inset from the bottom edge (0..1).</summary>
+        public double CropB { get; set; }
+
         public override double SourceIn => SrcInSec;
         public override double SourceOut => SrcOutSec;
+
+        /// <summary>True when any crop inset is applied.</summary>
+        public bool HasCrop => CropL > 1e-6 || CropT > 1e-6 || CropR > 1e-6 || CropB > 1e-6;
     }
 
     public sealed class AudioClip : Clip

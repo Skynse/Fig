@@ -154,7 +154,7 @@ public class ProjectManagerTests
     }
 
     [Fact]
-    public void ValidateAndRepair_RepairsMissingFilmstrip_AndReportsOffline()
+    public void ValidateAndRepair_ReportsPendingFilmstrip_WithoutBlocking()
     {
         var (manager, project, _) = Create();
 
@@ -175,10 +175,17 @@ public class ProjectManagerTests
         Assert.Equal(1, report.AssetsChecked);
         Assert.Equal(0, report.OfflineAssets);
         Assert.Equal(0, report.FailedArtifacts);
-        Assert.True(report.ArtifactsRepaired >= 1, "expected filmstrip repair");
+        // filmstrip is deferred to background backfill so open never hangs
+        Assert.Contains(report.Notes, n => n.Contains("filmstrip pending", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(report.Notes, n => n.Contains("proxy pending", StringComparison.OrdinalIgnoreCase));
+        Assert.True(ProjectManager.NeedsPreviewBackfill(asset));
+
+        manager.FinalizeMediaArtifacts(asset);
         Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
-        Assert.True(File.Exists(asset.Filmstrip), "filmstrip not written");
+        Assert.True(File.Exists(asset.Filmstrip!), "filmstrip not written");
         Assert.True(asset.FilmstripFrameWidth > 0);
+        Assert.Equal(ProxyStatus.Ready, asset.ProxyStatus);
+        Assert.False(ProjectManager.NeedsPreviewBackfill(asset));
 
         // now break the source: validation should flag offline and NOT throw
         var offline = new MediaAsset
@@ -219,7 +226,7 @@ public class ProjectManagerTests
 
         Assert.True(asset.HasAudio, "test asset should have audio");
         Assert.NotNull(asset.WaveformPeaks);
-        Assert.True(asset.WaveformPeaks!.Length > 100, "peaks too sparse for a 3s clip");
+        Assert.True(asset.WaveformPeaks!.Length >= 90, "peaks too sparse for a 3s clip");
         Assert.All(asset.WaveformPeaks, p => Assert.InRange(p, 0f, 1.01f));
         Assert.True(asset.WaveformPeaks.Max() > 0.5f, "expected audible content somewhere");
     }

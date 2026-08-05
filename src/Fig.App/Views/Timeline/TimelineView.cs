@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -7,7 +8,9 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Fig.App.Services;
+using Fig.App.ViewModels;
 using Fig.Core.Input;
 using Fig.Core.Media;
 using Fig.Core.Timeline;
@@ -18,6 +21,12 @@ namespace Fig.App.Views
     {
         public static readonly DataFormat<MediaAsset> MediaFormat =
             DataFormat<MediaAsset>.CreateInProcessFormat<MediaAsset>("fig.media");
+
+        public static readonly DataFormat<EffectCatalogEntry> EffectFormat =
+            DataFormat<EffectCatalogEntry>.CreateInProcessFormat<EffectCatalogEntry>("fig.effect");
+
+        public static readonly DataFormat<TransitionCatalogEntry> TransitionFormat =
+            DataFormat<TransitionCatalogEntry>.CreateInProcessFormat<TransitionCatalogEntry>("fig.transition");
 
         public static readonly StyledProperty<TimelineEditor?> EditorProperty =
             AvaloniaProperty.Register<TimelineView, TimelineEditor?>(nameof(Editor));
@@ -50,6 +59,13 @@ namespace Fig.App.Views
 
         private readonly Dictionary<string, Bitmap> _filmstripCache = new();
         private double _dropTimeSec = -1;
+
+        // ripple-slide animation: draw at StartSec + offset, ease offset → 0
+        private readonly Dictionary<string, (double FromOffsetSec, long StartTimestamp)> _rippleSlides = new();
+        private DispatcherTimer? _rippleTimer;
+        private const double RippleAnimDurationMs = 220;
+
+        private EditorViewModel? _editorVm;
 
         private string? _selectedClipId
         {
@@ -120,6 +136,11 @@ namespace Fig.App.Views
         private Track? _dropPreviewTrack;
         private MediaAsset? _dropPreviewAsset;
 
+        // catalog drop targets (effect → clip, transition → cut)
+        private string? _dropEffectClipId;
+        private double _dropTransitionCutSec = -1;
+        private Track? _dropTransitionTrack;
+
         private static readonly IBrush SelectionBrush = EditorTheme.AccentBrush;
 
         private static readonly IBrush SurfaceBackground = EditorTheme.CardBrush;
@@ -174,15 +195,125 @@ namespace Fig.App.Views
                     oldEditor.TimelineChanged -= OnTimelineChanged;
                 if (change.NewValue is TimelineEditor newEditor)
                     newEditor.TimelineChanged += OnTimelineChanged;
+                // project/editor swap — drop any in-flight slide offsets
+                ClearRippleSlides();
                 InvalidateVisual();
             }
             else if (change.Property == MediaByIdProperty)
             {
                 InvalidateVisual();
             }
+            else if (change.Property == DataContextProperty)
+            {
+                BindEditorViewModel(DataContext as EditorViewModel);
+            }
+        }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+            BindEditorViewModel(DataContext as EditorViewModel);
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            BindEditorViewModel(null);
+            ClearRippleSlides();
+            base.OnDetachedFromVisualTree(e);
+        }
+
+        private void BindEditorViewModel(EditorViewModel? vm)
+        {
+            if (ReferenceEquals(_editorVm, vm))
+                return;
+            if (_editorVm is not null)
+                _editorVm.RippleSlideStarted -= OnRippleSlideStarted;
+            _editorVm = vm;
+            if (_editorVm is not null)
+                _editorVm.RippleSlideStarted += OnRippleSlideStarted;
         }
 
         private void OnTimelineChanged() => InvalidateVisual();
+
+        private void OnRippleSlideStarted(IReadOnlyList<RippleSlideDelta> deltas)
+        {
+            var now = Stopwatch.GetTimestamp();
+            foreach (var d in deltas)
+                _rippleSlides[d.ClipId] = (d.FromOffsetSec, now);
+            EnsureRippleTimer();
+            InvalidateVisual();
+        }
+
+        private void EnsureRippleTimer()
+        {
+            if (_rippleTimer is not null)
+                return;
+            _rippleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _rippleTimer.Tick += OnRippleTimerTick;
+            _rippleTimer.Start();
+        }
+
+        private void OnRippleTimerTick(object? sender, EventArgs e)
+        {
+            if (_rippleSlides.Count == 0)
+            {
+                StopRippleTimer();
+                return;
+            }
+
+            var now = Stopwatch.GetTimestamp();
+            var freq = (double)Stopwatch.Frequency;
+            List<string>? done = null;
+
+            foreach (var (id, state) in _rippleSlides)
+            {
+                var elapsedMs = (now - state.StartTimestamp) * 1000.0 / freq;
+                if (elapsedMs >= RippleAnimDurationMs)
+                    (done ??= new List<string>()).Add(id);
+            }
+
+            if (done is not null)
+            {
+                foreach (var id in done)
+                    _rippleSlides.Remove(id);
+            }
+
+            InvalidateVisual();
+
+            if (_rippleSlides.Count == 0)
+                StopRippleTimer();
+        }
+
+        private void StopRippleTimer()
+        {
+            if (_rippleTimer is null)
+                return;
+            _rippleTimer.Tick -= OnRippleTimerTick;
+            _rippleTimer.Stop();
+            _rippleTimer = null;
+        }
+
+        private void ClearRippleSlides()
+        {
+            _rippleSlides.Clear();
+            StopRippleTimer();
+        }
+
+        /// <summary>
+        /// Current draw offset in seconds for a clip (eases from FromOffset → 0).
+        /// Positive offset draws the clip to the right of its committed StartSec.
+        /// </summary>
+        private double GetRippleOffsetSec(string clipId)
+        {
+            if (!_rippleSlides.TryGetValue(clipId, out var state))
+                return 0;
+
+            var elapsedMs = (Stopwatch.GetTimestamp() - state.StartTimestamp) * 1000.0 / Stopwatch.Frequency;
+            var t = Math.Clamp(elapsedMs / RippleAnimDurationMs, 0, 1);
+            // ease-out cubic
+            var eased = 1 - Math.Pow(1 - t, 3);
+            return state.FromOffsetSec * (1 - eased);
+        }
 
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
@@ -223,62 +354,180 @@ namespace Fig.App.Views
 
         // ---- drag & drop ----
 
-        private void OnDragOver(object? sender, DragEventArgs e)
-        {
-            if (e.DataTransfer.Contains(MediaFormat) && Editor is not null)
-            {
-                e.DragEffects = DragDropEffects.Copy;
-                var pos = e.GetPosition(this);
-                _dropPreviewTime = Editor.SnapTimeMagnetic(XToTime(pos.X));
-                _dropPreviewAsset = e.DataTransfer.TryGetValue(MediaFormat);
-                _dropPreviewTrack = HitTestTrack(pos.Y);   // null = empty space -> will create new tracks on drop
-                _dropTimeSec = _dropPreviewTime;
-                InvalidateVisual();
-            }
-            else
-            {
-                e.DragEffects = DragDropEffects.None;
-            }
-        }
-
-        private void OnDragLeave(object? sender, DragEventArgs e)
+        private void ClearDropPreview()
         {
             _dropTimeSec = -1;
             _dropPreviewTime = -1;
             _dropPreviewTrack = null;
             _dropPreviewAsset = null;
+            _dropEffectClipId = null;
+            _dropTransitionCutSec = -1;
+            _dropTransitionTrack = null;
+        }
+
+        private void OnDragOver(object? sender, DragEventArgs e)
+        {
+            if (Editor is null)
+            {
+                e.DragEffects = DragDropEffects.None;
+                return;
+            }
+
+            var pos = e.GetPosition(this);
+            var time = XToTime(pos.X);
+            var track = HitTestTrack(pos.Y);
+
+            if (e.DataTransfer.Contains(MediaFormat))
+            {
+                e.DragEffects = DragDropEffects.Copy;
+                _dropPreviewTime = Editor.SnapTimeMagnetic(time);
+                _dropPreviewAsset = e.DataTransfer.TryGetValue(MediaFormat);
+                _dropPreviewTrack = track;
+                _dropTimeSec = _dropPreviewTime;
+                _dropEffectClipId = null;
+                _dropTransitionCutSec = -1;
+                _dropTransitionTrack = null;
+                InvalidateVisual();
+                return;
+            }
+
+            if (e.DataTransfer.Contains(EffectFormat))
+            {
+                _dropPreviewAsset = null;
+                _dropPreviewTrack = null;
+                _dropPreviewTime = -1;
+                _dropTimeSec = -1;
+                _dropTransitionCutSec = -1;
+                _dropTransitionTrack = null;
+
+                Clip? clip = null;
+                if (track is not null)
+                    clip = HitTestClip(track, time, pos.X);
+
+                if (clip is VideoClip)
+                {
+                    e.DragEffects = DragDropEffects.Copy;
+                    _dropEffectClipId = clip.Id;
+                }
+                else
+                {
+                    e.DragEffects = DragDropEffects.None;
+                    _dropEffectClipId = null;
+                }
+                InvalidateVisual();
+                return;
+            }
+
+            if (e.DataTransfer.Contains(TransitionFormat))
+            {
+                _dropPreviewAsset = null;
+                _dropPreviewTrack = null;
+                _dropPreviewTime = -1;
+                _dropTimeSec = -1;
+                _dropEffectClipId = null;
+
+                var cut = track is not null ? FindCutNear(track, time) : null;
+                if (cut is not null && track is not null)
+                {
+                    e.DragEffects = DragDropEffects.Copy;
+                    _dropTransitionCutSec = cut.Value.Left.StartSec + cut.Value.Left.DurSec;
+                    _dropTransitionTrack = track;
+                }
+                else
+                {
+                    e.DragEffects = DragDropEffects.None;
+                    _dropTransitionCutSec = -1;
+                    _dropTransitionTrack = null;
+                }
+                InvalidateVisual();
+                return;
+            }
+
+            e.DragEffects = DragDropEffects.None;
+        }
+
+        private void OnDragLeave(object? sender, DragEventArgs e)
+        {
+            ClearDropPreview();
             InvalidateVisual();
         }
 
         private void OnDrop(object? sender, DragEventArgs e)
         {
-            if (Editor is null || !e.DataTransfer.Contains(MediaFormat))
+            if (Editor is null)
                 return;
 
-            var asset = e.DataTransfer.TryGetValue(MediaFormat);
-            if (asset is null)
+            if (e.DataTransfer.Contains(MediaFormat))
+            {
+                var asset = e.DataTransfer.TryGetValue(MediaFormat);
+                if (asset is null)
+                    return;
+
+                var snapped = Editor.SnapTimeMagnetic(XToTime(e));
+                var dropY = e.GetPosition(this).Y;
+                var targetTrack = HitTestTrack(dropY);
+
+                if (targetTrack is not null)
+                    Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
+                else
+                    Editor.AddMediaNewTracks(asset, snapped);
+
+                ClearDropPreview();
+                InvalidateVisual();
                 return;
-
-            var snapped = Editor.SnapTimeMagnetic(XToTime(e));
-            var dropY = e.GetPosition(this).Y;
-            var targetTrack = HitTestTrack(dropY);
-
-            if (targetTrack is not null)
-            {
-                // dropping onto a track: reject if it would overlap an existing clip
-                Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
-            }
-            else
-            {
-                // empty space: create a brand-new video + audio track pair for this drop
-                Editor.AddMediaNewTracks(asset, snapped);
             }
 
-            _dropTimeSec = -1;
-            _dropPreviewTime = -1;
-            _dropPreviewTrack = null;
-            _dropPreviewAsset = null;
-            InvalidateVisual();
+            if (e.DataTransfer.Contains(EffectFormat))
+            {
+                var entry = e.DataTransfer.TryGetValue(EffectFormat);
+                var pos = e.GetPosition(this);
+                var track = HitTestTrack(pos.Y);
+                var clip = track is not null ? HitTestClip(track, XToTime(pos.X), pos.X) : null;
+                if (entry is not null && clip is VideoClip)
+                {
+                    Editor.AddEffect(clip.Id, entry.CreateInstance());
+                    Editor.Selection.SelectOnly(clip.Id);
+                }
+                ClearDropPreview();
+                InvalidateVisual();
+                return;
+            }
+
+            if (e.DataTransfer.Contains(TransitionFormat))
+            {
+                var entry = e.DataTransfer.TryGetValue(TransitionFormat);
+                var pos = e.GetPosition(this);
+                var track = HitTestTrack(pos.Y);
+                var cut = track is not null ? FindCutNear(track, XToTime(pos.X)) : null;
+                if (entry is not null && cut is not null)
+                {
+                    Editor.ApplyTransitionAtCut(cut.Value.Left.Id, cut.Value.Right.Id, entry.CreateRef());
+                    Editor.Selection.SelectOnly(cut.Value.Left.Id);
+                }
+                ClearDropPreview();
+                InvalidateVisual();
+            }
+        }
+
+        /// <summary>
+        /// Finds an abutting cut on <paramref name="track"/> near <paramref name="timeSec"/>.
+        /// Tolerance scales with zoom (~16px).
+        /// </summary>
+        private (Clip Left, Clip Right)? FindCutNear(Track track, double timeSec)
+        {
+            var tolSec = Math.Max(0.08, 16.0 / Math.Max(1, Viewport.PixelsPerSecond));
+            var clips = track.Clips.OrderBy(c => c.StartSec).ToList();
+            for (var i = 0; i < clips.Count - 1; i++)
+            {
+                var left = clips[i];
+                var right = clips[i + 1];
+                var cut = left.StartSec + left.DurSec;
+                if (Math.Abs(right.StartSec - cut) > 1e-3)
+                    continue;
+                if (Math.Abs(timeSec - cut) <= tolSec)
+                    return (left, right);
+            }
+            return null;
         }
 
         private double XToTime(double x) => Viewport.XToTime(x - TrackHeaderWidth);
@@ -373,6 +622,59 @@ namespace Fig.App.Views
             context.DrawRectangle(handleBrush, null, new Rect(x - width / 2, y + 3, width, height - 6));
         }
 
+        /// <summary>Draws diagonal opacity-ramp overlays for fade-in / fade-out durations.</summary>
+        private void DrawFadeRamps(DrawingContext context, Rect rect, Clip clip)
+        {
+            var px = Viewport.PixelsPerSecond;
+            var shade = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
+            var line = new Pen(new SolidColorBrush(Color.FromArgb(200, 0xff, 0xff, 0xff)), 1);
+
+            if (clip.FadeInSec > 1e-6)
+            {
+                var w = Math.Min(clip.FadeInSec * px, rect.Width);
+                if (w > 0.5)
+                {
+                    var geo = new StreamGeometry();
+                    using (var gc = geo.Open())
+                    {
+                        gc.BeginFigure(new Point(rect.X, rect.Bottom), true);
+                        gc.LineTo(new Point(rect.X, rect.Y));
+                        gc.LineTo(new Point(rect.X + w, rect.Y));
+                        gc.EndFigure(true);
+                    }
+                    context.DrawGeometry(shade, null, geo);
+                    context.DrawLine(line, new Point(rect.X, rect.Bottom), new Point(rect.X + w, rect.Y));
+                }
+            }
+
+            if (clip.FadeOutSec > 1e-6)
+            {
+                var w = Math.Min(clip.FadeOutSec * px, rect.Width);
+                if (w > 0.5)
+                {
+                    var geo = new StreamGeometry();
+                    using (var gc = geo.Open())
+                    {
+                        gc.BeginFigure(new Point(rect.Right, rect.Bottom), true);
+                        gc.LineTo(new Point(rect.Right, rect.Y));
+                        gc.LineTo(new Point(rect.Right - w, rect.Y));
+                        gc.EndFigure(true);
+                    }
+                    context.DrawGeometry(shade, null, geo);
+                    context.DrawLine(line, new Point(rect.Right, rect.Bottom), new Point(rect.Right - w, rect.Y));
+                }
+            }
+        }
+
+        private enum DragMode { None, Move, ResizeStart, ResizeEnd, FadeIn, FadeOut }
+
+        private DragMode _dragMode = DragMode.None;
+        private enum EdgeKind { None, Left, Right, FadeIn, FadeOut }
+        private EdgeKind _hoverEdge;
+
+        private const double TrimEdgePx = 6;
+        private const double FadeZonePx = 14;
+
         private void DrawAudioWaveform(DrawingContext context, Rect rect, AudioClip clip, MediaAsset asset)
         {
             var peaks = asset.WaveformPeaks;
@@ -393,7 +695,6 @@ namespace Fig.App.Views
 
             using (context.PushClip(rect))
             {
-                var lastX = -1.0;
                 for (var x = rect.X; x <= rect.X + rect.Width; x += 1)
                 {
                     // source time this pixel column corresponds to
@@ -408,16 +709,9 @@ namespace Fig.App.Views
                     var bottom = centerY + amp * halfH;
 
                     context.DrawLine(pen, new Point(x, top), new Point(x, bottom));
-                    lastX = x;
                 }
             }
         }
-
-        private enum DragMode { None, Move, ResizeStart, ResizeEnd }
-
-        private DragMode _dragMode = DragMode.None;
-        private enum EdgeKind { None, Left, Right }
-        private EdgeKind _hoverEdge;
 
         // header button hover: (track id, column) or null
         private (string TrackId, int Column)? _hoverHeaderButton;
@@ -654,16 +948,30 @@ namespace Fig.App.Views
                     case DragMode.ResizeEnd:
                         ApplyLiveResizeEnd(deltaTime);
                         break;
+                    case DragMode.FadeIn:
+                    {
+                        var fade = Math.Max(0, pointerTime - _dragClip.StartSec);
+                        Editor.SetFadeIn(_dragClip.Id, fade);
+                        break;
+                    }
+                    case DragMode.FadeOut:
+                    {
+                        var end = _dragClip.StartSec + _dragClip.DurSec;
+                        var fade = Math.Max(0, end - pointerTime);
+                        Editor.SetFadeOut(_dragClip.Id, fade);
+                        break;
+                    }
                 }
                 InvalidateVisual();
                 return;
             }
 
-            // idle: reflect resize affordance when hovering a clip edge
+            // idle: reflect resize / fade affordance when hovering a clip edge
             var overEdge = HoverClipEdge(pos);
             Cursor = overEdge switch
             {
-                EdgeKind.Left or EdgeKind.Right => new Cursor(StandardCursorType.SizeWestEast),
+                EdgeKind.Left or EdgeKind.Right or EdgeKind.FadeIn or EdgeKind.FadeOut
+                    => new Cursor(StandardCursorType.SizeWestEast),
                 _ => Cursor.Default,
             };
             var hoverChanged = _hoverEdge != overEdge;
@@ -814,11 +1122,10 @@ namespace Fig.App.Views
 
         private void BeginClipDrag(Clip clip, Track track, double time, double pointerX)
         {
-            // near left edge -> resize start; near right edge -> resize end; else move
+            // outer edge → trim; inner zone → fade; else move
             var px = Viewport.PixelsPerSecond;
             var leftX = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
             var rightX = leftX + clip.DurSec * px;
-            var edgePx = 6;
 
             _dragClip = clip;
             _dragOriginalTrack = track;
@@ -841,21 +1148,57 @@ namespace Fig.App.Views
                 _dragSrcOuts[c.Id] = c.SourceOut;
             }
 
-            if (Math.Abs(pointerX - leftX) <= edgePx)
+            var edge = ClassifyClipEdge(pointerX, leftX, rightX, clip.DurSec * px);
+            if (edge == EdgeKind.None)
             {
-                _dragMode = DragMode.ResizeStart;
-                _draggingClip = true;
+                if (clip.FadeInSec > 1e-6)
+                {
+                    var tipX = leftX + clip.FadeInSec * px;
+                    if (Math.Abs(pointerX - tipX) <= FadeZonePx * 0.5)
+                        edge = EdgeKind.FadeIn;
+                }
+                if (edge == EdgeKind.None && clip.FadeOutSec > 1e-6)
+                {
+                    var tipX = rightX - clip.FadeOutSec * px;
+                    if (Math.Abs(pointerX - tipX) <= FadeZonePx * 0.5)
+                        edge = EdgeKind.FadeOut;
+                }
             }
-            else if (Math.Abs(pointerX - rightX) <= edgePx)
+            _dragMode = edge switch
             {
-                _dragMode = DragMode.ResizeEnd;
-                _draggingClip = true;
-            }
-            else
+                EdgeKind.Left => DragMode.ResizeStart,
+                EdgeKind.Right => DragMode.ResizeEnd,
+                EdgeKind.FadeIn => DragMode.FadeIn,
+                EdgeKind.FadeOut => DragMode.FadeOut,
+                _ => DragMode.Move,
+            };
+            _draggingClip = true;
+        }
+
+        /// <summary>
+        /// Outer TrimEdgePx = trim; next FadeZonePx inward = fade (video-style opacity handles).
+        /// </summary>
+        private static EdgeKind ClassifyClipEdge(double pointerX, double leftX, double rightX, double clipWidthPx)
+        {
+            // too narrow for fade zones — trim only
+            var canFade = clipWidthPx > (TrimEdgePx + FadeZonePx) * 2 + 4;
+
+            if (Math.Abs(pointerX - leftX) <= TrimEdgePx)
+                return EdgeKind.Left;
+            if (Math.Abs(pointerX - rightX) <= TrimEdgePx)
+                return EdgeKind.Right;
+
+            if (canFade)
             {
-                _dragMode = DragMode.Move;
-                _draggingClip = true;
+                if (pointerX > leftX + TrimEdgePx && pointerX <= leftX + TrimEdgePx + FadeZonePx)
+                    return EdgeKind.FadeIn;
+                if (pointerX < rightX - TrimEdgePx && pointerX >= rightX - TrimEdgePx - FadeZonePx)
+                    return EdgeKind.FadeOut;
             }
+
+            // already have a fade: allow grabbing the ramp tip even outside the fixed zone
+            // (caller may pass clip for that — handled in HoverClipEdge with clip fades)
+            return EdgeKind.None;
         }
 
         private Track? HitTestTrack(double y)
@@ -897,14 +1240,13 @@ namespace Fig.App.Views
             return (hasPrev, hasNext);
         }
 
-        /// <summary>Returns whether the pointer is over a clip's left/right resize edge.</summary>
+        /// <summary>Returns whether the pointer is over a clip's trim or fade edge.</summary>
         private EdgeKind HoverClipEdge(Point pos)
         {
             if (Editor is null || pos.X <= TrackHeaderWidth)
                 return EdgeKind.None;
 
             var px = Viewport.PixelsPerSecond;
-            var edgePx = 6;
             var time = Viewport.XToTime(pos.X - TrackHeaderWidth);
             var track = HitTestTrack(pos.Y);
             if (track is null)
@@ -916,10 +1258,23 @@ namespace Fig.App.Views
                     continue;
                 var leftX = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
                 var rightX = leftX + clip.DurSec * px;
-                if (Math.Abs(pos.X - leftX) <= edgePx)
-                    return EdgeKind.Left;
-                if (Math.Abs(pos.X - rightX) <= edgePx)
-                    return EdgeKind.Right;
+                var kind = ClassifyClipEdge(pos.X, leftX, rightX, clip.DurSec * px);
+                if (kind != EdgeKind.None)
+                    return kind;
+
+                // grab existing fade ramp tip even when outside the default inner zone
+                if (clip.FadeInSec > 1e-6)
+                {
+                    var tipX = leftX + clip.FadeInSec * px;
+                    if (Math.Abs(pos.X - tipX) <= FadeZonePx * 0.5)
+                        return EdgeKind.FadeIn;
+                }
+                if (clip.FadeOutSec > 1e-6)
+                {
+                    var tipX = rightX - clip.FadeOutSec * px;
+                    if (Math.Abs(pos.X - tipX) <= FadeZonePx * 0.5)
+                        return EdgeKind.FadeOut;
+                }
             }
             return EdgeKind.None;
         }
@@ -932,10 +1287,11 @@ namespace Fig.App.Views
 
             if (e.Key == Key.Delete || e.Key == Key.Back)
             {
-                if (_selectedClipId is not null)
+                if (Editor.Selection.Count > 0)
                 {
-                    Editor.RippleDelete(_selectedClipId);
-                    _selectedClipId = null;
+                    // Delete = lift selected (+ linked) clips only. Never ripple or touch
+                    // unselected clips that share the same timeline position.
+                    Editor.LiftSelected();
                     InvalidateVisual();
                     e.Handled = true;
                 }
@@ -1012,7 +1368,7 @@ namespace Fig.App.Views
                 {
                     foreach (var clip in track.Clips)
                     {
-                        var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
+                        var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + GetRippleOffsetSec(clip.Id));
                         var w = clip.DurSec * px;
                         if (x + w < TrackHeaderWidth || x > Bounds.Width)
                             continue;   // culled: not visible
@@ -1052,7 +1408,9 @@ namespace Fig.App.Views
 
                         var isClipSelected = _selectedClipId is not null
                             && Editor.Selection.IsSelected(clip.Id);
-                        var outline = isClipSelected ? SelectionBrush : border;
+                        var isEffectDropTarget = _dropEffectClipId == clip.Id;
+                        var outline = isClipSelected || isEffectDropTarget ? SelectionBrush : border;
+                        var outlineWidth = isEffectDropTarget ? 3 : (isClipSelected ? 2 : 1);
 
                         // --- name strip above the clip body ---
                         var labelRect = new Rect(x, clipTop, w, labelHeight);
@@ -1085,7 +1443,7 @@ namespace Fig.App.Views
                             && GetBitmap(stripPath) is Bitmap strip)
                         {
                             DrawFilmstrip(context, rect, vc, asset, strip);
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, isClipSelected ? 2 : 1), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
                         }
                         // draw waveform as audio clip background
                         else if (clip is AudioClip ac && MediaById is not null
@@ -1093,20 +1451,35 @@ namespace Fig.App.Views
                             && audioAsset is not null)
                         {
                             DrawAudioWaveform(context, rect, ac, audioAsset);
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, isClipSelected ? 2 : 1), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
                         }
                         else
                         {
-                            context.DrawRectangle(fill, new Pen(outline, isClipSelected ? 2 : 1), bodyRounded);
+                            context.DrawRectangle(fill, new Pen(outline, outlineWidth), bodyRounded);
                         }
+
+                        if (isEffectDropTarget)
+                        {
+                            context.DrawRectangle(
+                                new SolidColorBrush(Color.FromArgb(50, 0x4d, 0xa3, 0xff)),
+                                null, new RoundedRect(widgetRect, corner));
+                        }
+
+                        DrawFadeRamps(context, rect, clip);
 
                         // resize-handle indicator on the edge under the cursor (or both edges when selected)
                         var hoverLeft = _hoverEdge == EdgeKind.Left;
                         var hoverRight = _hoverEdge == EdgeKind.Right;
+                        var hoverFadeIn = _hoverEdge == EdgeKind.FadeIn;
+                        var hoverFadeOut = _hoverEdge == EdgeKind.FadeOut;
                         if (isClipSelected || hoverLeft)
                             DrawResizeHandle(context, x, rect.Y, rect.Height);
                         if (isClipSelected || hoverRight)
                             DrawResizeHandle(context, x + w, rect.Y, rect.Height);
+                        if (hoverFadeIn || (isClipSelected && clip.FadeInSec > 1e-6))
+                            DrawResizeHandle(context, x + Math.Min(clip.FadeInSec, clip.DurSec) * px, rect.Y, rect.Height);
+                        if (hoverFadeOut || (isClipSelected && clip.FadeOutSec > 1e-6))
+                            DrawResizeHandle(context, x + w - Math.Min(clip.FadeOutSec, clip.DurSec) * px, rect.Y, rect.Height);
                     }   // foreach clip
                 }   // PushClip(clipArea)
             }   // for tracks
@@ -1134,11 +1507,36 @@ namespace Fig.App.Views
                     new RoundedRect(ghostRect, ClipCornerRadius));
             }
 
-            // drop indicator line
+            // drop indicator line (media into empty space)
             if (_dropTimeSec >= 0 && _dropPreviewTrack is null)
             {
                 var x = TrackHeaderWidth + Viewport.TimeToX(_dropTimeSec);
                 context.DrawLine(new Pen(Brushes.OrangeRed, 2), new Point(x, RulerHeight), new Point(x, Bounds.Height));
+            }
+
+            // transition drop: highlight cut between abutting clips
+            if (_dropTransitionCutSec >= 0 && _dropTransitionTrack is not null)
+            {
+                var listIndex = Editor.Document.Tracks.IndexOf(_dropTransitionTrack);
+                if (listIndex >= 0)
+                {
+                    var trackTop = TimelineGeometry.TrackTop(listIndex) + RulerHeight;
+                    var x = TrackHeaderWidth + Viewport.TimeToX(_dropTransitionCutSec);
+                    var marker = new SolidColorBrush(Color.FromArgb(230, 0xea, 0xb3, 0x08));
+                    context.DrawLine(new Pen(marker, 3), new Point(x, trackTop + 2),
+                        new Point(x, trackTop + TimelineGeometry.ClipTotalHeight));
+                    var midY = trackTop + TimelineGeometry.ClipTotalHeight / 2;
+                    var diamond = new StreamGeometry();
+                    using (var gc = diamond.Open())
+                    {
+                        gc.BeginFigure(new Point(x, midY - 6), true);
+                        gc.LineTo(new Point(x + 5, midY));
+                        gc.LineTo(new Point(x, midY + 6));
+                        gc.LineTo(new Point(x - 5, midY));
+                        gc.EndFigure(true);
+                    }
+                    context.DrawGeometry(marker, null, diamond);
+                }
             }
 
             // playhead

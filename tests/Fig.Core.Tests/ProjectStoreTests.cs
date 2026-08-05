@@ -70,6 +70,25 @@ public class ProjectStoreTests
     }
 
     [Fact]
+    public void CreateProject_UsesReadableFolderId()
+    {
+        var store = CreateStore(out var root);
+        try
+        {
+            var id = store.CreateProject("My Cool Edit");
+
+            Assert.StartsWith("My-Cool-Edit_", id);
+            Assert.True(Directory.Exists(store.ProjectDirectory(id)));
+            var loaded = store.LoadProject(id)!;
+            Assert.Equal("My Cool Edit", loaded.Name);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void LoadProject_Missing_ReturnsNull()
     {
         var store = CreateStore(out var root);

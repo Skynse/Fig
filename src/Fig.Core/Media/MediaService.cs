@@ -7,7 +7,7 @@ using FFmpeg.AutoGen;
 
 namespace Fig.Core.Media
 {
-    public class MediaService : IMediaService
+    public partial class MediaService : IMediaService
     {
         private const int SWS_BILINEAR = 2;
 
@@ -518,12 +518,25 @@ namespace Fig.Core.Media
             return new VideoFrameSource(sourcePath, width, height);
         }
 
+        public IAudioSampleSource OpenAudioSource(string sourcePath, int sampleRate = 48000)
+        {
+            return new AudioSampleSource(sourcePath, sampleRate);
+        }
+
+        public unsafe float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000)
+        {
+            // one-shot helper for tests/peaks; playback should use OpenAudioSource
+            using var source = OpenAudioSource(sourcePath, sampleRate);
+            return source.Read(startSec, durationSec);
+        }
+
         public unsafe void SaveFrameAsJpeg(string sourcePath, double timeSec, string outputPath, int width = 320)
         {
             var (srcW, srcH) = ProbeDimensions(sourcePath);
             if (srcW <= 0 || srcH <= 0)
                 throw new InvalidOperationException("Could not determine source dimensions");
-            var height = Math.Max(1, (int)Math.Round(srcH * (width / (double)srcW)));
+            var height = Math.Max(2, (int)Math.Round(srcH * (width / (double)srcW)) & ~1);
+            width = Math.Max(2, width & ~1);
             var decoded = DecodeFrameAt(sourcePath, timeSec, width, height);
             if (decoded is null)
                 throw new InvalidOperationException("Could not decode frame");
@@ -538,8 +551,8 @@ namespace Fig.Core.Media
             SwsContext* sws = null;
             try
             {
-                var w = frame.Width;
-                var h = frame.Height;
+                var w = Math.Max(2, frame.Width & ~1);
+                var h = Math.Max(2, frame.Height & ~1);
 
                 // wrap the BGRA bytes in a frame
                 bgra = ffmpeg.av_frame_alloc();
@@ -548,9 +561,10 @@ namespace Fig.Core.Media
                 bgra->height = h;
                 ThrowIfError(ffmpeg.av_frame_get_buffer(bgra, 32), "av_frame_get_buffer");
                 var linesize = bgra->linesize[0];
+                var srcStride = frame.Width * 4;
                 for (var y = 0; y < h; y++)
                 {
-                    var src = y * w * 4;
+                    var src = y * srcStride;
                     var dst = bgra->data[0] + y * linesize;
                     for (var x = 0; x < w * 4; x++)
                         dst[x] = frame.Pixels[src + x];
@@ -636,105 +650,6 @@ namespace Fig.Core.Media
             }
         }
 
-        public unsafe float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000)
-        {
-            AVFormatContext* inCtx = null;
-            AVCodecContext* decCtx = null;
-            AVFrame* frame = null;
-            AVPacket* packet = null;
-            SwrContext* swr = null;
-
-            try
-            {
-                var pIn = inCtx;
-                ThrowIfError(ffmpeg.avformat_open_input(&pIn, sourcePath, null, null), "avformat_open_input");
-                inCtx = pIn;
-                ThrowIfError(ffmpeg.avformat_find_stream_info(inCtx, null), "avformat_find_stream_info");
-
-                var aIdx = ffmpeg.av_find_best_stream(inCtx, AVMediaType.AVMEDIA_TYPE_AUDIO, -1, -1, null, 0);
-                ThrowIfError(aIdx, "av_find_best_stream(audio)");
-                var inStream = inCtx->streams[aIdx];
-                var inCodecPar = inStream->codecpar;
-
-                var dec = ffmpeg.avcodec_find_decoder(inCodecPar->codec_id);
-                if (dec == null)
-                    throw new InvalidOperationException("No audio decoder found");
-                decCtx = ffmpeg.avcodec_alloc_context3(dec);
-                ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, inCodecPar), "avcodec_parameters_to_context");
-                decCtx->pkt_timebase = inStream->time_base;
-                ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
-
-                // resample everything to stereo float at the requested rate
-                swr = ffmpeg.swr_alloc();
-                AVChannelLayout stereo = default;
-                ffmpeg.av_channel_layout_default(&stereo, 2);
-                ffmpeg.swr_alloc_set_opts2(&swr,
-                    &stereo, AVSampleFormat.AV_SAMPLE_FMT_FLT, sampleRate,
-                    &inCodecPar->ch_layout, (AVSampleFormat)inCodecPar->format, inCodecPar->sample_rate,
-                    0, null);
-                ThrowIfError(ffmpeg.swr_init(swr), "swr_init");
-                ffmpeg.av_channel_layout_uninit(&stereo);
-
-                // seek to the start time
-                var targetTs = (long)(startSec * inStream->time_base.den / inStream->time_base.num);
-                var seekRet = ffmpeg.av_seek_frame(inCtx, aIdx, Math.Max(0, targetTs), ffmpeg.AVSEEK_FLAG_BACKWARD);
-                if (seekRet < 0)
-                    ffmpeg.av_seek_frame(inCtx, aIdx, 0, ffmpeg.AVSEEK_FLAG_BACKWARD);
-                ffmpeg.avcodec_flush_buffers(decCtx);
-
-                var totalFrames = (int)Math.Ceiling(durationSec * sampleRate);
-                var output = new float[totalFrames * 2];
-                var written = 0;
-                var decodeStartPts = Math.Max(0, targetTs);
-
-                frame = ffmpeg.av_frame_alloc();
-                packet = ffmpeg.av_packet_alloc();
-
-                while (written < output.Length && ffmpeg.av_read_frame(inCtx, packet) >= 0)
-                {
-                    if (packet->stream_index == aIdx && ffmpeg.avcodec_send_packet(decCtx, packet) >= 0)
-                    {
-                        while (written < output.Length && ffmpeg.avcodec_receive_frame(decCtx, frame) == 0)
-                        {
-                            // skip frames before the seek target (backward seek lands on a keyframe)
-                            var framePts = frame->best_effort_timestamp;
-                            if (framePts >= 0 && framePts < decodeStartPts)
-                                continue;
-
-                            var outSamples = ffmpeg.swr_get_out_samples(swr, frame->nb_samples);
-                            var outBuf = (byte*)ffmpeg.av_malloc((ulong)(outSamples * 2 * sizeof(float)));
-                            var got = ffmpeg.swr_convert(swr, &outBuf, outSamples, frame->extended_data, frame->nb_samples);
-                            if (got > 0)
-                            {
-                                var src = (float*)outBuf;
-                                var take = Math.Min(got * 2, output.Length - written);
-                                for (var n = 0; n < take; n++)
-                                    output[written + n] = src[n];
-                                written += take;
-                            }
-                            ffmpeg.av_free(outBuf);
-                        }
-                    }
-                    ffmpeg.av_packet_unref(packet);
-                }
-
-                Array.Resize(ref output, written);
-                return output;
-            }
-            finally
-            {
-                if (packet != null) ffmpeg.av_packet_free(&packet);
-                if (frame != null) ffmpeg.av_frame_free(&frame);
-                if (swr != null) ffmpeg.swr_free(&swr);
-                if (decCtx != null) ffmpeg.avcodec_free_context(&decCtx);
-                if (inCtx != null)
-                {
-                    var pIn = inCtx;
-                    ffmpeg.avformat_close_input(&pIn);
-                }
-            }
-        }
-
         private static unsafe long EncodeFrame(AVCodecContext* encCtx, AVFormatContext* outCtx, AVStream* outStream, AVFrame* frame, long outPts)
         {
             if (frame is not null)
@@ -759,184 +674,6 @@ namespace Fig.Core.Media
             }
             ffmpeg.av_packet_free(&encPkt);
             return outPts;
-        }
-
-        public unsafe FilmstripInfo GenerateFilmstrip(string sourcePath, string outputPath, int tileHeight = 60)
-        {
-            AVFormatContext* inCtx = null;
-            AVCodecContext* decCtx = null;
-            AVFrame* frame = null;
-            AVPacket* packet = null;
-            SwsContext* sws = null;
-            AVFrame* rgb = null;
-            AVFrame* strip = null;
-            AVCodecContext* encCtx = null;
-
-            try
-            {
-                var pIn = inCtx;
-                ThrowIfError(ffmpeg.avformat_open_input(&pIn, sourcePath, null, null), "avformat_open_input");
-                inCtx = pIn;
-                ThrowIfError(ffmpeg.avformat_find_stream_info(inCtx, null), "avformat_find_stream_info");
-
-                var vIdx = ffmpeg.av_find_best_stream(inCtx, AVMediaType.AVMEDIA_TYPE_VIDEO, -1, -1, null, 0);
-                ThrowIfError(vIdx, "av_find_best_stream");
-                var inStream = inCtx->streams[vIdx];
-                var inCodecPar = inStream->codecpar;
-
-                var dec = ffmpeg.avcodec_find_decoder(inCodecPar->codec_id);
-                if (dec == null)
-                    throw new InvalidOperationException("No decoder found");
-                decCtx = ffmpeg.avcodec_alloc_context3(dec);
-                ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, inCodecPar), "avcodec_parameters_to_context");
-                decCtx->pkt_timebase = inStream->time_base;
-                ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
-
-                var duration = inCtx->duration > 0
-                    ? inCtx->duration * ffmpeg.av_q2d(ffmpeg.av_get_time_base_q())
-                    : inStream->duration * ffmpeg.av_q2d(inStream->time_base);
-                if (duration <= 0)
-                    throw new InvalidOperationException("Cannot determine duration");
-
-                var srcW = inCodecPar->width;
-                var srcH = inCodecPar->height;
-
-                // tiles preserve the source aspect ratio (never squished), so a 16:9 clip
-                // produces 16:9 tiles regardless of tile height
-                var tileW = Math.Max(1, (int)Math.Round(tileHeight * srcW / (double)srcH));
-                var frames = Math.Clamp((int)Math.Ceiling(duration), 8, 128);
-                var interval = duration / frames;
-                var width = tileW * frames;
-                var height = tileHeight;
-
-                // intermediate RGB buffer for a single tile
-                rgb = ffmpeg.av_frame_alloc();
-                rgb->format = (int)AVPixelFormat.AV_PIX_FMT_RGB24;
-                rgb->width = tileW;
-                rgb->height = height;
-                ThrowIfError(ffmpeg.av_frame_get_buffer(rgb, 32), "av_frame_get_buffer");
-
-                frame = ffmpeg.av_frame_alloc();
-                packet = ffmpeg.av_packet_alloc();
-
-                // full strip RGB buffer (width x height)
-                var stripBytes = width * height * 3;
-                var stripBuf = (byte*)ffmpeg.av_malloc((ulong)stripBytes);
-
-                var startTs = (long)(inStream->time_base.den / (double)inStream->time_base.num * 0);
-                for (var i = 0; i < frames; i++)
-                {
-                    var t = duration * (i + 0.5) / frames;   // center of each tile
-                    var targetTs = (long)(t * inStream->time_base.den / inStream->time_base.num);
-
-                    // seek backward to a keyframe before target
-                    ffmpeg.av_seek_frame(inCtx, vIdx, Math.Max(0, targetTs), ffmpeg.AVSEEK_FLAG_BACKWARD);
-                    ffmpeg.avcodec_flush_buffers(decCtx);
-
-                    var got = false;
-                    while (!got && ffmpeg.av_read_frame(inCtx, packet) >= 0)
-                    {
-                        if (packet->stream_index == vIdx && ffmpeg.avcodec_send_packet(decCtx, packet) >= 0)
-                        {
-                            while (!got && ffmpeg.avcodec_receive_frame(decCtx, frame) == 0)
-                            {
-                                var ts = frame->best_effort_timestamp;
-                                if (ts >= targetTs || ts < 0)
-                                {
-                                    sws = ffmpeg.sws_getContext(srcW, srcH, decCtx->pix_fmt, tileW, height, AVPixelFormat.AV_PIX_FMT_RGB24, SWS_BILINEAR, null, null, null);
-                                    ffmpeg.sws_scale(sws, frame->data, frame->linesize, 0, srcH, rgb->data, rgb->linesize);
-
-                                    // copy tile into strip at column i
-                                    for (var y = 0; y < height; y++)
-                                    {
-                                        var dstRow = stripBuf + (long)(y * width + i * tileW) * 3;
-                                        var srcRow = rgb->data[0] + y * rgb->linesize[0];
-                                        for (var x = 0; x < tileW * 3; x++)
-                                            dstRow[x] = srcRow[x];
-                                    }
-                                    got = true;
-                                }
-                            }
-                        }
-                        ffmpeg.av_packet_unref(packet);
-                    }
-                    if (!got)
-                        throw new InvalidOperationException($"Could not decode frame {i}");
-                }
-
-                // wrap strip RGB bytes into a frame and encode as JPEG
-                strip = ffmpeg.av_frame_alloc();
-                strip->format = (int)AVPixelFormat.AV_PIX_FMT_RGB24;
-                strip->width = width;
-                strip->height = height;
-                ffmpeg.av_frame_get_buffer(strip, 32);
-
-                var stripLinesize = strip->linesize[0];
-                for (var y = 0; y < height; y++)
-                    for (var x = 0; x < width * 3; x++)
-                        strip->data[0][y * stripLinesize + x] = stripBuf[y * (long)width * 3 + x];
-
-                ffmpeg.av_free(stripBuf);
-
-                var enc = ffmpeg.avcodec_find_encoder(AVCodecID.AV_CODEC_ID_MJPEG);
-                if (enc == null)
-                    throw new InvalidOperationException("No mjpeg encoder found");
-                encCtx = ffmpeg.avcodec_alloc_context3(enc);
-                encCtx->width = width;
-                encCtx->height = height;
-                encCtx->pix_fmt = AVPixelFormat.AV_PIX_FMT_YUVJ420P;
-                encCtx->time_base = new AVRational { num = 1, den = 30 };
-                encCtx->qmin = 3;
-                encCtx->qmax = 5;
-                ThrowIfError(ffmpeg.avcodec_open2(encCtx, enc, null), "avcodec_open2");
-
-                // convert RGB -> YUV420P for mjpeg
-                var sws2 = ffmpeg.sws_getContext(width, height, AVPixelFormat.AV_PIX_FMT_RGB24, width, height, AVPixelFormat.AV_PIX_FMT_YUV420P, SWS_BILINEAR, null, null, null);
-                var yuv = ffmpeg.av_frame_alloc();
-                yuv->format = (int)AVPixelFormat.AV_PIX_FMT_YUV420P;
-                yuv->width = width;
-                yuv->height = height;
-                ffmpeg.av_frame_get_buffer(yuv, 32);
-                ffmpeg.sws_scale(sws2, strip->data, strip->linesize, 0, height, yuv->data, yuv->linesize);
-
-                yuv->pts = 0;
-                ThrowIfError(ffmpeg.avcodec_send_frame(encCtx, yuv), "avcodec_send_frame");
-
-                var outPkt = ffmpeg.av_packet_alloc();
-                while (ffmpeg.avcodec_receive_packet(encCtx, outPkt) == 0)
-                {
-                    using var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
-                    fs.Write(new ReadOnlySpan<byte>(outPkt->data, outPkt->size));
-                }
-                ffmpeg.av_packet_free(&outPkt);
-
-                ffmpeg.av_frame_free(&yuv);
-                ffmpeg.sws_freeContext(sws2);
-
-                return new FilmstripInfo
-                {
-                    Path = outputPath,
-                    FrameWidth = tileW,
-                    FrameHeight = tileHeight,
-                    FrameCount = frames,
-                    FrameIntervalSec = interval,
-                };
-            }
-            finally
-            {
-                if (encCtx != null) ffmpeg.avcodec_free_context(&encCtx);
-                if (rgb != null) ffmpeg.av_frame_free(&rgb);
-                if (strip != null) ffmpeg.av_frame_free(&strip);
-                if (sws != null) ffmpeg.sws_freeContext(sws);
-                if (frame != null) ffmpeg.av_frame_free(&frame);
-                if (packet != null) ffmpeg.av_packet_free(&packet);
-                if (decCtx != null) ffmpeg.avcodec_free_context(&decCtx);
-                if (inCtx != null)
-                {
-                    var pIn = inCtx;
-                    ffmpeg.avformat_close_input(&pIn);
-                }
-            }
         }
 
         private static void ThrowIfError(int ret, string what)
@@ -1009,29 +746,44 @@ namespace Fig.Core.Media
                     {
                         while (ffmpeg.avcodec_receive_frame(decCtx, frame) == 0)
                         {
-                            // resample into a temp buffer
-                            var outSamples = ffmpeg.swr_get_out_samples(swr, frame->nb_samples);
-                            var outBuf = (byte*)ffmpeg.av_malloc((ulong)(outSamples * sizeof(short)));
+                            // swr_get_out_samples is an estimate — under-allocating lets
+                            // swr_convert smash the heap ("corrupted size vs. prev_size").
+                            var outSamples = Math.Max(
+                                ffmpeg.swr_get_out_samples(swr, frame->nb_samples) + 256,
+                                frame->nb_samples * 4 + 256);
+                            if (outSamples <= 0)
+                                continue;
+                            var outBuf = (byte*)ffmpeg.av_malloc((ulong)outSamples * sizeof(short));
+                            if (outBuf == null)
+                                throw new OutOfMemoryException("swr output buffer");
 
-                            var ret = ffmpeg.swr_convert(swr, &outBuf, outSamples, frame->extended_data, frame->nb_samples);
-                            if (ret > 0)
+                            try
                             {
-                                var samples = (short*)outBuf;
-                                for (var n = 0; n < ret; n++)
+                                var ret = ffmpeg.swr_convert(swr, &outBuf, outSamples, frame->extended_data, frame->nb_samples);
+                                if (ret > 0)
                                 {
-                                    var val = Math.Abs(samples[n]) / 32768f;
-                                    if (val > maxs[bucketIndex]) maxs[bucketIndex] = val;
-                                    if (val < mins[bucketIndex]) mins[bucketIndex] = val;
-
-                                    sampleInBucket++;
-                                    if (sampleInBucket >= samplesPerBucket && bucketIndex < buckets - 1)
+                                    // never read past what we allocated
+                                    var nMax = Math.Min(ret, outSamples);
+                                    var samples = (short*)outBuf;
+                                    for (var n = 0; n < nMax; n++)
                                     {
-                                        bucketIndex++;
-                                        sampleInBucket = 0;
+                                        var val = Math.Abs(samples[n]) / 32768f;
+                                        if (val > maxs[bucketIndex]) maxs[bucketIndex] = val;
+                                        if (val < mins[bucketIndex]) mins[bucketIndex] = val;
+
+                                        sampleInBucket++;
+                                        if (sampleInBucket >= samplesPerBucket && bucketIndex < buckets - 1)
+                                        {
+                                            bucketIndex++;
+                                            sampleInBucket = 0;
+                                        }
                                     }
                                 }
                             }
-                            ffmpeg.av_free(outBuf);
+                            finally
+                            {
+                                ffmpeg.av_free(outBuf);
+                            }
                         }
                     }
                     ffmpeg.av_packet_unref(packet);

@@ -78,6 +78,70 @@ namespace Fig.Core.Timeline
             RaiseChanged();
         }
 
+        /// <summary>
+        /// Ripple-deletes every distinct selected link group. Unrelated clips that merely
+        /// share a timeline position are not touched.
+        /// </summary>
+        public void RippleDeleteSelected()
+        {
+            var seeds = SelectedGroupSeeds();
+            if (seeds.Count == 0)
+                return;
+            if (seeds.Count == 1)
+            {
+                RippleDelete(seeds[0]);
+                Selection.Clear();
+                return;
+            }
+
+            var commands = seeds.Select(id => (IEditCommand)new RippleDeleteCommand(this, id)).ToArray();
+            History.Execute(new CompositeCommand(commands));
+            Selection.Clear();
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Lifts every distinct selected link group, leaving gaps. Does not affect
+        /// unselected clips even if they share the same timeline range.
+        /// </summary>
+        public void LiftSelected()
+        {
+            var seeds = SelectedGroupSeeds();
+            if (seeds.Count == 0)
+                return;
+            if (seeds.Count == 1)
+            {
+                Lift(seeds[0]);
+                Selection.Clear();
+                return;
+            }
+
+            var commands = seeds.Select(id => (IEditCommand)new LiftCommand(this, id)).ToArray();
+            History.Execute(new CompositeCommand(commands));
+            Selection.Clear();
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// One representative clip id per selected link group (so a selected video+audio
+        /// pair is operated on once, not twice).
+        /// </summary>
+        private List<string> SelectedGroupSeeds()
+        {
+            var seeds = new List<string>();
+            var seen = new HashSet<string>();
+            foreach (var id in Selection.SelectedClipIds)
+            {
+                var clip = FindClip(id);
+                if (clip is null)
+                    continue;
+                var key = string.IsNullOrEmpty(clip.LinkGroupId) ? clip.Id : clip.LinkGroupId!;
+                if (seen.Add(key))
+                    seeds.Add(clip.Id);
+            }
+            return seeds;
+        }
+
         public void AddClip(string trackId, Clip clip)
         {
             var track = FindTrack(trackId) ?? throw new InvalidOperationException($"Track '{trackId}' not found");
@@ -192,8 +256,11 @@ namespace Fig.Core.Timeline
         public IReadOnlyList<Clip> LinkGroup(string clipId)
         {
             var clip = FindClip(clipId);
-            if (clip?.LinkGroupId is null)
-                return clip is null ? Array.Empty<Clip>() : new[] { clip };
+            if (clip is null)
+                return Array.Empty<Clip>();
+            // treat empty the same as null so unlinked clips never form a phantom group
+            if (string.IsNullOrEmpty(clip.LinkGroupId))
+                return new[] { clip };
 
             var group = new List<Clip>();
             foreach (var track in Document.Tracks)
@@ -345,55 +412,94 @@ namespace Fig.Core.Timeline
             RaiseChanged();
         }
 
+        /// <summary>
+        /// Splits selected clips (and their link-group affiliates) at the playhead.
+        /// Unselected clips that merely overlap the same time are left alone.
+        /// No-op when nothing is selected or no selected clip spans the playhead.
+        /// </summary>
+        public IReadOnlyList<Clip> SplitAtPlayhead(double posSec)
+        {
+            var snapped = SnapTime(posSec);
+            var seeds = SelectedGroupSeeds();
+            if (seeds.Count == 0)
+                return Array.Empty<Clip>();
+
+            return SplitGroupsAt(seeds, snapped);
+        }
+
+        /// <summary>
+        /// Splits the clip under the playhead on <paramref name="trackId"/> (plus its link
+        /// group). Never walks every track looking for coincidental overlaps — use this when
+        /// the user has focused a track but nothing is selected yet. If a selection already
+        /// exists, it wins and <paramref name="trackId"/> is ignored.
+        /// </summary>
         public IReadOnlyList<Clip> SplitAtPlayhead(string trackId, double posSec)
         {
-            var track = FindTrack(trackId) ?? throw new InvalidOperationException($"Track '{trackId}' not found");
             var snapped = SnapTime(posSec);
 
-            // collect every clip overlapping the playhead across the whole timeline,
-            // expanding link groups so a linked video+audio pair cuts together exactly once
+            if (Selection.Count == 0)
+            {
+                var hit = FindClipAt(trackId, snapped);
+                if (hit is null)
+                    return Array.Empty<Clip>();
+                Selection.SelectOnly(hit.Id);
+                foreach (var member in LinkGroup(hit.Id))
+                    Selection.Select(member.Id);
+            }
+
+            return SplitAtPlayhead(snapped);
+        }
+
+        private IReadOnlyList<Clip> SplitGroupsAt(IReadOnlyList<string> seeds, double snapped)
+        {
             var targets = new List<(Clip Clip, string? SecondGroupId)>();
             var seenGroups = new HashSet<string>();
-            foreach (var t in Document.Tracks)
+
+            foreach (var seedId in seeds)
             {
-                foreach (var clip in t.Clips)
-                {
-                    if (!(clip.StartSec < snapped && snapped < clip.StartSec + clip.DurSec))
-                        continue;
-                    if (clip.LinkGroupId is string g)
-                    {
-                        // one fresh group id for the right halves of this whole group, so
-                        // the right video half stays paired with its right audio half
-                        if (!seenGroups.Contains(g))
-                        {
-                            seenGroups.Add(g);
-                            var secondGroup = Guid.NewGuid().ToString("N");
-                            foreach (var member in LinkGroup(clip.Id))
-                                targets.Add((member, secondGroup));
-                        }
-                    }
-                    else
-                    {
-                        targets.Add((clip, null));
-                    }
-                }
+                var group = LinkGroup(seedId);
+                var spanning = group
+                    .Where(c => c.StartSec < snapped && snapped < c.StartSec + c.DurSec)
+                    .ToList();
+                if (spanning.Count == 0)
+                    continue;
+
+                var groupKey = string.IsNullOrEmpty(spanning[0].LinkGroupId)
+                    ? spanning[0].Id
+                    : spanning[0].LinkGroupId!;
+                if (!seenGroups.Add(groupKey))
+                    continue;
+
+                var secondGroup = string.IsNullOrEmpty(spanning[0].LinkGroupId)
+                    ? null
+                    : Guid.NewGuid().ToString("N");
+                foreach (var member in spanning)
+                    targets.Add((member, secondGroup));
             }
 
             if (targets.Count == 0)
                 return Array.Empty<Clip>();
 
-            var produced = new List<Clip>();
-            var commands = new List<IEditCommand>();
-            foreach (var (clip, secondGroup) in targets)
-            {
-                var cmd = new CutCommand(this, clip.Id, snapped, secondGroup);
-                commands.Add(cmd);
-            }
+            var commands = targets
+                .Select(t => (IEditCommand)new CutCommand(this, t.Clip.Id, snapped, t.SecondGroupId))
+                .ToArray();
+            History.Execute(commands.Length == 1 ? commands[0] : new CompositeCommand(commands));
 
-            var composite = new CompositeCommand(commands.ToArray());
-            History.Execute(composite);
-            foreach (var cmd in commands.Cast<CutCommand>())
-                produced.AddRange(cmd.ProducedClips);
+            var cutCommands = commands.Cast<CutCommand>().ToList();
+            var produced = cutCommands.SelectMany(c => c.ProducedClips).ToList();
+
+            // select right halves (+ link groups) so successive beat splits don't require re-clicking
+            var rightIds = new HashSet<string>();
+            foreach (var cut in cutCommands)
+            {
+                if (cut.ProducedClips.Count < 2)
+                    continue;
+                var right = cut.ProducedClips[1];
+                foreach (var member in LinkGroup(right.Id))
+                    rightIds.Add(member.Id);
+            }
+            if (rightIds.Count > 0)
+                Selection.SelectClips(rightIds);
 
             RaiseChanged();
             return produced;
@@ -524,6 +630,144 @@ namespace Fig.Core.Timeline
             return true;
         }
 
+        public void SetOpacity(string clipId, double opacity)
+        {
+            opacity = Math.Clamp(opacity, 0, 1);
+            var clip = FindClip(clipId);
+            if (clip is null || Math.Abs(clip.Opacity - opacity) < 1e-6)
+                return;
+            History.ExecuteCoalescing(new SetOpacityCommand(this, clipId, opacity));
+            RaiseChanged();
+        }
+
+        public void SetFadeIn(string clipId, double fadeInSec)
+        {
+            fadeInSec = Math.Max(0, fadeInSec);
+            var clip = FindClip(clipId);
+            if (clip is null)
+                return;
+            var max = Math.Max(0, clip.DurSec - Math.Max(0, clip.FadeOutSec));
+            var clamped = Math.Min(fadeInSec, max);
+            if (Math.Abs(clip.FadeInSec - clamped) < 1e-6)
+                return;
+            History.ExecuteCoalescing(new SetFadeInCommand(this, clipId, fadeInSec));
+            RaiseChanged();
+        }
+
+        public void SetFadeOut(string clipId, double fadeOutSec)
+        {
+            fadeOutSec = Math.Max(0, fadeOutSec);
+            var clip = FindClip(clipId);
+            if (clip is null)
+                return;
+            var max = Math.Max(0, clip.DurSec - Math.Max(0, clip.FadeInSec));
+            var clamped = Math.Min(fadeOutSec, max);
+            if (Math.Abs(clip.FadeOutSec - clamped) < 1e-6)
+                return;
+            History.ExecuteCoalescing(new SetFadeOutCommand(this, clipId, fadeOutSec));
+            RaiseChanged();
+        }
+
+        public void AddEffect(string clipId, EffectInstance effect)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new AddEffectCommand(this, clipId, effect));
+            RaiseChanged();
+        }
+
+        public void RemoveEffect(string clipId, string effectId)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new RemoveEffectCommand(this, clipId, effectId));
+            RaiseChanged();
+        }
+
+        public void SetTransitionIn(string clipId, TransitionRef? transition)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new SetTransitionInCommand(this, clipId, transition));
+            RaiseChanged();
+        }
+
+        public void SetTransitionOut(string clipId, TransitionRef? transition)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new SetTransitionOutCommand(this, clipId, transition));
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Applies a catalog transition to the cut between two abutting clips
+        /// (outgoing.transitionOut + incoming.transitionIn).
+        /// </summary>
+        public void ApplyTransitionAtCut(string outgoingClipId, string incomingClipId, TransitionRef transition)
+        {
+            if (FindClip(outgoingClipId) is null || FindClip(incomingClipId) is null)
+                return;
+            History.Execute(new ApplyTransitionAtCutCommand(this, outgoingClipId, incomingClipId, transition));
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Applies <paramref name="transition"/> as transition-out on the selected clip and
+        /// transition-in on the next abutting clip on the same track, when one exists.
+        /// Otherwise sets transition-out only.
+        /// </summary>
+        public bool TryApplyTransitionFromSelection(string clipId, TransitionRef transition)
+        {
+            var clip = FindClip(clipId);
+            var track = FindClipTrack(clipId);
+            if (clip is null || track is null)
+                return false;
+
+            var cut = clip.StartSec + clip.DurSec;
+            Clip? next = null;
+            foreach (var other in track.Clips)
+            {
+                if (other.Id == clip.Id)
+                    continue;
+                if (Math.Abs(other.StartSec - cut) < 1e-3)
+                {
+                    next = other;
+                    break;
+                }
+            }
+
+            if (next is not null)
+                ApplyTransitionAtCut(clip.Id, next.Id, transition);
+            else
+                SetTransitionOut(clip.Id, transition);
+            return true;
+        }
+
+        public void SetVolume(string clipId, double volume)
+        {
+            volume = Math.Clamp(volume, 0, 1);
+            var clip = FindClip(clipId);
+            if (clip is null || Math.Abs(clip.Volume - volume) < 1e-6)
+                return;
+            History.ExecuteCoalescing(new SetVolumeCommand(this, clipId, volume));
+            RaiseChanged();
+        }
+
+        public void SetCrop(string clipId, double cropL, double cropT, double cropR, double cropB)
+        {
+            if (FindClip(clipId) is not VideoClip clip)
+                return;
+            (cropL, cropT, cropR, cropB) = SetCropCommand.Normalize(cropL, cropT, cropR, cropB);
+            if (Near(clip.CropL, cropL) && Near(clip.CropT, cropT)
+                && Near(clip.CropR, cropR) && Near(clip.CropB, cropB))
+                return;
+            History.ExecuteCoalescing(new SetCropCommand(this, clipId, cropL, cropT, cropR, cropB));
+            RaiseChanged();
+        }
+
+        private static bool Near(double a, double b) => Math.Abs(a - b) < 1e-6;
+
         protected void RaiseChanged()
         {
             TimelineChanged?.Invoke();
@@ -535,20 +779,22 @@ namespace Fig.Core.Timeline
             RaiseChanged();
         }
 
+        internal Clip? FindClip(string clipId)
+        {
+            foreach (var track in Document.Tracks)
+            {
+                var clip = track.Clips.FirstOrDefault(c => c.Id == clipId);
+                if (clip is not null)
+                    return clip;
+            }
+            return null;
+        }
+
         internal Track? FindTrack(string trackId)
         {
             foreach (var track in Document.Tracks)
                 if (track.Id == trackId)
                     return track;
-            return null;
-        }
-
-        internal Clip? FindClip(string clipId)
-        {
-            foreach (var track in Document.Tracks)
-                foreach (var clip in track.Clips)
-                    if (clip.Id == clipId)
-                        return clip;
             return null;
         }
 

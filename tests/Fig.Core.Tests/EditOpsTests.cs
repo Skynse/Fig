@@ -180,6 +180,27 @@ public class RippleDeleteCommandTests
         Assert.Equal(3, track.Clips.Count);
         Assert.Equal(8, track.Clips[2].StartSec);
     }
+
+    [Fact]
+    public void RippleDelete_LeavesUnaffectedTrackAlone()
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var v1 = new Track { Kind = TrackKind.Video, Index = 0, Name = "V1" };
+        var v2 = new Track { Kind = TrackKind.Video, Index = 1, Name = "V2" };
+        timeline.Tracks.Add(v1);
+        timeline.Tracks.Add(v2);
+        var editor = new TimelineEditor(timeline);
+
+        editor.AddClip(v1.Id, TimelineFixtures.Video("a", 0, 5));
+        editor.AddClip(v2.Id, TimelineFixtures.Video("other", 0, 8));
+
+        editor.RippleDelete("a");
+
+        Assert.Empty(v1.Clips);
+        Assert.Single(v2.Clips);
+        Assert.Equal(0, v2.Clips[0].StartSec);
+        Assert.Equal("other", v2.Clips[0].Id);
+    }
 }
 
 public class RippleInsertCommandTests
@@ -293,6 +314,35 @@ public class SplitAtPlayheadTests
         Assert.Equal(2, produced.Count);
         Assert.Equal(6, track.Clips[0].DurSec);
         Assert.Equal(4, track.Clips[1].DurSec);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_SelectsRightHalf()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 10));
+
+        editor.SplitAtPlayhead(track.Id, 6);
+
+        Assert.Equal(2, track.Clips.Count);
+        Assert.Contains(track.Clips[1].Id, editor.Selection.SelectedClipIds);
+        Assert.DoesNotContain(track.Clips[0].Id, editor.Selection.SelectedClipIds);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_SuccessiveSplits_WithoutReselect()
+    {
+        var (editor, track) = TimelineFixtures.Create();
+        editor.AddClip(track.Id, TimelineFixtures.Video("a", 0, 10));
+
+        editor.SplitAtPlayhead(track.Id, 3);
+        editor.SplitAtPlayhead(6); // selection already on right half — no track/reselect
+
+        Assert.Equal(3, track.Clips.Count);
+        Assert.Equal(3, track.Clips[0].DurSec);
+        Assert.Equal(3, track.Clips[1].DurSec);
+        Assert.Equal(4, track.Clips[2].DurSec);
+        Assert.Contains(track.Clips[2].Id, editor.Selection.SelectedClipIds);
     }
 
     [Fact]

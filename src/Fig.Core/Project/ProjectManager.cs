@@ -27,6 +27,7 @@ namespace Fig.Core.Project
         private readonly IMediaService _media;
 
         public event Action? ProjectChanged;
+        private readonly object _proxyLock = new();
 
         public ProjectManager(Project project, IMediaService media, string cacheDirectory)
         {
@@ -68,48 +69,173 @@ namespace Fig.Core.Project
         }
 
         /// <summary>
-        /// Generates the heavy derived artifacts (filmstrip, audio waveform peaks) for an
-        /// already-imported asset. These are slow (full decode), so callers invoke this on a
-        /// background thread after the fast import returns. Caches by file presence so it can
-        /// be called multiple times cheaply. <paramref name="onDone"/> is invoked after the
-        /// asset's previews are ready (on the calling thread).
+        /// Generates the heavy derived artifacts (filmstrip, waveform peaks, playback proxy)
+        /// for an already-imported asset. Each artifact is independent — one failing must
+        /// not block the others. Regenerates when the cache file exists but metadata is
+        /// incomplete (stale strips from older builds).
         /// </summary>
         public void FinalizeMediaArtifacts(MediaAsset asset, Action<MediaAsset>? onDone = null)
         {
             if (string.IsNullOrEmpty(asset.Url) || !File.Exists(asset.Url))
             {
                 asset.Offline = true;
+                onDone?.Invoke(asset);
                 return;
             }
 
-            var stripPath = Path.Combine(CacheDirectory, $"{asset.Hash}_strip.jpg");
-            if (asset.Kind == MediaKind.Video
-                && (string.IsNullOrEmpty(asset.Filmstrip) || !File.Exists(asset.Filmstrip)))
+            if (asset.Kind == MediaKind.Video)
             {
-                if (!File.Exists(stripPath))
+                var stripPath = Path.Combine(CacheDirectory, $"{asset.Hash}_strip.jpg");
+                var needsStrip = string.IsNullOrEmpty(asset.Filmstrip)
+                    || !File.Exists(asset.Filmstrip)
+                    || asset.FilmstripFrameWidth <= 0
+                    || asset.FilmstripFrameHeight <= 0
+                    || asset.FilmstripFrameCount <= 0
+                    || asset.FilmstripFrameIntervalSec <= 0
+                    || !File.Exists(stripPath);
+
+                if (needsStrip)
                 {
-                    Directory.CreateDirectory(CacheDirectory);
-                    var info = _media.GenerateFilmstrip(asset.Url, stripPath);
-                    ApplyFilmstripInfo(asset, info);
+                    try
+                    {
+                        Directory.CreateDirectory(CacheDirectory);
+                        // delete stale incomplete cache so we don't skip regen
+                        if (File.Exists(stripPath) && (asset.FilmstripFrameCount <= 0 || asset.FilmstripFrameWidth <= 0))
+                            File.Delete(stripPath);
+                        var info = _media.GenerateFilmstrip(asset.Url, stripPath);
+                        ApplyFilmstripInfo(asset, info);
+                    }
+                    catch
+                    {
+                        asset.Filmstrip = null;
+                        asset.FilmstripFrameWidth = 0;
+                        asset.FilmstripFrameHeight = 0;
+                        asset.FilmstripFrameCount = 0;
+                        asset.FilmstripFrameIntervalSec = 0;
+                    }
                 }
-                asset.Filmstrip = File.Exists(stripPath) ? stripPath : null;
+
+                FinalizeProxy(asset);
             }
 
             if (asset.HasAudio && asset.WaveformPeaks is null)
-                asset.WaveformPeaks = DecodePeaks(asset.Url, asset.DurationSec);
+            {
+                try
+                {
+                    asset.WaveformPeaks = DecodePeaks(asset.Url, asset.DurationSec);
+                }
+                catch
+                {
+                    // leave null; timeline still draws a solid clip
+                }
+            }
 
             ProjectChanged?.Invoke();
             onDone?.Invoke(asset);
         }
 
+        private void FinalizeProxy(MediaAsset asset, bool force = false)
+        {
+            if (!MediaService.ShouldGenerateProxy(asset.Width, asset.Height))
+            {
+                asset.ProxyUrl = null;
+                asset.ProxyStatus = ProxyStatus.None;
+                return;
+            }
+
+            var proxyPath = Path.Combine(CacheDirectory, $"{asset.Hash}_proxy.mp4");
+
+            lock (_proxyLock)
+            {
+                if (!force
+                    && asset.ProxyStatus == ProxyStatus.Ready
+                    && IsUsableProxyFile(asset.ProxyUrl))
+                    return;
+
+                if (!force && IsUsableProxyFile(proxyPath))
+                {
+                    asset.ProxyUrl = proxyPath;
+                    asset.ProxyStatus = ProxyStatus.Ready;
+                    return;
+                }
+
+                // Stale/partial final path (crash mid-encode before rename landed) — drop it.
+                TryDeleteProxyArtifacts(proxyPath);
+
+                if (force)
+                    asset.ProxyUrl = null;
+
+                asset.ProxyStatus = ProxyStatus.Pending;
+                try
+                {
+                    Directory.CreateDirectory(CacheDirectory);
+                    var info = _media.GenerateProxy(asset.Url, proxyPath);
+                    if (info.Skipped)
+                    {
+                        asset.ProxyUrl = null;
+                        asset.ProxyStatus = ProxyStatus.None;
+                        return;
+                    }
+
+                    if (!IsUsableProxyFile(info.Path))
+                        throw new InvalidOperationException("Proxy encode finished without a complete MP4");
+
+                    asset.ProxyUrl = info.Path;
+                    asset.ProxyStatus = ProxyStatus.Ready;
+                }
+                catch
+                {
+                    asset.ProxyUrl = null;
+                    asset.ProxyStatus = ProxyStatus.Failed;
+                    TryDeleteProxyArtifacts(proxyPath);
+                }
+            }
+        }
+
+        private static bool IsUsableProxyFile(string? path)
+            => !string.IsNullOrEmpty(path) && Mp4Container.IsCompleteMp4(path);
+
+        private static void TryDeleteProxyArtifacts(string proxyPath)
+        {
+            try
+            {
+                if (File.Exists(proxyPath))
+                    File.Delete(proxyPath);
+            }
+            catch { /* best-effort */ }
+
+            try
+            {
+                var partial = proxyPath + ".partial";
+                if (File.Exists(partial))
+                    File.Delete(partial);
+            }
+            catch { /* best-effort */ }
+        }
+
         /// <summary>
-        /// Decodes audio into a peak array dense enough for zoomed-in rendering.
-        /// ~90 buckets/sec keeps the in-memory footprint small while staying smooth
-        /// when zoomed right into a clip.
+        /// Builds or rebuilds the playback proxy for a video asset on the calling thread.
+        /// Pass <paramref name="force"/> to delete an existing proxy and re-encode.
         /// </summary>
+        public void RequestProxy(MediaAsset asset, bool force = false)
+        {
+            if (asset.Kind != MediaKind.Video)
+                return;
+            if (string.IsNullOrEmpty(asset.Url) || !File.Exists(asset.Url))
+            {
+                asset.Offline = true;
+                ProjectChanged?.Invoke();
+                return;
+            }
+
+            FinalizeProxy(asset, force);
+            ProjectChanged?.Invoke();
+        }
+
         private float[] DecodePeaks(string sourcePath, double durationSec)
         {
-            var buckets = Math.Clamp((int)(durationSec * 90), 512, 65536);
+            // ~30 buckets/sec is enough for timeline zoom; was 90 and capped at 64k
+            var buckets = Math.Clamp((int)(durationSec * 30), 256, 16384);
             return _media.ExtractPeaks(sourcePath, buckets);
         }
 
@@ -139,6 +265,9 @@ namespace Fig.Core.Project
 
             asset.Url = newPath;
             asset.Offline = false;
+            // source changed — drop any proxy tied to the old file
+            asset.ProxyUrl = null;
+            asset.ProxyStatus = ProxyStatus.None;
             ProjectChanged?.Invoke();
             return true;
         }
@@ -292,55 +421,65 @@ namespace Fig.Core.Project
                     }
                 }
 
-                // 3. filmstrip (video only)
+                // 3. filmstrip + waveform are slow (full decode). skip them here so project
+                // open never hangs on a stubborn webm; the editor backfills them in the background.
                 if (asset.Kind == MediaKind.Video)
                 {
-                    var stripNeedsRegen = string.IsNullOrEmpty(asset.Filmstrip)
+                    var stripMissing = string.IsNullOrEmpty(asset.Filmstrip)
                         || !File.Exists(asset.Filmstrip)
                         || asset.FilmstripFrameWidth <= 0
-                        || asset.FilmstripFrameHeight <= 0
-                        || asset.FilmstripFrameCount <= 0
-                        || asset.FilmstripFrameIntervalSec <= 0;
+                        || asset.FilmstripFrameCount <= 0;
+                    if (stripMissing)
+                        report.Notes.Add($"\"{label}\": filmstrip pending (will generate in background).");
 
-                    if (stripNeedsRegen)
-                    {
-                        progress?.Invoke($"Regenerating filmstrip for \"{label}\"...");
-                        try
-                        {
-                            var stripPath = Path.Combine(CacheDirectory, $"{asset.Hash}_strip.jpg");
-                            var info = _media.GenerateFilmstrip(asset.Url, stripPath);
-                            ApplyFilmstripInfo(asset, info);
-                            report.ArtifactsRepaired++;
-                        }
-                        catch (Exception ex)
-                        {
-                            asset.Filmstrip = null;
-                            report.FailedArtifacts++;
-                            report.Notes.Add($"\"{label}\": filmstrip failed ({ex.Message}).");
-                        }
-                    }
+                    if (NeedsProxyBackfill(asset))
+                        report.Notes.Add($"\"{label}\": proxy pending (will generate in background).");
                 }
 
-                // 4. waveform peaks (any asset with audio)
                 if (asset.HasAudio && asset.WaveformPeaks is null)
-                {
-                    progress?.Invoke($"Extracting waveform for \"{label}\"...");
-                    try
-                    {
-                        asset.WaveformPeaks = DecodePeaks(asset.Url, asset.DurationSec);
-                        report.ArtifactsRepaired++;
-                    }
-                    catch (Exception ex)
-                    {
-                        report.FailedArtifacts++;
-                        report.Notes.Add($"\"{label}\": waveform failed ({ex.Message}).");
-                    }
-                }
+                    report.Notes.Add($"\"{label}\": waveform pending (will generate in background).");
             }
 
             if (report.ArtifactsRepaired > 0 || report.OfflineAssets > 0)
                 ProjectChanged?.Invoke();
             return report;
+        }
+
+        /// <summary>
+        /// True when the asset still needs a filmstrip, waveform peaks, and/or playback proxy.
+        /// </summary>
+        public static bool NeedsPreviewBackfill(MediaAsset asset)
+        {
+            if (asset.Offline || string.IsNullOrEmpty(asset.Url))
+                return false;
+            if (asset.Kind == MediaKind.Video
+                && (string.IsNullOrEmpty(asset.Filmstrip) || !File.Exists(asset.Filmstrip)
+                    || asset.FilmstripFrameWidth <= 0 || asset.FilmstripFrameCount <= 0))
+                return true;
+            if (NeedsProxyBackfill(asset))
+                return true;
+            if (asset.HasAudio && asset.WaveformPeaks is null)
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True when a large video still needs a proxy (missing, pending, failed, or stale Ready).
+        /// </summary>
+        public static bool NeedsProxyBackfill(MediaAsset asset)
+        {
+            if (asset.Offline || asset.Kind != MediaKind.Video || string.IsNullOrEmpty(asset.Url))
+                return false;
+            if (!MediaService.ShouldGenerateProxy(asset.Width, asset.Height))
+                return false;
+            if (asset.ProxyStatus == ProxyStatus.Pending || asset.ProxyStatus == ProxyStatus.Failed)
+                return true;
+            if (asset.ProxyStatus == ProxyStatus.Ready
+                && (string.IsNullOrEmpty(asset.ProxyUrl) || !Mp4Container.IsCompleteMp4(asset.ProxyUrl)))
+                return true;
+            if (asset.ProxyStatus == ProxyStatus.None)
+                return true;
+            return false;
         }
     }
 }

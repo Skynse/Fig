@@ -1,0 +1,47 @@
+@startuml
+' Drag fade handle -> video opacity preview and/or audio mix
+
+actor User
+participant TimelineView
+participant TimelineEditor
+participant "SetFade*Command" as Cmd
+participant Clip
+participant EditorViewModel
+participant FrameCompositor
+participant AudioMixer
+
+User -> TimelineView : drag inner edge (fade zone)
+activate TimelineView
+TimelineView -> TimelineEditor : SetFadeIn / SetFadeOut(sec)
+activate TimelineEditor
+TimelineEditor -> Cmd : ExecuteCoalescing (whole link group)
+activate Cmd
+Cmd -> Clip : FadeInSec / FadeOutSec = clamped
+deactivate Cmd
+TimelineEditor --> TimelineView
+deactivate TimelineEditor
+TimelineView -> TimelineView : redraw fade ramp
+deactivate TimelineView
+
+... video scrub / play ...
+
+EditorViewModel -> Clip : Fade* + Opacity
+EditorViewModel -> FrameCompositor : opacity = Opacity * envelope
+
+... audio play ...
+
+AudioMixer -> Clip : Fade* + Volume
+AudioMixer -> AudioMixer : per-frame gain = Volume * envelope
+
+note over TimelineView
+  Outer ~6px = trim.
+  Inner zone = FadeIn / FadeOut.
+  Works on video and audio clips.
+end note
+
+note over Cmd
+  Link group gets the same fade
+  durations (A/V stay in sync).
+end note
+
+@enduml

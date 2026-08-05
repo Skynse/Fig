@@ -50,9 +50,11 @@ namespace Fig.Core.Timeline
                     _splitLeft = ClipFactory.CloneWithRange(
                         existing, existing.StartSec, offset, existing.SourceIn,
                         existing.SourceIn + offset * existing.Speed);
+                    ClipFade.ApplySplitLeft(_splitLeft);
                     _splitRight = ClipFactory.CloneWithRange(
                         existing, _snappedPos, existing.DurSec - offset,
                         existing.SourceIn + offset * existing.Speed, existing.SourceOut);
+                    ClipFade.ApplySplitRight(_splitRight);
                     _track.Clips.Remove(existing);
                     _editor.InsertClip(_track, _splitLeft);
                     _editor.InsertClip(_track, _splitRight);

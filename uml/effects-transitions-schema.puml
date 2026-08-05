@@ -1,0 +1,133 @@
+@startuml
+' Effects + Transitions domain model (planned)
+' Fits Fig: Timeline owns edit state; Media applies pixels/samples; App hosts library UI.
+
+package Timeline {
+
+  abstract class Clip {
+    * id : string
+    --
+    startSec : float
+    durSec : float
+    opacity : float
+    volume : float
+    fadeInSec : float
+    fadeOutSec : float
+    effects : EffectInstance[]
+    transitionIn : TransitionRef?
+    transitionOut : TransitionRef?
+  }
+
+  class EffectInstance {
+    * id : string
+    --
+    typeId : string
+    enabled : bool
+    order : int
+    params : map<string, value>
+  }
+
+  class TransitionRef {
+    typeId : string
+    durationSec : float
+    params : map<string, value>
+  }
+
+  note right of TransitionRef
+    Attached to a clip edge.
+    Cross-dissolve: clip A.transitionOut
+    + clip B.transitionIn with matching
+    typeId/duration at an abutting cut.
+    Edge fades (fadeInSec/fadeOutSec) stay
+    as the lightweight opacity/volume case;
+    TransitionRef is the library catalog path.
+  end note
+
+  class EffectCatalogEntry {
+    * typeId : string
+    --
+    kind : enum(video, audio, both)
+    displayName : string
+    icon : string
+    defaultParams : map
+    paramSchema : ParamDef[]
+  }
+
+  class TransitionCatalogEntry {
+    * typeId : string
+    --
+    displayName : string
+    icon : string
+    defaultDurationSec : float
+    defaultParams : map
+    paramSchema : ParamDef[]
+  }
+
+  Clip "1" *-- "0..*" EffectInstance : stacks
+  Clip "1" o-- "0..1" TransitionRef : in
+  Clip "1" o-- "0..1" TransitionRef : out
+}
+
+package Media {
+
+  interface IEffectProcessor {
+    TypeId : string
+    Apply(frame, params, localT) : frame
+  }
+
+  interface ITransitionBlender {
+    TypeId : string
+    Blend(a, b, t01, params) : frame
+  }
+
+  class EffectRegistry {
+    Resolve(typeId) : IEffectProcessor?
+  }
+
+  class TransitionRegistry {
+    Resolve(typeId) : ITransitionBlender?
+  }
+
+  class FrameCompositor {
+    ComposeInto(layers, ...)
+  }
+
+  class EffectPipeline {
+    ApplyStack(frame, effects, localT) : frame
+  }
+
+  class TransitionResolver {
+    FindActive(timeline, timeSec) : ActiveTransition?
+  }
+
+  EffectRegistry --> IEffectProcessor
+  TransitionRegistry --> ITransitionBlender
+  EffectPipeline --> EffectRegistry
+  TransitionResolver --> TransitionRegistry
+  FrameCompositor ..> EffectPipeline : "per layer, before blend"
+  FrameCompositor ..> TransitionResolver : "overlap window"
+}
+
+package App {
+  class LibraryPanelTab <<enum>> {
+    Media
+    Transitions
+    Effects
+  }
+
+  class EditorViewModel
+  class LibraryCatalogView
+}
+
+EditorViewModel --> LibraryPanelTab
+LibraryCatalogView --> EffectCatalogEntry : "Effects tab"
+LibraryCatalogView --> TransitionCatalogEntry : "Transitions tab"
+
+note bottom of EffectInstance
+  Replaces Clip.Effects Dictionary
+  of bare JsonElement. Persist as
+  JSON array with typeId discriminator.
+  Unknown typeId: keep params, skip apply.
+end note
+
+@enduml

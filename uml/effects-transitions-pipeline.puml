@@ -1,0 +1,48 @@
+@startuml
+' Render pipeline: decode -> effects -> transition blend -> composite / mix
+
+|App|
+start
+:ResolvePreviewLayers(timeSec);
+:For each visible video clip covering time;
+
+|Media|
+:Decode frame (proxy or source);
+:EffectPipeline.ApplyStack\n(clip.effects, localT);
+note right
+  Ordered EffectInstance list.
+  Disabled / unknown typeId skipped.
+end note
+
+|Timeline|
+:ClipFade.EffectiveOpacity(localT);
+note right
+  Built-in fade envelope remains
+  outside the effect stack.
+end note
+
+|Media|
+if (Active between-clip transition\nat timeSec?) then (yes)
+  :Decode + effect both A and B;
+  :ITransitionBlender.Blend(A, B, t01);
+  :Emit single CompositeLayer;
+else (no)
+  :Emit CompositeLayer\n(path, srcTime, opacity);
+endif
+
+:FrameCompositor.ComposeInto(layers);
+
+|App|
+:Present preview frame;
+
+partition "Audio path (parallel)" {
+  |Audio|
+  :AudioMixer per clip;
+  :ClipFade.EffectiveVolume;
+  :Audio EffectPipeline (future);
+  :Sum into device buffer;
+}
+
+stop
+
+@enduml

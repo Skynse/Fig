@@ -86,9 +86,10 @@ public class AudioMixerTests
         var buf = mixer.Mix(timeline, 0, 2.0);
 
         var sampleAtZero = Math.Abs(buf[0]) > 0.001f;
-        // look for any nonzero sample within the first 100ms of the clip's start
+        // clip starts at 1.0s → interleaved index 1.0 * 48000 * 2
+        var clipStartIdx = 48000 * 2;
         var hasClipAudio = false;
-        for (var i = 48000; i < 48000 + 4800 && i < buf.Length; i++)
+        for (var i = clipStartIdx; i < clipStartIdx + 4800 && i < buf.Length; i++)
         {
             if (Math.Abs(buf[i]) > 0.001f)
             {
@@ -109,5 +110,91 @@ public class AudioMixerTests
         var quietMax = quiet.Max(Math.Abs);
         var loudMax = loud.Max(Math.Abs);
         Assert.True(loudMax > quietMax, "louder clip should have higher peaks");
+    }
+
+    [Fact]
+    public void Mix_FadeIn_QuietsStartRelativeToMiddle()
+    {
+        var timeline = TimelineWithAudioClip(0, 2.0);
+        timeline.Tracks[0].Clips[0].FadeInSec = 1.0;
+        var mixer = new AudioMixer(new ConstantToneMedia(), _ => Asset());
+
+        var buf = mixer.Mix(timeline, 0, 2.0);
+        var startMax = Peak(buf, 0, 0.05);
+        var midMax = Peak(buf, 1.0, 0.05);
+        Assert.True(midMax > startMax * 2, $"fade-in should quiet the head (start={startMax}, mid={midMax})");
+    }
+
+    [Fact]
+    public void Mix_FadeOut_QuietsEndRelativeToMiddle()
+    {
+        var timeline = TimelineWithAudioClip(0, 2.0);
+        timeline.Tracks[0].Clips[0].FadeOutSec = 1.0;
+        var mixer = new AudioMixer(new ConstantToneMedia(), _ => Asset());
+
+        var buf = mixer.Mix(timeline, 0, 2.0);
+        var midMax = Peak(buf, 0.5, 0.05);
+        var endMax = Peak(buf, 1.95, 0.05);
+        Assert.True(midMax > 0.1f, $"expected mid content (mid={midMax})");
+        Assert.True(midMax > endMax * 2, $"fade-out should quiet the tail (mid={midMax}, end={endMax})");
+    }
+
+    private static float Peak(float[] interleaved, double startSec, double durSec)
+    {
+        var start = (int)(startSec * AudioMixer.SampleRate) * 2;
+        var count = (int)(durSec * AudioMixer.SampleRate) * 2;
+        var end = Math.Min(interleaved.Length, start + count);
+        float max = 0;
+        for (var i = Math.Max(0, start); i < end; i++)
+            max = Math.Max(max, Math.Abs(interleaved[i]));
+        return max;
+    }
+
+    /// <summary>Test double: constant-amplitude stereo tone so fade gain is measurable without FFmpeg.</summary>
+    private sealed class ConstantToneMedia : IMediaService
+    {
+        public IAudioSampleSource OpenAudioSource(string sourcePath, int sampleRate = 48000)
+            => new ConstantToneSource(sampleRate);
+
+        public MediaAsset Probe(string path) => throw new NotSupportedException();
+        public void RenderClip(string sourcePath, Clip clip, string outputPath, int width, int height)
+            => throw new NotSupportedException();
+        public double AverageLuma(string path, double seconds) => throw new NotSupportedException();
+        public void GenerateThumbnail(string sourcePath, string outputPath, int width = 320)
+            => throw new NotSupportedException();
+        public FilmstripInfo GenerateFilmstrip(string sourcePath, string outputPath, int tileHeight = 60)
+            => throw new NotSupportedException();
+        public ProxyInfo GenerateProxy(string sourcePath, string outputPath, int maxHeight = 720)
+            => throw new NotSupportedException();
+        public float[] ExtractPeaks(string sourcePath, int buckets) => throw new NotSupportedException();
+        public DecodedFrame? DecodeFrameAt(string sourcePath, double timeSec, int width, int height)
+            => throw new NotSupportedException();
+        public void SaveFrameAsJpeg(string sourcePath, double timeSec, string outputPath, int width = 320)
+            => throw new NotSupportedException();
+        public IVideoFrameSource OpenVideoSource(string sourcePath, int width, int height)
+            => throw new NotSupportedException();
+        public float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class ConstantToneSource : IAudioSampleSource
+    {
+        private readonly int _sampleRate;
+        public ConstantToneSource(int sampleRate) => _sampleRate = sampleRate;
+        public double NextTimeSec => 0;
+        public void Seek(double timeSec) { }
+        public void Dispose() { }
+
+        public float[] Read(double startSec, double durationSec)
+        {
+            var frames = Math.Max(0, (int)Math.Round(durationSec * _sampleRate));
+            var buf = new float[frames * 2];
+            for (var i = 0; i < frames; i++)
+            {
+                buf[i * 2] = 0.5f;
+                buf[i * 2 + 1] = 0.5f;
+            }
+            return buf;
+        }
     }
 }

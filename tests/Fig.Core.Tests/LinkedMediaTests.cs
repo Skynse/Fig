@@ -170,6 +170,114 @@ public class LinkedMediaTests
     }
 
     [Fact]
+    public void SplitAtPlayhead_DoesNotCutUnselectedClips_AtSameTime()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-sel");
+        var v1 = editor.Document.Tracks[0];
+        var selected = editor.AddMediaLinked(asset, v1.Id, 0)!;
+
+        // unrelated clip overlapping the same playhead time on another track
+        var v2 = editor.AddTrack(TrackKind.Video);
+        var other = new VideoClip { Id = "other", SourceId = "x", StartSec = 0, DurSec = 10, SrcInSec = 0, SrcOutSec = 10 };
+        editor.AddClip(v2.Id, other);
+
+        editor.Selection.SelectOnly(selected.Id);
+        foreach (var m in editor.LinkGroup(selected.Id))
+            editor.Selection.Select(m.Id);
+
+        editor.SplitAtPlayhead(4.0);
+
+        Assert.Equal(2, v1.Clips.Count);          // selected pair was split
+        Assert.Single(v2.Clips);                  // unrelated clip untouched
+        Assert.Equal(10, other.DurSec);
+        Assert.Equal(0, other.StartSec);
+
+        // selection follows the right halves so unselected clips stay unselected
+        Assert.DoesNotContain(other.Id, editor.Selection.SelectedClipIds);
+        Assert.Contains(v1.Clips[1].Id, editor.Selection.SelectedClipIds);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_SelectsRightHalf_ForSuccessiveSplits()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-beat", dur: 12);
+        var v1 = editor.Document.Tracks[0];
+        var selected = editor.AddMediaLinked(asset, v1.Id, 0)!;
+        var audio = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        editor.Selection.SelectOnly(selected.Id);
+        foreach (var m in editor.LinkGroup(selected.Id))
+            editor.Selection.Select(m.Id);
+
+        editor.SplitAtPlayhead(3.0);
+
+        var rightVideo = v1.Clips[1];
+        var rightAudio = audio.Clips[1];
+        Assert.Contains(rightVideo.Id, editor.Selection.SelectedClipIds);
+        Assert.Contains(rightAudio.Id, editor.Selection.SelectedClipIds);
+        Assert.DoesNotContain(v1.Clips[0].Id, editor.Selection.SelectedClipIds);
+
+        // no re-click: split again further into the right half
+        editor.SplitAtPlayhead(6.0);
+
+        Assert.Equal(3, v1.Clips.Count);
+        Assert.Equal(3, audio.Clips.Count);
+        Assert.Equal(3, v1.Clips[0].DurSec);
+        Assert.Equal(3, v1.Clips[1].DurSec);
+        Assert.Equal(6, v1.Clips[2].DurSec);
+        Assert.Contains(v1.Clips[2].Id, editor.Selection.SelectedClipIds);
+        Assert.Contains(audio.Clips[2].Id, editor.Selection.SelectedClipIds);
+    }
+
+    [Fact]
+    public void LiftSelected_DoesNotRemoveUnselectedClips_AtSameTime()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-lift-sel");
+        var v1 = editor.Document.Tracks[0];
+        var selected = editor.AddMediaLinked(asset, v1.Id, 0)!;
+        var audio = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        var v2 = editor.AddTrack(TrackKind.Video);
+        var other = new VideoClip { Id = "keep", SourceId = "y", StartSec = 0, DurSec = 8, SrcInSec = 0, SrcOutSec = 8 };
+        editor.AddClip(v2.Id, other);
+
+        editor.Selection.SelectOnly(selected.Id);
+        foreach (var m in editor.LinkGroup(selected.Id))
+            editor.Selection.Select(m.Id);
+
+        editor.LiftSelected();
+
+        Assert.Empty(v1.Clips);
+        Assert.Empty(audio.Clips);
+        Assert.Single(v2.Clips);
+        Assert.Equal("keep", v2.Clips[0].Id);
+        Assert.Equal(0, editor.Selection.Count);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_TrackFallback_OnlyCutsThatTrackGroup()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-track");
+        var v1 = editor.Document.Tracks[0];
+        _ = editor.AddMediaLinked(asset, v1.Id, 0)!;
+
+        var v2 = editor.AddTrack(TrackKind.Video);
+        var other = new VideoClip { Id = "other", SourceId = "z", StartSec = 0, DurSec = 10, SrcInSec = 0, SrcOutSec = 10 };
+        editor.AddClip(v2.Id, other);
+
+        // no selection: track-scoped fallback must not blast every overlapping clip
+        editor.SplitAtPlayhead(v1.Id, 4);
+
+        Assert.Equal(2, v1.Clips.Count);
+        Assert.Single(v2.Clips);
+        Assert.Equal(10, other.DurSec);
+    }
+
+    [Fact]
     public void SplitAtPlayhead_CutsLinkedGroup_OnBothTracks()
     {
         var editor = CreateEditor();
@@ -231,7 +339,7 @@ public class LinkedMediaTests
     }
 
     [Fact]
-    public void RippleDelete_LinkedGroup_RemovesBothClips_AndRipplesAllTracks()
+    public void RippleDelete_LinkedGroup_RemovesBothClips_AndRipplesAffectedTracks()
     {
         var editor = CreateEditor();
         var asset = VideoWithAudio("vid5");
@@ -248,6 +356,48 @@ public class LinkedMediaTests
         Assert.DoesNotContain(videoTrack.Clips, c => c.Id == video.Id);
         Assert.DoesNotContain(audioTrack.Clips, c => c.LinkGroupId == video.LinkGroupId);
         Assert.Equal(0, tail.StartSec);   // rippled back by the removed 10s
+    }
+
+    [Fact]
+    public void RippleDelete_DoesNotShiftClips_OnUnaffectedTracks()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-iso");
+        var v1 = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, v1.Id, 0)!;
+
+        // unrelated clip on a separate video track at the same start time
+        var v2 = editor.AddTrack(TrackKind.Video);
+        var other = new VideoClip { Id = "other", SourceId = "y", StartSec = 0, DurSec = 8, SrcInSec = 0, SrcOutSec = 8 };
+        editor.AddClip(v2.Id, other);
+
+        editor.RippleDelete(video.Id);
+
+        Assert.Empty(v1.Clips);
+        Assert.Single(v2.Clips);
+        Assert.Equal(0, other.StartSec);   // must not have been rippled to -10 / "deleted"
+        Assert.Equal(8, other.DurSec);
+    }
+
+    [Fact]
+    public void Lift_DoesNotAffectUnrelatedClips_OnOtherTracks()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid-lift");
+        var v1 = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, v1.Id, 0)!;
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        var v2 = editor.AddTrack(TrackKind.Video);
+        var other = new VideoClip { Id = "keep", SourceId = "z", StartSec = 2, DurSec = 4, SrcInSec = 0, SrcOutSec = 4 };
+        editor.AddClip(v2.Id, other);
+
+        editor.Lift(video.Id);
+
+        Assert.Empty(v1.Clips);
+        Assert.Empty(audioTrack.Clips);
+        Assert.Single(v2.Clips);
+        Assert.Equal(2, other.StartSec);
     }
 
     [Fact]

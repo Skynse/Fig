@@ -1,0 +1,72 @@
+@startuml
+' Per-clip fade envelope (video opacity + audio volume)
+' Linear fade-in / fade-out durations on Clip; no between-clip transition objects.
+
+class Clip {
+  * id : string
+  --
+  startSec : float
+  durSec : float
+  opacity : float
+  volume : float
+  fadeInSec : float
+  fadeOutSec : float
+}
+
+class ClipFade <<utility>> {
+  Envelope(clip, localT) : float
+  EffectiveOpacity(clip, localT) : float
+  EffectiveVolume(clip, localT) : float
+  Clamp(fadeIn, fadeOut, dur) : (in, out)
+  ApplyFadeIn / ApplyFadeOut
+  ApplySplitLeft / ApplySplitRight
+}
+
+class SetFadeInCommand
+class SetFadeOutCommand
+class TimelineEditor
+
+class EditorViewModel {
+  ResolvePreviewLayers(timeSec)
+}
+
+class PreviewLayer {
+  opacity : float
+}
+
+class FrameCompositor
+
+class AudioMixer {
+  Mix(timeline, start, dur)
+  MixClip(... per-frame gain)
+}
+
+Clip --> ClipFade
+TimelineEditor --> SetFadeInCommand
+TimelineEditor --> SetFadeOutCommand
+SetFadeInCommand --> Clip
+SetFadeOutCommand --> Clip
+EditorViewModel --> ClipFade
+EditorViewModel --> PreviewLayer : "Opacity * envelope"
+PreviewLayer --> FrameCompositor
+AudioMixer --> ClipFade : "Volume * envelope"
+
+note right of Clip
+  fadeInSec / fadeOutSec live on base Clip
+  (video + audio + text). Same durations;
+  channel differs by kind.
+end note
+
+note right of ClipFade
+  envelope = ramp(t, fadeIn) * ramp(dur-t, fadeOut)
+  video: EffectiveOpacity = Opacity * envelope
+  audio: EffectiveVolume = Volume * envelope
+end note
+
+note bottom of AudioMixer
+  Per-frame gain while mixing stereo
+  interleaved floats — not a constant
+  clip.Volume for the whole window.
+end note
+
+@enduml

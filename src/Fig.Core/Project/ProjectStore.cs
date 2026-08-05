@@ -24,14 +24,51 @@ namespace Fig.Core.Project
 
         public string CreateProject(string name)
         {
-            var id = Guid.NewGuid().ToString("N");
+            name = string.IsNullOrWhiteSpace(name) ? "Untitled" : name.Trim();
+            var id = MakeProjectId(name);
             var dir = Path.Combine(RootDirectory, id);
             Directory.CreateDirectory(Path.Combine(dir, "media.cache"));
 
             var project = Project.Create(name);
             project.Id = id;
+            project.UpdatedAt = DateTime.Now;
             SaveProject(project);
             return id;
+        }
+
+        /// <summary>Readable folder id: sanitized name + short unique suffix.</summary>
+        public static string MakeProjectId(string name)
+        {
+            var slug = SanitizeFolderName(name);
+            if (string.IsNullOrEmpty(slug))
+                slug = "project";
+            if (slug.Length > 40)
+                slug = slug[..40].TrimEnd('-', '_');
+            var suffix = Guid.NewGuid().ToString("N")[..8];
+            return $"{slug}_{suffix}";
+        }
+
+        private static string SanitizeFolderName(string name)
+        {
+            var invalid = Path.GetInvalidFileNameChars();
+            var sb = new System.Text.StringBuilder(name.Length);
+            foreach (var ch in name.Trim())
+            {
+                if (ch <= 32 || Array.IndexOf(invalid, ch) >= 0)
+                    sb.Append('-');
+                else
+                    sb.Append(ch);
+            }
+            var cleaned = System.Text.RegularExpressions.Regex.Replace(sb.ToString(), "-{2,}", "-");
+            return cleaned.Trim('-', '_', '.');
+        }
+
+        public void SaveProject(Project project)
+        {
+            project.UpdatedAt = DateTime.Now;
+            Directory.CreateDirectory(ProjectDirectory(project.Id));
+            var json = JsonSerializer.Serialize(project, Options);
+            File.WriteAllText(ProjectPath(project.Id), json);
         }
 
         public IReadOnlyList<ProjectSummary> ListProjects()
@@ -68,13 +105,6 @@ namespace Fig.Core.Project
             if (!File.Exists(jsonPath))
                 return null;
             return JsonSerializer.Deserialize<Project>(File.ReadAllText(jsonPath), Options);
-        }
-
-        public void SaveProject(Project project)
-        {
-            Directory.CreateDirectory(ProjectDirectory(project.Id));
-            var json = JsonSerializer.Serialize(project, Options);
-            File.WriteAllText(ProjectPath(project.Id), json);
         }
 
         public string ProjectDirectory(string id)

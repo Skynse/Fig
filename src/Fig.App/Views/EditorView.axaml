@@ -4,6 +4,7 @@
              xmlns:local="using:Fig.App.Views"
              xmlns:conv="using:Fig.App.Converters"
              xmlns:vm="using:Fig.App.ViewModels"
+             xmlns:core="using:Fig.Core.Timeline"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="900"
              x:Class="Fig.App.Views.EditorView"
@@ -53,68 +54,204 @@
 
         <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
                 Background="#252526" CornerRadius="6">
-            <Button Content="Import"
-                    Command="{Binding ImportCommand}"
-                    CommandParameter="{Binding $parent[Window]}"/>
+            <DockPanel>
+                <TextBlock Text="{Binding Project.Name}"
+                           VerticalAlignment="Center"
+                           Foreground="#cccccc" FontWeight="SemiBold"
+                           Margin="4,0,12,0"/>
+                <Button DockPanel.Dock="Right" Content="Import"
+                        Command="{Binding ImportCommand}"
+                        CommandParameter="{Binding $parent[Window]}"/>
+            </DockPanel>
         </Border>
 
         <Grid RowDefinitions="*,4,520" ColumnDefinitions="2*,4,3*">
 
             <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,0"
-                    Padding="8" Background="#252526" CornerRadius="6">
+                    Padding="0" Background="#252526" CornerRadius="6"
+                    ClipToBounds="True">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Media Library"
-                               Foreground="#cccccc"
-                               FontSize="14" FontWeight="SemiBold" />
-                    <ListBox ItemsSource="{Binding Media}"
-                             Background="Transparent"
-                             BorderThickness="0">
-                        <ListBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ListBox.ItemsPanel>
-                        <ListBox.ItemContainerTheme>
-                            <ControlTheme TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="Margin" Value="0"/>
-                                <Setter Property="HorizontalAlignment" Value="Stretch"/>
-                            </ControlTheme>
-                        </ListBox.ItemContainerTheme>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border Width="160" Margin="4" Padding="0"
-                                        Background="#1e1e1e" CornerRadius="6"
-                                        BorderBrush="#333333" BorderThickness="1"
-                                        ClipToBounds="True"
-                                        Tag="{Binding}"
-                                        PointerPressed="MediaCard_PointerPressed"
-                                        PointerMoved="MediaCard_PointerMoved"
-                                        PointerReleased="MediaCard_PointerReleased">
-                                    <StackPanel>
-                                        <Grid Height="90">
-                                            <Border Background="#111111">
-                                                <Image Source="{Binding Thumbnail, Converter={StaticResource PathToBitmap}}"
-                                                       Stretch="UniformToFill"/>
-                                            </Border>
-                                            <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                    Margin="4" Padding="4,1"
-                                                    Background="#000000a0" CornerRadius="3">
-                                                <TextBlock Text="{Binding DurationSec, Converter={StaticResource SecondsToTime}}"
-                                                           Foreground="#ffffff" FontSize="11"/>
-                                            </Border>
-                                        </Grid>
-                                        <TextBlock Text="{Binding FileName}"
-                                                   Foreground="#dddddd"
-                                                   FontSize="12"
-                                                   Margin="6,4"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding FileName}"/>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <!-- Vertical icon tabs: Media / Transitions / Effects -->
+                    <Border DockPanel.Dock="Left" Width="44" Background="#1e1e1e"
+                            BorderBrush="#333333" BorderThickness="0,0,1,0">
+                        <ListBox ItemsSource="{Binding LibraryTabs}"
+                                 SelectedItem="{Binding SelectedLibraryTab}"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 Padding="4,6">
+                            <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0,0,0,4"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="CornerRadius" Value="6"/>
+                                </Style>
+                                <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#333333"/>
+                                </Style>
+                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#2a4a7a"/>
+                                </Style>
+                                <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter">
+                                    <Setter Property="Background" Value="#2a4a7a"/>
+                                </Style>
+                            </ListBox.Styles>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LibraryTabItem">
+                                    <Border Width="36" Height="36" ToolTip.Tip="{Binding Title}">
+                                        <local:StrokeIcon Icon="{Binding Icon}"
+                                                          Width="18" Height="18"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          IconBrush="#dddddd"/>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <DockPanel Margin="10,8,8,8">
+                        <TextBlock DockPanel.Dock="Top" Text="{Binding LibraryPanelTitle}"
+                                   Foreground="#cccccc"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Margin="0,0,0,8"/>
+
+                        <!-- Media browser -->
+                        <ListBox IsVisible="{Binding IsLibraryMedia}"
+                                 ItemsSource="{Binding Media}"
+                                 SelectedItem="{Binding SelectedMedia}"
+                                 Background="Transparent"
+                                 BorderThickness="0">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemContainerTheme>
+                                <ControlTheme TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0"/>
+                                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                                </ControlTheme>
+                            </ListBox.ItemContainerTheme>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="160" Margin="4" Padding="0"
+                                            Background="#1e1e1e" CornerRadius="6"
+                                            BorderBrush="#333333" BorderThickness="1"
+                                            ClipToBounds="True"
+                                            Tag="{Binding}"
+                                            PointerPressed="MediaCard_PointerPressed"
+                                            PointerMoved="MediaCard_PointerMoved"
+                                            PointerReleased="MediaCard_PointerReleased">
+                                        <StackPanel>
+                                            <Grid Height="90">
+                                                <Border Background="#111111">
+                                                    <Image Source="{Binding Thumbnail, Converter={StaticResource PathToBitmap}}"
+                                                           Stretch="UniformToFill"/>
+                                                </Border>
+                                                <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                        Margin="4" Padding="4,1"
+                                                        Background="#000000a0" CornerRadius="3">
+                                                    <TextBlock Text="{Binding DurationSec, Converter={StaticResource SecondsToTime}}"
+                                                               Foreground="#ffffff" FontSize="11"/>
+                                                </Border>
+                                                <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                                        Margin="4" Padding="5,1"
+                                                        Background="#2a4a7a" CornerRadius="3"
+                                                        IsVisible="{Binding HasProxy}"
+                                                        ToolTip.Tip="Playback proxy ready">
+                                                    <TextBlock Text="Proxy"
+                                                               Foreground="#ffffff" FontSize="10" FontWeight="SemiBold"/>
+                                                </Border>
+                                            </Grid>
+                                            <TextBlock Text="{Binding FileName}"
+                                                       Foreground="#dddddd"
+                                                       FontSize="12"
+                                                       Margin="6,4"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding FileName}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- Effects catalog -->
+                        <ScrollViewer IsVisible="{Binding IsLibraryEffects}"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding EffectCatalogItems}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:EffectCatalogEntry">
+                                        <Border Width="128" Margin="4" Padding="8"
+                                                Background="#1e1e1e" CornerRadius="6"
+                                                BorderBrush="#333333" BorderThickness="1"
+                                                Cursor="Hand"
+                                                ToolTip.Tip="Drag onto a video clip"
+                                                PointerPressed="CatalogCard_PointerPressed"
+                                                PointerMoved="CatalogCard_PointerMoved"
+                                                PointerReleased="CatalogCard_PointerReleased">
+                                            <StackPanel Spacing="6">
+                                                <local:StrokeIcon Icon="{Binding Icon}" Width="22" Height="22"
+                                                                  HorizontalAlignment="Center"
+                                                                  IconBrush="#dddddd"/>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="#dddddd"
+                                                           FontSize="12" HorizontalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Description}" Foreground="#777777"
+                                                           FontSize="10" TextWrapping="Wrap"
+                                                           MaxHeight="36" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <!-- Transitions catalog -->
+                        <ScrollViewer IsVisible="{Binding IsLibraryTransitions}"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding TransitionCatalogItems}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:TransitionCatalogEntry">
+                                        <Border Width="128" Margin="4" Padding="8"
+                                                Background="#1e1e1e" CornerRadius="6"
+                                                BorderBrush="#333333" BorderThickness="1"
+                                                Cursor="Hand"
+                                                ToolTip.Tip="Drag onto a cut between clips"
+                                                PointerPressed="CatalogCard_PointerPressed"
+                                                PointerMoved="CatalogCard_PointerMoved"
+                                                PointerReleased="CatalogCard_PointerReleased">
+                                            <StackPanel Spacing="6">
+                                                <local:StrokeIcon Icon="{Binding Icon}" Width="22" Height="22"
+                                                                  HorizontalAlignment="Center"
+                                                                  IconBrush="#dddddd"/>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="#dddddd"
+                                                           FontSize="12" HorizontalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Description}" Foreground="#777777"
+                                                           FontSize="10" TextWrapping="Wrap"
+                                                           MaxHeight="36" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
                 </DockPanel>
             </Border>
 
@@ -135,58 +272,248 @@
                           HorizontalAlignment="Stretch"
                           ShowsPreview="True"/>
 
-            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
-                    Padding="8" Background="#252526" CornerRadius="6">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,4"
-                            Background="#1e1e1e" CornerRadius="4">
-                        <StackPanel Orientation="Horizontal" Spacing="2">
-                            <Button Command="{Binding UndoCommand}" ToolTip.Tip="Undo"
-                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
-                            </Button>
-                            <Button Command="{Binding RedoCommand}" ToolTip.Tip="Redo"
-                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
-                            </Button>
-                            <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
-                            <Button Command="{Binding SplitAtPlayheadCommand}" ToolTip.Tip="Split at playhead"
-                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
+            <!-- Timeline row: tracks on the left, contextual properties on the right -->
+            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                  ColumnDefinitions="*,4,280">
+
+                <Border Grid.Column="0"
+                        Padding="8" Background="#252526" CornerRadius="6">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,4"
+                                Background="#1e1e1e" CornerRadius="4">
+                            <StackPanel Orientation="Horizontal" Spacing="2">
+                                <Button Command="{Binding UndoCommand}" ToolTip.Tip="Undo"
+                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                    <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
+                                </Button>
+                                <Button Command="{Binding RedoCommand}" ToolTip.Tip="Redo"
+                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
+                                    <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
+                                </Button>
+                                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
+                                <Button Command="{Binding SplitAtPlayheadCommand}" ToolTip.Tip="Split at playhead (Ctrl+K)"
+                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
                                     <local:StrokeIcon Icon="split" Width="18" Height="18"/>
-                                    <TextBlock Text="Split" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Command="{Binding RippleDeleteSelectedCommand}" ToolTip.Tip="Ripple delete"
-                                    Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                </Button>
+                                <Button Command="{Binding RippleDeleteSelectedCommand}" ToolTip.Tip="Ripple delete"
+                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
                                     <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
-                                    <TextBlock Text="Ripple" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
-                            <Button Command="{Binding ToggleMagneticSnapCommand}" ToolTip.Tip="Magnetic snap"
-                                    Classes.active="{Binding MagneticSnap}"
-                                    Background="Transparent" BorderThickness="0" Padding="6">
-                                <Button.Styles>
-                                    <Style Selector="Button.active">
-                                        <Setter Property="Background" Value="#2a4a7a" />
-                                    </Style>
-                                </Button.Styles>
-                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                </Button>
+                                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
+                                <ToggleButton IsChecked="{Binding MagneticSnap}" ToolTip.Tip="Magnetic snap"
+                                              Background="Transparent" BorderThickness="0" Padding="6"
+                                              Foreground="#cccccc">
+                                    <ToggleButton.Styles>
+                                        <Style Selector="ToggleButton:checked">
+                                            <Setter Property="Background" Value="#2a4a7a"/>
+                                            <Setter Property="Foreground" Value="#ffffff"/>
+                                        </Style>
+                                        <Style Selector="ToggleButton:pointerover">
+                                            <Setter Property="Background" Value="#333333"/>
+                                        </Style>
+                                    </ToggleButton.Styles>
                                     <local:StrokeIcon Icon="magnet" Width="18" Height="18"/>
-                                    <TextBlock Text="Snap" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
+                                </ToggleButton>
+                            </StackPanel>
+                        </Border>
+                        <local:TimelineView x:Name="Timeline"
+                                             Editor="{Binding Editor}"
+                                             MediaById="{Binding MediaById}"
+                                             Gestures="{Binding Gestures}"
+                                             ClipToBounds="True"/>
+                    </DockPanel>
+                </Border>
+
+                <GridSplitter Grid.Column="1"
+                              Width="4"
+                              Background="Transparent"
+                              ShowsPreview="True"/>
+
+                <Border Grid.Column="2"
+                        Padding="10,8" Background="#252526" CornerRadius="6">
+                    <DockPanel DataContext="{Binding Properties}">
+                        <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,10">
+                            <TextBlock Text="{Binding Title}"
+                                       Foreground="#cccccc"
+                                       FontSize="14" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Subtitle}"
+                                       Foreground="#8a8a8a"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
-                    </Border>
-                    <local:TimelineView x:Name="Timeline"
-                                         Editor="{Binding Editor}"
-                                         MediaById="{Binding MediaById}"
-                                         Gestures="{Binding Gestures}"
-                                         ClipToBounds="True"/>
-                </DockPanel>
-            </Border>
+
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="12">
+
+                                <!-- Empty hint is the subtitle; no extra body -->
+
+                                <StackPanel Spacing="6" IsVisible="{Binding ShowClipSection}">
+                                    <TextBlock Text="CLIP" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Timeline" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding ClipTimingLabel}" Foreground="#dddddd" FontSize="12" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" IsVisible="{Binding SourceRangeLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <TextBlock Text="Source" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding SourceRangeLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4" Margin="0,6,0,0" IsVisible="{Binding ShowVideoControls}">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding OpacityValue, StringFormat={}{0:P0}}"
+                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                            <TextBlock Text="Opacity" Foreground="#8a8a8a" FontSize="11"/>
+                                        </DockPanel>
+                                        <Slider Minimum="0" Maximum="1" Value="{Binding OpacityValue}"
+                                                TickFrequency="0.01" IsSnapToTickEnabled="False"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowFadeControls}">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding FadeInValue, StringFormat={}{0:0.00}s}"
+                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                            <TextBlock Text="Fade In" Foreground="#8a8a8a" FontSize="11"/>
+                                        </DockPanel>
+                                        <Slider Minimum="0" Maximum="5" Value="{Binding FadeInValue}"
+                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowFadeControls}">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding FadeOutValue, StringFormat={}{0:0.00}s}"
+                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                            <TextBlock Text="Fade Out" Foreground="#8a8a8a" FontSize="11"/>
+                                        </DockPanel>
+                                        <Slider Minimum="0" Maximum="5" Value="{Binding FadeOutValue}"
+                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowAudioControls}">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding VolumeValue, StringFormat={}{0:P0}}"
+                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                            <TextBlock Text="Volume" Foreground="#8a8a8a" FontSize="11"/>
+                                        </DockPanel>
+                                        <Slider Minimum="0" Maximum="1" Value="{Binding VolumeValue}"
+                                                TickFrequency="0.01" IsSnapToTickEnabled="False"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6" Margin="0,8,0,0" IsVisible="{Binding ShowVideoControls}">
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Content="Reset"
+                                                    Command="{Binding ResetCropCommand}"
+                                                    Padding="8,2" FontSize="11"
+                                                    Background="#333333" Foreground="#cccccc"
+                                                    BorderThickness="0" CornerRadius="3"/>
+                                            <TextBlock Text="CROP" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                        <StackPanel Spacing="2">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding CropTop, StringFormat={}{0:P0}}"
+                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                                <TextBlock Text="Top" Foreground="#8a8a8a" FontSize="11"/>
+                                            </DockPanel>
+                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropTop}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="2">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding CropBottom, StringFormat={}{0:P0}}"
+                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                                <TextBlock Text="Bottom" Foreground="#8a8a8a" FontSize="11"/>
+                                            </DockPanel>
+                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropBottom}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="2">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding CropLeft, StringFormat={}{0:P0}}"
+                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                                <TextBlock Text="Left" Foreground="#8a8a8a" FontSize="11"/>
+                                            </DockPanel>
+                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropLeft}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="2">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding CropRight, StringFormat={}{0:P0}}"
+                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                                <TextBlock Text="Right" Foreground="#8a8a8a" FontSize="11"/>
+                                            </DockPanel>
+                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropRight}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Spacing="6" IsVisible="{Binding ShowTrackSection}">
+                                    <TextBlock Text="TRACK" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding TrackNameLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Type" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding KindLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" IsVisible="{Binding TrackFlagsLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <TextBlock Text="State" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding TrackFlagsLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Spacing="6"
+                                            IsVisible="{Binding FileName, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Text="SOURCE" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="File" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding FileName}" Foreground="#dddddd" FontSize="12"
+                                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding FileName}"/>
+                                    </StackPanel>
+                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2" Margin="0,0,8,8"
+                                                    IsVisible="{Binding KindLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <TextBlock Text="Kind" Foreground="#8a8a8a" FontSize="11"/>
+                                            <TextBlock Text="{Binding KindLabel}" Foreground="#dddddd" FontSize="12"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2" Margin="0,0,0,8"
+                                                    IsVisible="{Binding ResolutionLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <TextBlock Text="Resolution" Foreground="#8a8a8a" FontSize="11"/>
+                                            <TextBlock Text="{Binding ResolutionLabel}" Foreground="#dddddd" FontSize="12"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2"
+                                                    IsVisible="{Binding DurationLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
+                                            <TextBlock Text="{Binding DurationLabel}" Foreground="#dddddd" FontSize="12"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8" IsVisible="{Binding ShowProxySection}">
+                                    <TextBlock Text="PROXY" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Status" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding ProxyStatusLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding ProxyDetail}"
+                                               Foreground="#8a8a8a" FontSize="11"
+                                               TextWrapping="Wrap"/>
+                                    <Button Content="{Binding ProxyActionLabel}"
+                                            Command="{Binding GenerateProxyCommand}"
+                                            IsEnabled="{Binding CanGenerateProxy}"
+                                            HorizontalAlignment="Stretch"
+                                            Padding="10,8"
+                                            Background="#2a4a7a"
+                                            Foreground="#ffffff"
+                                            BorderThickness="0"
+                                            CornerRadius="4"/>
+                                </StackPanel>
+
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
         </Grid>
     </DockPanel>
 </UserControl>

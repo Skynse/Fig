@@ -6,6 +6,7 @@ using Avalonia.Markup.Xaml;
 using Fig.App.Services;
 using Fig.App.ViewModels;
 using Fig.Core.Media;
+using Fig.Core.Timeline;
 
 namespace Fig.App.Views;
 
@@ -13,6 +14,12 @@ public partial class EditorView : UserControl
 {
     public static readonly DataFormat<MediaAsset> MediaFormat =
         DataFormat<MediaAsset>.CreateInProcessFormat<MediaAsset>("fig.media");
+
+    public static readonly DataFormat<EffectCatalogEntry> EffectFormat =
+        DataFormat<EffectCatalogEntry>.CreateInProcessFormat<EffectCatalogEntry>("fig.effect");
+
+    public static readonly DataFormat<TransitionCatalogEntry> TransitionFormat =
+        DataFormat<TransitionCatalogEntry>.CreateInProcessFormat<TransitionCatalogEntry>("fig.transition");
 
     private const double DragThresholdPx = 8.0;
     private bool _dragArmed;
@@ -91,6 +98,51 @@ public partial class EditorView : UserControl
     }
 
     private void MediaCard_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _dragArmed = false;
+    }
+
+    private void CatalogCard_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+        if (sender is not Control { DataContext: EffectCatalogEntry or TransitionCatalogEntry })
+            return;
+
+        _dragArmed = true;
+        _pressPoint = e.GetPosition(this);
+        _pressEvent = e;
+    }
+
+    private void CatalogCard_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_dragArmed || sender is not Control card || _pressEvent is null)
+            return;
+
+        var delta = e.GetPosition(this) - _pressPoint;
+        var dist = Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y);
+        if (dist < DragThresholdPx)
+            return;
+
+        _dragArmed = false;
+
+        var transfer = new DataTransfer();
+        switch (card.DataContext)
+        {
+            case EffectCatalogEntry effect:
+                transfer.Add(DataTransferItem.Create(EffectFormat, effect));
+                break;
+            case TransitionCatalogEntry transition:
+                transfer.Add(DataTransferItem.Create(TransitionFormat, transition));
+                break;
+            default:
+                return;
+        }
+
+        DragDrop.DoDragDropAsync(_pressEvent, transfer, DragDropEffects.Copy);
+    }
+
+    private void CatalogCard_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         _dragArmed = false;
     }

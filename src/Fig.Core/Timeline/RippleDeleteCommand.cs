@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Fig.Core.Timeline;
 
 namespace Fig.Core.Timeline
@@ -12,6 +13,7 @@ namespace Fig.Core.Timeline
         private readonly List<(Clip Clip, Track Track, int Index)> _removed = new();
         private readonly List<(Clip Clip, double OldStart)> _following = new();
         private double _removedDur;
+        private double _rippleFromSec;
 
         public string Description => $"Ripple-delete linked group of {_clipId}";
 
@@ -30,30 +32,37 @@ namespace Fig.Core.Timeline
             _removed.Clear();
             _following.Clear();
             _removedDur = 0;
+            _rippleFromSec = double.MaxValue;
 
             foreach (var clip in group)
             {
                 var track = _editor.FindClipTrack(clip.Id)!;
                 _removed.Add((clip, track, track.Clips.IndexOf(clip)));
                 _removedDur = Math.Max(_removedDur, clip.DurSec);
+                _rippleFromSec = Math.Min(_rippleFromSec, clip.StartSec);
             }
 
             foreach (var (clip, track, _) in _removed)
                 track.Clips.Remove(clip);
 
-            // ripple: shift every clip after the removed region on every track
+            // only close the gap on tracks that actually lost a clip — never shift
+            // unrelated clips on other tracks (that was deleting/moving "random" clips)
+            var affectedTrackIds = _removed.Select(r => r.Track.Id).ToHashSet();
             foreach (var track in _editor.Document.Tracks)
             {
+                if (!affectedTrackIds.Contains(track.Id))
+                    continue;
+
                 var snaps = new List<(Clip Clip, double OldStart)>();
                 for (var i = 0; i < track.Clips.Count; i++)
                 {
                     var c = track.Clips[i];
-                    if (c.StartSec >= _removed[0].Clip.StartSec)
+                    if (c.StartSec >= _rippleFromSec)
                         snaps.Add((c, c.StartSec));
                 }
                 foreach (var (clip, oldStart) in snaps)
                 {
-                    clip.StartSec = oldStart - _removedDur;
+                    clip.StartSec = Math.Max(0, oldStart - _removedDur);
                     _following.Add((clip, oldStart));
                 }
             }
@@ -74,7 +83,7 @@ namespace Fig.Core.Timeline
                 track.Clips.Remove(clip);
 
             foreach (var (clip, oldStart) in _following)
-                clip.StartSec = oldStart - _removedDur;
+                clip.StartSec = Math.Max(0, oldStart - _removedDur);
         }
     }
 }

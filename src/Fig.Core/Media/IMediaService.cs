@@ -15,6 +15,12 @@ namespace Fig.Core.Media
         /// <summary>Generates a horizontal sprite-sheet filmstrip of aspect-correct tiles.</summary>
         FilmstripInfo GenerateFilmstrip(string sourcePath, string outputPath, int tileHeight = 60);
 
+        /// <summary>
+        /// Re-encodes video to a lightweight H.264 MP4 proxy for scrub/playback.
+        /// Returns <see cref="ProxyInfo.Skipped"/> when the source is already small enough.
+        /// </summary>
+        ProxyInfo GenerateProxy(string sourcePath, string outputPath, int maxHeight = 720);
+
         /// <summary>Decodes the audio stream and returns normalized peak magnitudes (0..1) per bucket.</summary>
         float[] ExtractPeaks(string sourcePath, int buckets);
 
@@ -35,8 +41,15 @@ namespace Fig.Core.Media
         /// Decodes a contiguous chunk of audio starting at <paramref name="startSec"/> for
         /// <paramref name="durationSec"/>, resampled to stereo float at <paramref name="sampleRate"/>.
         /// Returns interleaved L/R samples; may return fewer than requested at the end of the media.
+        /// Prefer <see cref="OpenAudioSource"/> during playback so consecutive chunks don't re-seek.
         /// </summary>
         float[] DecodeSamples(string sourcePath, double startSec, double durationSec, int sampleRate = 48000);
+
+        /// <summary>
+        /// Opens a persistent sequential audio decoder for smooth forward playback.
+        /// Consecutive <see cref="IAudioSampleSource.Read"/> calls decode forward without re-seeking.
+        /// </summary>
+        IAudioSampleSource OpenAudioSource(string sourcePath, int sampleRate = 48000);
     }
 
     /// <summary>A decoded video frame as raw BGRA32 pixels (bottom-up row order, like ffmpeg).</summary>
@@ -67,6 +80,27 @@ namespace Fig.Core.Media
         double LastPresentedTimeSec { get; }
     }
 
+    /// <summary>
+    /// A persistent audio decoder for smooth forward playback. Keeps demux/decode/resample
+    /// open so consecutive mix chunks don't re-open the file and re-seek (which crackles).
+    /// </summary>
+    public interface IAudioSampleSource : IDisposable
+    {
+        /// <summary>
+        /// Reads interleaved stereo float samples covering
+        /// [<paramref name="startSec"/>, <paramref name="startSec"/> + <paramref name="durationSec"/>).
+        /// Always returns a buffer sized for the full request (pads with silence at EOF).
+        /// Seeks automatically when the start is not contiguous with the previous read.
+        /// </summary>
+        float[] Read(double startSec, double durationSec);
+
+        /// <summary>Random-access seek (scrub / jump).</summary>
+        void Seek(double timeSec);
+
+        /// <summary>Source time of the next sample that would be produced.</summary>
+        double NextTimeSec { get; }
+    }
+
     public class ProbeResult
     {
         public MediaAsset? Asset { get; set; }
@@ -81,5 +115,14 @@ namespace Fig.Core.Media
         public int FrameHeight { get; set; }
         public int FrameCount { get; set; }
         public double FrameIntervalSec { get; set; }
+    }
+
+    public class ProxyInfo
+    {
+        public string Path { get; set; } = "";
+        public int Width { get; set; }
+        public int Height { get; set; }
+        /// <summary>True when the source was already small enough that no proxy file was written.</summary>
+        public bool Skipped { get; set; }
     }
 }
