@@ -7,7 +7,7 @@ namespace Fig.Core.Timeline
     {
         public static Clip Clone(Clip source)
         {
-            return source.Kind switch
+            Clip clone = source.Kind switch
             {
                 ClipKind.Video => new VideoClip
                 {
@@ -45,6 +45,8 @@ namespace Fig.Core.Timeline
                 },
                 _ => throw new NotSupportedException($"Unsupported clip kind '{source.Kind}'")
             };
+            clone.LinkGroupId = source.LinkGroupId;
+            return clone;
         }
 
         public static Clip CloneWithRange(Clip source, double startSec, double durSec, double srcInSec, double srcOutSec)

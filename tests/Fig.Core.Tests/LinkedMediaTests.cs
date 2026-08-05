@@ -1,0 +1,163 @@
+using Fig.Core.Media;
+using Fig.Core.Timeline;
+using TimelineModel = Fig.Core.Timeline.Timeline;
+
+namespace Fig.Core.Tests;
+
+public class LinkedMediaTests
+{
+    private static TimelineEditor CreateEditor()
+    {
+        var video = new Track { Kind = TrackKind.Video, Index = 0, Name = "V1" };
+        var timeline = new TimelineModel
+        {
+            Rate = FrameRate.Common(30),
+            Tracks = { video },
+        };
+        return new TimelineEditor(timeline);
+    }
+
+    private static MediaAsset VideoWithAudio(string id, double dur = 10)
+        => new() { Id = id, Kind = MediaKind.Video, Url = $"/tmp/{id}.mp4", DurationSec = dur, HasAudio = true };
+
+    private static MediaAsset VideoWithoutAudio(string id, double dur = 10)
+        => new() { Id = id, Kind = MediaKind.Video, Url = $"/tmp/{id}.mp4", DurationSec = dur, HasAudio = false };
+
+    [Fact]
+    public void AddMediaLinked_VideoWithAudio_CreatesLinkedAudioClipOnAudioTrack()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid1");
+        var videoTrack = editor.Document.Tracks[0];
+
+        var clip = editor.AddMediaLinked(asset, videoTrack.Id, 2.5);
+
+        Assert.IsType<VideoClip>(clip);
+        Assert.Equal(2.5, clip.StartSec);
+        Assert.False(string.IsNullOrEmpty(clip.LinkGroupId), "video clip must be linked");
+
+        var audioTrack = editor.Document.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio);
+        Assert.NotNull(audioTrack);
+
+        var audioClip = Assert.Single(audioTrack!.Clips);
+        Assert.IsType<AudioClip>(audioClip);
+        Assert.Equal(clip.LinkGroupId, audioClip.LinkGroupId);
+        Assert.Equal(clip.StartSec, audioClip.StartSec);
+        Assert.Equal(clip.DurSec, audioClip.DurSec);
+        Assert.Equal(asset.Id, ((AudioClip)audioClip).SourceId);
+    }
+
+    [Fact]
+    public void AddMediaLinked_VideoWithoutAudio_CreatesOnlyVideoClip()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithoutAudio("vid2");
+        var videoTrack = editor.Document.Tracks[0];
+
+        editor.AddMediaLinked(asset, videoTrack.Id, 0);
+
+        Assert.Null(editor.Document.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio));
+        Assert.Single(videoTrack.Clips);
+        Assert.True(string.IsNullOrEmpty(videoTrack.Clips[0].LinkGroupId));
+    }
+
+    [Fact]
+    public void Move_LinkedGroup_MovesVideoAndAudioTogether()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid3");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+        var audio = audioTrack.Clips[0];
+
+        editor.Move(video.Id, 5);
+
+        Assert.Equal(5, video.StartSec);
+        Assert.Equal(5, audio.StartSec);
+    }
+
+    [Fact]
+    public void SplitAtPlayhead_CutsLinkedGroup_OnBothTracks()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid4");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        editor.SplitAtPlayhead(videoTrack.Id, 4);
+
+        Assert.Equal(2, videoTrack.Clips.Count);
+        Assert.Equal(2, audioTrack.Clips.Count);
+        // both tracks keep matching link groups on each half
+        Assert.Equal(videoTrack.Clips[0].LinkGroupId, audioTrack.Clips[0].LinkGroupId);
+        Assert.Equal(videoTrack.Clips[1].LinkGroupId, audioTrack.Clips[1].LinkGroupId);
+        Assert.Equal(4, videoTrack.Clips[0].DurSec);
+        Assert.Equal(6, videoTrack.Clips[1].DurSec);
+    }
+
+    [Fact]
+    public void RippleDelete_LinkedGroup_RemovesBothClips_AndRipplesAllTracks()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid5");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        // second clip on the video track after the group, should ripple
+        var tail = new VideoClip { Id = "tail", SourceId = "x", StartSec = 10, DurSec = 5, SrcInSec = 0, SrcOutSec = 5 };
+        editor.AddClip(videoTrack.Id, tail);
+
+        editor.RippleDelete(video.Id);
+
+        Assert.DoesNotContain(videoTrack.Clips, c => c.Id == video.Id);
+        Assert.DoesNotContain(audioTrack.Clips, c => c.LinkGroupId == video.LinkGroupId);
+        Assert.Equal(0, tail.StartSec);   // rippled back by the removed 10s
+    }
+
+    [Fact]
+    public void LinkGroup_Undo_OfRippleDelete_RestoresBothTracks()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid6");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+
+        editor.RippleDelete(video.Id);
+        editor.Undo();
+
+        Assert.Single(videoTrack.Clips);
+        Assert.Single(audioTrack.Clips);
+        Assert.Equal(video.Id, videoTrack.Clips[0].Id);
+    }
+
+    [Fact]
+    public void TrimLinked_AppliesTrimToWholeGroup()
+    {
+        var editor = CreateEditor();
+        var asset = VideoWithAudio("vid7");
+        var videoTrack = editor.Document.Tracks[0];
+        var video = editor.AddMediaLinked(asset, videoTrack.Id, 0);
+        var audioTrack = editor.Document.Tracks.First(t => t.Kind == TrackKind.Audio);
+        var audio = audioTrack.Clips[0];
+
+        editor.TrimLinked(video.Id, 2, 8);
+
+        Assert.Equal(2, ((VideoClip)video).SrcInSec);
+        Assert.Equal(8, ((VideoClip)video).SrcOutSec);
+        Assert.Equal(2, ((AudioClip)audio).SrcInSec);
+        Assert.Equal(8, ((AudioClip)audio).SrcOutSec);
+    }
+
+    [Fact]
+    public void TimelineGeometry_ClipFitsInsideTrack()
+    {
+        // label strip + body must fit within the track height with room for padding
+        Assert.True(TimelineGeometry.ClipTotalHeight < TimelineGeometry.TrackHeight);
+        Assert.True(TimelineGeometry.ClipLabelHeight > 0);
+        Assert.True(TimelineGeometry.ClipHeight > TimelineGeometry.ClipLabelHeight);
+    }
+}

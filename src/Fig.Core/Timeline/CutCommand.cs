@@ -89,7 +89,7 @@ namespace Fig.Core.Timeline
 
         private Clip CloneSecondHalf(Clip first, double offset)
         {
-            return first.Kind switch
+            Clip result = first.Kind switch
             {
                 ClipKind.Video => new VideoClip
                 {
@@ -127,6 +127,8 @@ namespace Fig.Core.Timeline
                 },
                 _ => throw new NotSupportedException($"Unsupported clip kind '{first.Kind}'")
             };
+            result.LinkGroupId = first.LinkGroupId;
+            return result;
         }
 
         private static void SetSourceRange(Clip clip, double inSec, double outSec)

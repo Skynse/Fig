@@ -14,7 +14,8 @@ public class ProjectManagerTests
     {
         var project = ProjectModel.Create("test");
         var media = new MediaService();
-        return (new ProjectManager(project, media), project, media);
+        var cache = Path.Combine(Path.GetTempPath(), $"fig_cache_{Guid.NewGuid():N}");
+        return (new ProjectManager(project, media, cache), project, media);
     }
 
     [Fact]
@@ -22,8 +23,10 @@ public class ProjectManagerTests
     {
         var (manager, project, _) = Create();
 
-        var asset = manager.ImportMedia(AssetPath);
+        var result = manager.ImportMedia(AssetPath);
+        var asset = result.Asset!;
 
+        Assert.True(result.Success);
         Assert.Single(project.Media);
         Assert.Equal(asset.Id, project.Media[0].Id);
         Assert.Equal(AssetPath, asset.Url);
@@ -37,8 +40,8 @@ public class ProjectManagerTests
     {
         var (manager, project, _) = Create();
 
-        var first = manager.ImportMedia(AssetPath);
-        var second = manager.ImportMedia(AssetPath);
+        var first = manager.ImportMedia(AssetPath).Asset!;
+        var second = manager.ImportMedia(AssetPath).Asset!;
 
         Assert.Single(project.Media);
         Assert.Same(first, second);
@@ -49,7 +52,7 @@ public class ProjectManagerTests
     public void RemoveMedia_RemovesAsset()
     {
         var (manager, project, _) = Create();
-        var asset = manager.ImportMedia(AssetPath);
+        var asset = manager.ImportMedia(AssetPath).Asset!;
 
         Assert.True(manager.RemoveMedia(asset.Id));
         Assert.Empty(project.Media);
@@ -67,6 +70,157 @@ public class ProjectManagerTests
 
         Assert.Equal(1, raised);
     }
+
+    [Fact]
+    public void ImportMedia_EmptyFile_ReturnsErrorInsteadOfThrowing()
+    {
+        var (manager, project, _) = Create();
+        var badPath = Path.Combine(Path.GetTempPath(), $"fig_bad_{Guid.NewGuid():N}.mkv");
+        File.WriteAllBytes(badPath, Array.Empty<byte>());
+        try
+        {
+            var result = manager.ImportMedia(badPath);
+
+            Assert.False(result.Success);
+            Assert.Null(result.Asset);
+            Assert.False(string.IsNullOrEmpty(result.Error));
+            Assert.Empty(project.Media);
+        }
+        finally
+        {
+            File.Delete(badPath);
+        }
+    }
+
+    [Fact]
+    public void ImportMedia_GeneratesThumbnailInCache()
+    {
+        var (manager, project, _) = Create();
+
+        var asset = manager.ImportMedia(AssetPath).Asset!;
+
+        Assert.False(string.IsNullOrEmpty(asset.Thumbnail));
+        Assert.True(File.Exists(asset.Thumbnail), $"thumbnail missing at {asset.Thumbnail}");
+
+        var bytes = File.ReadAllBytes(asset.Thumbnail!);
+        Assert.True(bytes.Length > 100, "thumbnail too small");
+        Assert.Equal(0xFF, bytes[0]);   // JPEG SOI marker
+        Assert.Equal(0xD8, bytes[1]);
+    }
+
+    [Fact]
+    public void ImportMedia_Video_GeneratesFilmstrip()
+    {
+        var (manager, project, _) = Create();
+
+        var asset = manager.ImportMedia(AssetPath).Asset!;
+
+        Assert.Equal(MediaKind.Video, asset.Kind);
+        Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
+        Assert.True(File.Exists(asset.Filmstrip), $"filmstrip missing at {asset.Filmstrip}");
+
+        var bytes = File.ReadAllBytes(asset.Filmstrip!);
+        Assert.True(bytes.Length > 500, "filmstrip too small");
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
+
+        Assert.True(asset.FilmstripFrameWidth > 0, "frame width missing");
+        Assert.True(asset.FilmstripFrameHeight > 0, "frame height missing");
+        Assert.True(asset.FilmstripFrameCount >= 8, "frame count too small");
+        Assert.True(asset.FilmstripFrameIntervalSec > 0, "frame interval missing");
+    }
+
+    [Fact]
+    public void ValidateAndRepair_BackfillsHasAudio_ForLegacyAssets()
+    {
+        var (manager, project, _) = Create();
+
+        // simulate a legacy asset saved before HasAudio existed (JSON defaults it to false)
+        var asset = new MediaAsset
+        {
+            Id = Guid.NewGuid().ToString(),
+            Kind = MediaKind.Video,
+            Url = AssetPath,
+            Hash = "legacy-audio",
+            DurationSec = 3,
+            HasAudio = false,
+        };
+        project.Media.Add(asset);
+
+        manager.ValidateAndRepair();
+
+        Assert.True(asset.HasAudio, "validation must re-probe and restore HasAudio=true for a video with audio");
+    }
+
+    [Fact]
+    public void ValidateAndRepair_RepairsMissingFilmstrip_AndReportsOffline()
+    {
+        var (manager, project, _) = Create();
+
+        // simulate a stale/legacy asset: source present, filmstrip missing entirely
+        var asset = new MediaAsset
+        {
+            Id = Guid.NewGuid().ToString(),
+            Kind = MediaKind.Video,
+            Url = AssetPath,
+            Hash = "legacy-hash",
+            DurationSec = 3,
+        };
+        project.Media.Add(asset);
+
+        var notes = new List<string>();
+        var report = manager.ValidateAndRepair(notes.Add);
+
+        Assert.Equal(1, report.AssetsChecked);
+        Assert.Equal(0, report.OfflineAssets);
+        Assert.Equal(0, report.FailedArtifacts);
+        Assert.True(report.ArtifactsRepaired >= 1, "expected filmstrip repair");
+        Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
+        Assert.True(File.Exists(asset.Filmstrip), "filmstrip not written");
+        Assert.True(asset.FilmstripFrameWidth > 0);
+
+        // now break the source: validation should flag offline and NOT throw
+        var offline = new MediaAsset
+        {
+            Id = Guid.NewGuid().ToString(),
+            Kind = MediaKind.Video,
+            Url = Path.Combine(Path.GetTempPath(), "does-not-exist.mp4"),
+            Hash = "missing",
+        };
+        project.Media.Add(offline);
+
+        var report2 = manager.ValidateAndRepair();
+        Assert.Equal(1, report2.OfflineAssets);
+        Assert.True(offline.Offline);
+        Assert.Equal(1, report2.Notes.Count(n => n.Contains("missing", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void ExtractPeaks_ReturnsBuckets_WithContent()
+    {
+        var media = new MediaService();
+
+        var peaks = media.ExtractPeaks(AssetPath, 16);
+
+        Assert.Equal(16, peaks.Length);
+        Assert.All(peaks, p => Assert.InRange(p, 0f, 1.01f));
+        Assert.True(peaks.Max() > 0.5f, "expected audible content somewhere");
+    }
+
+    [Fact]
+    public void ImportAudioAsset_DecodesWaveformPeaks()
+    {
+        var (manager, project, _) = Create();
+
+        var result = manager.ImportMedia(AssetPath);
+        var asset = result.Asset!;
+
+        Assert.True(asset.HasAudio, "test asset should have audio");
+        Assert.NotNull(asset.WaveformPeaks);
+        Assert.True(asset.WaveformPeaks!.Length > 100, "peaks too sparse for a 3s clip");
+        Assert.All(asset.WaveformPeaks, p => Assert.InRange(p, 0f, 1.01f));
+        Assert.True(asset.WaveformPeaks.Max() > 0.5f, "expected audible content somewhere");
+    }
 }
 
 public class SaveServiceTests
@@ -81,7 +235,8 @@ public class SaveServiceTests
         {
             var project = ProjectModel.Create("roundtrip");
             var media = new MediaService();
-            var manager = new ProjectManager(project, media);
+            var manager = new ProjectManager(project, media,
+                Path.Combine(Path.GetTempPath(), $"fig_cache_{Guid.NewGuid():N}"));
             manager.ImportMedia(AssetPath);
 
             var track = new Track { Kind = TrackKind.Video, Index = 0 };

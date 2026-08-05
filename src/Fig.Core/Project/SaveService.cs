@@ -30,6 +30,7 @@ namespace Fig.Core.Project
 
         public void Save(Project project)
         {
+            project.UpdatedAt = DateTime.Now;
             var tmp = Path + ".tmp";
             var json = JsonSerializer.Serialize(project, Options);
             File.WriteAllText(tmp, json);

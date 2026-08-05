@@ -9,12 +9,11 @@ namespace Fig.Core.Timeline
         private readonly TimelineEditor _editor;
         private readonly string _clipId;
 
-        private Clip? _clip;
-        private Track? _track;
-        private int _index;
+        private readonly List<(Clip Clip, Track Track, int Index)> _removed = new();
         private readonly List<(Clip Clip, double OldStart)> _following = new();
+        private double _removedDur;
 
-        public string Description => $"Ripple-delete clip {_clipId}";
+        public string Description => $"Ripple-delete linked group of {_clipId}";
 
         public RippleDeleteCommand(TimelineEditor editor, string clipId)
         {
@@ -24,51 +23,58 @@ namespace Fig.Core.Timeline
 
         public void Execute()
         {
+            var group = _editor.LinkGroup(_clipId);
+            if (group.Count == 0)
+                throw new InvalidOperationException($"Clip '{_clipId}' not found");
 
-            // cut, but snap the second clip to the first (useful for most workflows, and what I like to do)
-            _clip = _editor.FindClip(_clipId)
-                    ?? throw new InvalidOperationException($"Clip '{_clipId}' not found");
-            _track = _editor.FindClipTrack(_clipId)!;
-            _index = _track.Clips.IndexOf(_clip);
-
-            var removedDur = _clip.DurSec;
-
+            _removed.Clear();
             _following.Clear();
-            for (var i = _index + 1; i < _track.Clips.Count; i++)
+            _removedDur = 0;
+
+            foreach (var clip in group)
             {
-                var clip = _track.Clips[i];
-                _following.Add((clip, clip.StartSec));
-                clip.StartSec -= removedDur;
+                var track = _editor.FindClipTrack(clip.Id)!;
+                _removed.Add((clip, track, track.Clips.IndexOf(clip)));
+                _removedDur = Math.Max(_removedDur, clip.DurSec);
             }
 
-            _track.Clips.RemoveAt(_index);
+            foreach (var (clip, track, _) in _removed)
+                track.Clips.Remove(clip);
+
+            // ripple: shift every clip after the removed region on every track
+            foreach (var track in _editor.Document.Tracks)
+            {
+                var snaps = new List<(Clip Clip, double OldStart)>();
+                for (var i = 0; i < track.Clips.Count; i++)
+                {
+                    var c = track.Clips[i];
+                    if (c.StartSec >= _removed[0].Clip.StartSec)
+                        snaps.Add((c, c.StartSec));
+                }
+                foreach (var (clip, oldStart) in snaps)
+                {
+                    clip.StartSec = oldStart - _removedDur;
+                    _following.Add((clip, oldStart));
+                }
+            }
         }
 
         public void Undo()
         {
-            if (_clip is null || _track is null)
-                return;
-
             foreach (var (clip, oldStart) in _following)
                 clip.StartSec = oldStart;
 
-            _track.Clips.Insert(Math.Min(_index, _track.Clips.Count), _clip);
+            foreach (var (clip, track, index) in _removed)
+                track.Clips.Insert(Math.Min(index, track.Clips.Count), clip);
         }
 
         public void Redo()
         {
-            if (_clip is null || _track is null)
-                return;
+            foreach (var (clip, track, _) in _removed)
+                track.Clips.Remove(clip);
 
-            _index = _track.Clips.IndexOf(_clip);
-            if (_index < 0)
-                _index = _track.Clips.Count;
-            else
-                _track.Clips.RemoveAt(_index);
-
-            var removedDur = _clip.DurSec;
-            for (var i = _index; i < _track.Clips.Count; i++)
-                _track.Clips[i].StartSec -= removedDur;
+            foreach (var (clip, oldStart) in _following)
+                clip.StartSec = oldStart - _removedDur;
         }
     }
 }

@@ -13,6 +13,13 @@ namespace Fig.Core.Timeline
     {
         public abstract ClipKind Kind { get; }
         public string Id { get; set; } = Guid.NewGuid().ToString();
+
+        /// <summary>
+        /// Clips sharing the same non-null group id are linked and move/resize/cut/
+        /// delete together (e.g. a video clip and its companion audio clip).
+        /// </summary>
+        public string? LinkGroupId { get; set; }
+
         public double StartSec { get; set; }
         public double DurSec { get; set; }
         public double Speed { get; set; } = 1.0;
