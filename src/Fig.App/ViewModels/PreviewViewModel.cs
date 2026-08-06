@@ -26,7 +26,10 @@ public partial class PreviewViewModel : ViewModelBase
     private readonly Dictionary<string, IVideoFrameSource> _sources = new();
     // Paths that failed to open — skip re-open spam (FFmpeg "moov atom not found") until InvalidateSources.
     private readonly HashSet<string> _failedPaths = new();
+    private readonly PreviewFrameCache _frameCache = new(capacity: 64, bucketSec: 1.0 / 30.0);
     private double _lastRequestSec = -1;
+    private double _lastRenderedTimeSec;
+    private int _consecutiveDrops;
 
     /// <summary>Invoked on the UI thread with a freshly composited BGRA frame to present.</summary>
     public event Action<int, int, byte[]>? FrameReady;
@@ -66,6 +69,7 @@ public partial class PreviewViewModel : ViewModelBase
                 source.Dispose();
             _sources.Clear();
             _failedPaths.Clear();
+            _frameCache.Clear();
         }
         _lastRequestSec = -1;
     }
@@ -123,9 +127,25 @@ public partial class PreviewViewModel : ViewModelBase
     /// Requests a frame at the current playhead. A single worker loop consumes these so the
     /// decoder is never touched from two threads at once, and during playback it always decodes
     /// toward the newest position (dropping intermediate ones), which removes jitter.
+    /// 
+    /// During playback, frames are throttled to the timeline framerate so we never decode
+    /// more frames than the display can show — audio position callbacks fire at ~100 Hz but
+    /// video only needs ~30 fps.
     /// </summary>
     private void RequestFrame()
     {
+        var scrubbing = _editor is not { IsPlaying: true };
+        if (!scrubbing)
+        {
+            var frameDur = 1.0 / Math.Max(_editor?.Editor.Document.Rate.Fps ?? 30, 1);
+            if (_playheadSec - _lastRenderedTimeSec < frameDur * 0.9)
+            {
+                _consecutiveDrops++;
+                return;
+            }
+            _consecutiveDrops = 0;
+        }
+
         lock (_decodeLock)
         {
             _pendingPlayhead = _playheadSec;
@@ -173,6 +193,8 @@ public partial class PreviewViewModel : ViewModelBase
             var (width, height, buffer, status) = await Task.Run(() =>
             {
                 var needsSeek = target < _lastRequestSec - 0.05;
+                var scrubbing = _editor is not { IsPlaying: true };
+                var decodeMode = scrubbing ? PreviewDecodeMode.Scrub : PreviewDecodeMode.Playback;
                 _lastRequestSec = target;
 
                 var size = _targetWidth * _targetHeight * 4;
@@ -192,8 +214,8 @@ public partial class PreviewViewModel : ViewModelBase
                     && activeTx.Outgoing is VideoClip outVc
                     && activeTx.Incoming is VideoClip inVc
                     && TransitionRegistry.Resolve(activeTx.TypeId) is { } blender
-                    && TryDecodeClipFrame(outVc, target, needsSeek, out var outFrame, out var outLocal)
-                    && TryDecodeClipFrame(inVc, target, needsSeek, out var inFrame, out var inLocal))
+                    && TryDecodeClipFrame(outVc, target, needsSeek, decodeMode, out var outFrame, out var outLocal)
+                    && TryDecodeClipFrame(inVc, target, needsSeek, decodeMode, out var inFrame, out var inLocal))
                 {
                     outFrame = EffectPipeline.ApplyStack(outFrame!, outVc.Effects, outLocal);
                     inFrame = EffectPipeline.ApplyStack(inFrame!, inVc.Effects, inLocal);
@@ -209,12 +231,15 @@ public partial class PreviewViewModel : ViewModelBase
                     return (_targetWidth, _targetHeight, pixels, "No video at playhead");
 
                 var composites = new List<CompositeLayer>(layers.Count);
+                var cacheHits = 0;
                 foreach (var layer in layers)
                 {
                     DecodedFrame? frame = null;
                     try
                     {
-                        frame = DecodeLayerFrame(layer, needsSeek);
+                        frame = DecodeLayerFrame(layer, needsSeek, decodeMode, out var fromCache);
+                        if (fromCache)
+                            cacheHits++;
                         if (frame is not null)
                         {
                             var localT = target - layer.Clip.StartSec;
@@ -234,7 +259,10 @@ public partial class PreviewViewModel : ViewModelBase
                 }
 
                 FrameCompositor.ComposeInto(composites, _targetWidth, _targetHeight, pixels);
-                return (_targetWidth, _targetHeight, pixels, $"{_targetWidth}x{_targetHeight} · {layers.Count} layer(s)");
+                var modeTag = scrubbing ? "scrub" : "play";
+                var cacheTag = cacheHits > 0 ? $" · cache {cacheHits}/{layers.Count}" : "";
+                return (_targetWidth, _targetHeight, pixels,
+                    $"{_targetWidth}x{_targetHeight} · {layers.Count} layer(s) · {modeTag}{cacheTag}");
             });
 
             if (status == "No video at playhead")
@@ -244,9 +272,16 @@ public partial class PreviewViewModel : ViewModelBase
             }
 
             if (Dispatcher.UIThread.CheckAccess())
+            {
+                _lastRenderedTimeSec = target;
                 FrameReady?.Invoke(width, height, buffer);
+            }
             else
-                await Dispatcher.UIThread.InvokeAsync(() => FrameReady?.Invoke(width, height, buffer));
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _lastRenderedTimeSec = target;
+                    FrameReady?.Invoke(width, height, buffer);
+                });
 
             SetDecodeStatus(status);
         }
@@ -256,40 +291,41 @@ public partial class PreviewViewModel : ViewModelBase
         }
     }
 
-    private DecodedFrame? DecodeLayerFrame(PreviewLayer layer, bool needsSeek)
+    private DecodedFrame? DecodeLayerFrame(
+        PreviewLayer layer, bool needsSeek, PreviewDecodeMode mode, out bool fromCache)
     {
-        IVideoFrameSource source;
-        lock (_decodeLock)
+        fromCache = false;
+        // Effects invalidate pixel identity — only cache plain source frames (no crop/fx applied yet).
+        // Crop/fx are applied after; caching pre-fx frames is still a big scrub win.
+        if (layer.Clip.Effects.Count == 0
+            && _frameCache.TryGet(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, out var cached)
+            && cached is not null)
         {
-            if (!_sources.TryGetValue(layer.SourcePath, out source!))
-            {
-                if (_failedPaths.Contains(layer.SourcePath))
-                    return null;
-                try
-                {
-                    source = _media.OpenVideoSource(layer.SourcePath, _targetWidth, _targetHeight);
-                    _sources[layer.SourcePath] = source;
-                }
-                catch
-                {
-                    _failedPaths.Add(layer.SourcePath);
-                    return null;
-                }
-            }
+            fromCache = true;
+            return cached;
         }
+
+        if (!TryGetOrOpenSource(layer.SourcePath, out var source) || source is null)
+            return null;
+
         if (needsSeek
             || source.LastPresentedTimeSec < 0
             || layer.TimeSec < source.LastPresentedTimeSec - 0.05)
         {
             source.Seek(layer.TimeSec);
         }
-        return source.DecodeForward(layer.TimeSec);
+
+        var frame = source.DecodeForward(layer.TimeSec, mode);
+        if (frame is not null && layer.Clip.Effects.Count == 0)
+            _frameCache.Put(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, frame);
+        return frame;
     }
 
     private bool TryDecodeClipFrame(
         VideoClip clip,
         double timelineSec,
         bool needsSeek,
+        PreviewDecodeMode mode,
         out DecodedFrame? frame,
         out double localT)
     {
@@ -304,16 +340,23 @@ public partial class PreviewViewModel : ViewModelBase
         {
             var path = asset.PlaybackVideoPath;
             if (!TryGetOrOpenSource(path, out var source)
-                && !( !string.Equals(path, asset.Url, StringComparison.Ordinal)
-                      && !string.IsNullOrEmpty(asset.Url)
-                      && TryGetOrOpenSource(asset.Url, out source)))
+                && !(!string.Equals(path, asset.Url, StringComparison.Ordinal)
+                     && !string.IsNullOrEmpty(asset.Url)
+                     && TryGetOrOpenSource(asset.Url, out source)))
             {
-                // Incomplete/corrupt proxy open is remembered; original may still work.
                 return false;
             }
 
             if (source is null)
                 return false;
+
+            if (clip.Effects.Count == 0
+                && _frameCache.TryGet(path, srcTime, _targetWidth, _targetHeight, out var cached)
+                && cached is not null)
+            {
+                frame = cached;
+                return true;
+            }
 
             if (needsSeek
                 || source.LastPresentedTimeSec < 0
@@ -321,7 +364,9 @@ public partial class PreviewViewModel : ViewModelBase
             {
                 source.Seek(srcTime);
             }
-            frame = source.DecodeForward(srcTime);
+            frame = source.DecodeForward(srcTime, mode);
+            if (frame is not null && clip.Effects.Count == 0)
+                _frameCache.Put(path, srcTime, _targetWidth, _targetHeight, frame);
             return frame is not null;
         }
         catch

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Fig.Core.Audio;
@@ -59,16 +60,26 @@ namespace Fig.App.Services
         private double _seekBaseSec;          // timeline time of queue frame 0 (after Reset, Position starts at 0)
         private bool _disposed;
         private int _positionPostPending;    // coalesce UI position posts so the dispatcher never floods
+        private long _lastPositionEmitTicks; // throttle position emits so the UI isn't flooded during fill loops
+
+        private const long MinPositionEmitTicks = 15 * TimeSpan.TicksPerMillisecond; // ~66 Hz max
 
         public event Action<double>? PositionChanged;
 
         /// <summary>
         /// Raises <see cref="PositionChanged"/> on the UI thread. Concurrent raises are coalesced
         /// to the latest <see cref="PositionSec"/> so a slow UI never queues a backlog of
-        /// stale playhead updates.
+        /// stale playhead updates. Emits are also throttled to at most ~66 Hz so the audio
+        /// producer fill loop doesn't flood the dispatcher.
         /// </summary>
         private void RaisePositionChanged()
         {
+            var nowTicks = Stopwatch.GetTimestamp();
+            var elapsedTicks = nowTicks - _lastPositionEmitTicks;
+            if (elapsedTicks > 0 && elapsedTicks < MinPositionEmitTicks * Stopwatch.Frequency / TimeSpan.TicksPerSecond)
+                return;
+            _lastPositionEmitTicks = nowTicks;
+
             if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
             {
                 PositionChanged?.Invoke(PositionSec);

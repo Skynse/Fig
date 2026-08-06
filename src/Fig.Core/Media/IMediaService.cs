@@ -74,8 +74,14 @@ namespace Fig.Core.Media
         /// </summary>
         DecodedFrame? DecodeForward(double timeSec);
 
+        /// <summary>Decode with an explicit play vs scrub tradeoff.</summary>
+        DecodedFrame? DecodeForward(double timeSec, PreviewDecodeMode mode);
+
         /// <summary>Random-access seek (used when scrubbing backwards or jumping).</summary>
         void Seek(double timeSec);
+
+        /// <summary>Current decode mode (scrub skips non-ref frames).</summary>
+        PreviewDecodeMode Mode { get; set; }
 
         double LastPresentedTimeSec { get; }
     }

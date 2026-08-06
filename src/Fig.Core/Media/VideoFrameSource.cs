@@ -1,32 +1,56 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using FFmpeg.AutoGen;
 
 namespace Fig.Core.Media
 {
+    /// <summary>Decode quality vs speed tradeoff for preview.</summary>
+    public enum PreviewDecodeMode
+    {
+        /// <summary>Forward play: decode every frame, accurate timing.</summary>
+        Playback,
+        /// <summary>Scrub/seek: skip non-ref frames, accept nearest after seek.</summary>
+        Scrub,
+    }
+
     /// <summary>
-    /// A persistent sequential video decoder. The ffmpeg context stays open so playback
-    /// decodes forward without re-seeking on every frame. A backward jump (scrub) triggers
-    /// a random-access seek; a forward request just keeps decoding.
+    /// Persistent sequential video decoder tuned for preview:
+    /// multi-threaded decode, reused sws/buffers, optional scrub skip-frame mode.
     /// </summary>
     public sealed unsafe class VideoFrameSource : IVideoFrameSource
     {
-        private const int SWS_BILINEAR = 2;
+        private const int SwsBilinear = 2;
 
         private readonly AVFormatContext* _inCtx;
         private readonly AVCodecContext* _decCtx;
         private readonly int _vIdx;
-        private readonly AVStream* _stream;
         private readonly int _srcW, _srcH;
         private readonly int _outW, _outH;
         private readonly AVRational _timeBase;
 
         private AVFrame* _pendingFrame;
+        private AVFrame* _rgbFrame;
+        private SwsContext* _sws;
+        private AVPixelFormat _swsSrcFmt = AVPixelFormat.AV_PIX_FMT_NONE;
         private double _lastPresentedSec = -1;
         private DecodedFrame? _lastFrame;
+        private PreviewDecodeMode _mode = PreviewDecodeMode.Playback;
         private bool _disposed;
 
         public double LastPresentedTimeSec => _lastPresentedSec;
+
+        public PreviewDecodeMode Mode
+        {
+            get => _mode;
+            set
+            {
+                if (_mode == value)
+                    return;
+                _mode = value;
+                ApplySkipPolicy();
+            }
+        }
 
         internal VideoFrameSource(string sourcePath, int width, int height)
         {
@@ -51,12 +75,17 @@ namespace Fig.Core.Media
                 decCtx = ffmpeg.avcodec_alloc_context3(dec);
                 ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, par), "avcodec_parameters_to_context");
                 decCtx->pkt_timebase = stream->time_base;
+
+                // Multi-thread decode — biggest free win for long/high-res sources.
+                var threads = Math.Clamp(Environment.ProcessorCount, 1, 8);
+                decCtx->thread_count = threads;
+                decCtx->thread_type = ffmpeg.FF_THREAD_FRAME | ffmpeg.FF_THREAD_SLICE;
+
                 ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
 
                 _inCtx = inCtx;
                 _decCtx = decCtx;
                 _vIdx = vIdx;
-                _stream = stream;
                 _srcW = par->width;
                 _srcH = par->height;
                 _outW = width;
@@ -64,6 +93,8 @@ namespace Fig.Core.Media
                 _timeBase = stream->time_base;
 
                 _pendingFrame = ffmpeg.av_frame_alloc();
+                EnsureRgbFrame();
+                ApplySkipPolicy();
             }
             catch
             {
@@ -77,6 +108,50 @@ namespace Fig.Core.Media
             }
         }
 
+        private void ApplySkipPolicy()
+        {
+            if (_decCtx == null)
+                return;
+            // Scrub: drop non-reference frames so seek-forward through GOPs is cheaper.
+            // Playback: decode everything for smooth forward motion.
+            _decCtx->skip_frame = _mode == PreviewDecodeMode.Scrub
+                ? AVDiscard.AVDISCARD_NONREF
+                : AVDiscard.AVDISCARD_DEFAULT;
+            _decCtx->skip_idct = _mode == PreviewDecodeMode.Scrub
+                ? AVDiscard.AVDISCARD_NONREF
+                : AVDiscard.AVDISCARD_DEFAULT;
+            _decCtx->skip_loop_filter = _mode == PreviewDecodeMode.Scrub
+                ? AVDiscard.AVDISCARD_NONREF
+                : AVDiscard.AVDISCARD_DEFAULT;
+        }
+
+        private void EnsureRgbFrame()
+        {
+            if (_rgbFrame != null)
+                return;
+            _rgbFrame = ffmpeg.av_frame_alloc();
+            _rgbFrame->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
+            _rgbFrame->width = _outW;
+            _rgbFrame->height = _outH;
+            ThrowIfError(ffmpeg.av_frame_get_buffer(_rgbFrame, 32), "av_frame_get_buffer");
+        }
+
+        private void EnsureSws(AVPixelFormat srcFmt)
+        {
+            if (_sws != null && _swsSrcFmt == srcFmt)
+                return;
+            if (_sws != null)
+            {
+                ffmpeg.sws_freeContext(_sws);
+                _sws = null;
+            }
+            _sws = ffmpeg.sws_getContext(
+                _srcW, _srcH, srcFmt,
+                _outW, _outH, AVPixelFormat.AV_PIX_FMT_BGRA,
+                SwsBilinear, null, null, null);
+            _swsSrcFmt = srcFmt;
+        }
+
         public void Seek(double timeSec)
         {
             var ctx = _inCtx;
@@ -87,100 +162,146 @@ namespace Fig.Core.Media
                 ffmpeg.av_seek_frame(ctx, _vIdx, 0, ffmpeg.AVSEEK_FLAG_BACKWARD);
             ffmpeg.avcodec_flush_buffers(dec);
             _lastPresentedSec = -1;
-            _lastFrame = null;
+            // Keep _lastFrame so scrub can show something until the new decode lands.
         }
 
         public DecodedFrame? DecodeForward(double timeSec)
+            => DecodeForward(timeSec, _mode);
+
+        public DecodedFrame? DecodeForward(double timeSec, PreviewDecodeMode mode)
         {
-            // decode frames until we have one whose timestamp is at/after the requested time
+            Mode = mode;
+
             var ctx = _inCtx;
             var dec = _decCtx;
             AVPacket* packet = ffmpeg.av_packet_alloc();
-            AVFrame* rgb = null;
-            SwsContext* sws = null;
             try
             {
-                // clock often asks for a time still covered by the last decoded PTS
-                // (audio updates ~20ms, video frames ~33ms). hold the last frame instead
-                // of returning null — null was composited as black and looked like jitter.
-                if (_lastPresentedSec >= 0 && timeSec <= _lastPresentedSec)
+                if (_lastPresentedSec >= 0 && timeSec <= _lastPresentedSec + 1e-4)
                     return _lastFrame;
 
-                while (true)
-                {
-                    var got = false;
-                    int ret;
-                    while ((ret = ffmpeg.av_read_frame(ctx, packet)) >= 0)
-                    {
-                        if (packet->stream_index == _vIdx && ffmpeg.avcodec_send_packet(dec, packet) >= 0)
-                        {
-                            while (ffmpeg.avcodec_receive_frame(dec, _pendingFrame) == 0)
-                            {
-                                var ts = _pendingFrame->best_effort_timestamp;
-                                var sec = ts * ffmpeg.av_q2d(_timeBase);
-                                if (sec >= timeSec)
-                                {
-                                    got = true;
-                                    _lastPresentedSec = sec;
-                                    break;
-                                }
-                            }
-                            if (got) break;
-                        }
-                        ffmpeg.av_packet_unref(packet);
-                    }
+                if (mode == PreviewDecodeMode.Playback)
+                    return DecodeNextSequential(packet, timeSec);
 
-                    if (!got)
+                var acceptAfter = timeSec - 0.35;
+
+                var got = false;
+                int ret;
+                while ((ret = ffmpeg.av_read_frame(ctx, packet)) >= 0)
+                {
+                    if (packet->stream_index == _vIdx && ffmpeg.avcodec_send_packet(dec, packet) >= 0)
                     {
-                        // flush decoder for trailing frames
-                        ffmpeg.avcodec_send_packet(dec, null);
                         while (ffmpeg.avcodec_receive_frame(dec, _pendingFrame) == 0)
                         {
-                            var sec = _pendingFrame->best_effort_timestamp * ffmpeg.av_q2d(_timeBase);
-                            if (sec >= timeSec)
+                            var ts = _pendingFrame->best_effort_timestamp;
+                            var sec = ts * ffmpeg.av_q2d(_timeBase);
+                            if (sec >= acceptAfter)
                             {
                                 got = true;
                                 _lastPresentedSec = sec;
                                 break;
                             }
                         }
+                        if (got) break;
                     }
-
-                    if (!got)
-                        return _lastFrame;   // EOF: hold last frame (null only if nothing decoded yet)
-
-                    // we have the frame; scale+convert
-                    rgb = ffmpeg.av_frame_alloc();
-                    rgb->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
-                    rgb->width = _outW;
-                    rgb->height = _outH;
-                    ThrowIfError(ffmpeg.av_frame_get_buffer(rgb, 32), "av_frame_get_buffer");
-
-                    sws = ffmpeg.sws_getContext(_srcW, _srcH, _decCtx->pix_fmt, _outW, _outH, AVPixelFormat.AV_PIX_FMT_BGRA, SWS_BILINEAR, null, null, null);
-                    if (sws == null)
-                        return _lastFrame;
-                    ffmpeg.sws_scale(sws, _pendingFrame->data, _pendingFrame->linesize, 0, _srcH, rgb->data, rgb->linesize);
-
-                    var bytes = new byte[_outW * _outH * 4];
-                    var rowSize = _outW * 4;
-                    for (var y = 0; y < _outH; y++)
-                    {
-                        var src = rgb->data[0] + y * rgb->linesize[0];
-                        var dst = y * rowSize;
-                        for (var x = 0; x < rowSize; x++)
-                            bytes[dst + x] = src[x];
-                    }
-
-                    _lastFrame = new DecodedFrame { Width = _outW, Height = _outH, Pixels = bytes };
-                    return _lastFrame;
+                    ffmpeg.av_packet_unref(packet);
                 }
+
+                if (!got)
+                {
+                    ffmpeg.avcodec_send_packet(dec, null);
+                    while (ffmpeg.avcodec_receive_frame(dec, _pendingFrame) == 0)
+                    {
+                        var sec = _pendingFrame->best_effort_timestamp * ffmpeg.av_q2d(_timeBase);
+                        if (sec >= acceptAfter)
+                        {
+                            got = true;
+                            _lastPresentedSec = sec;
+                            break;
+                        }
+                    }
+                }
+
+                if (!got)
+                    return _lastFrame;
+
+                return ScalePendingToLastFrame();
             }
             finally
             {
-                if (sws != null) ffmpeg.sws_freeContext(sws);
-                if (rgb != null) ffmpeg.av_frame_free(&rgb);
                 ffmpeg.av_packet_free(&packet);
             }
+        }
+
+        private DecodedFrame? DecodeNextSequential(AVPacket* packet, double targetSec)
+        {
+            var ctx = _inCtx;
+            var dec = _decCtx;
+            int ret;
+
+            while ((ret = ffmpeg.av_read_frame(ctx, packet)) >= 0)
+            {
+                if (packet->stream_index == _vIdx && ffmpeg.avcodec_send_packet(dec, packet) >= 0)
+                {
+                    while (ffmpeg.avcodec_receive_frame(dec, _pendingFrame) == 0)
+                    {
+                        var sec = _pendingFrame->best_effort_timestamp * ffmpeg.av_q2d(_timeBase);
+                        if (sec >= targetSec)
+                        {
+                            _lastPresentedSec = sec;
+                            ffmpeg.av_packet_unref(packet);
+                            return ScalePendingToLastFrame();
+                        }
+                    }
+                }
+                ffmpeg.av_packet_unref(packet);
+            }
+
+            ffmpeg.avcodec_send_packet(dec, null);
+            while (ffmpeg.avcodec_receive_frame(dec, _pendingFrame) == 0)
+            {
+                var sec = _pendingFrame->best_effort_timestamp * ffmpeg.av_q2d(_timeBase);
+                if (sec >= targetSec)
+                {
+                    _lastPresentedSec = sec;
+                    return ScalePendingToLastFrame();
+                }
+            }
+
+            return _lastFrame;
+        }
+
+        private DecodedFrame ScalePendingToLastFrame()
+        {
+            EnsureRgbFrame();
+            var srcFmt = (AVPixelFormat)_pendingFrame->format;
+            // Some codecs report the format on the context until the first frame.
+            if (srcFmt == AVPixelFormat.AV_PIX_FMT_NONE)
+                srcFmt = _decCtx->pix_fmt;
+            EnsureSws(srcFmt);
+            if (_sws == null)
+                return _lastFrame!;
+
+            // Even dimensions for YUV420 sources — scale from actual frame size when present.
+            var srcH = _pendingFrame->height > 0 ? _pendingFrame->height : _srcH;
+            ffmpeg.sws_scale(_sws, _pendingFrame->data, _pendingFrame->linesize, 0, srcH,
+                _rgbFrame->data, _rgbFrame->linesize);
+
+            var byteCount = _outW * _outH * 4;
+
+            var rowSize = _outW * 4;
+            var bytes = new byte[byteCount];
+            fixed (byte* dstBase = bytes)
+            {
+                for (var y = 0; y < _outH; y++)
+                {
+                    var src = _rgbFrame->data[0] + y * _rgbFrame->linesize[0];
+                    Buffer.MemoryCopy(src, dstBase + y * rowSize, rowSize, rowSize);
+                }
+            }
+
+            _lastFrame = new DecodedFrame { Width = _outW, Height = _outH, Pixels = bytes };
+            return _lastFrame;
         }
 
         private static void ThrowIfError(int ret, string what)
@@ -194,10 +315,22 @@ namespace Fig.Core.Media
             if (_disposed)
                 return;
             _disposed = true;
+            if (_sws != null)
+            {
+                ffmpeg.sws_freeContext(_sws);
+                _sws = null;
+            }
+            if (_rgbFrame != null)
+            {
+                var f = _rgbFrame;
+                ffmpeg.av_frame_free(&f);
+                _rgbFrame = null;
+            }
             if (_pendingFrame != null)
             {
                 var f = _pendingFrame;
                 ffmpeg.av_frame_free(&f);
+                _pendingFrame = null;
             }
             if (_decCtx != null)
             {
