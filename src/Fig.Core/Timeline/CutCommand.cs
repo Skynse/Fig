@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Fig.Core.Timeline;
 
 namespace Fig.Core.Timeline
@@ -25,6 +26,7 @@ namespace Fig.Core.Timeline
         private double _snapStart, _snapDur, _snapSrcIn, _snapSrcOut;
         private double _snapFadeIn, _snapFadeOut;
         private TransitionRef? _snapTransitionIn, _snapTransitionOut;
+        private List<Marker> _snapMarkers = new();
 
         public string Description => $"Cut clip {_clipId} at {_atSec}s";
 
@@ -56,6 +58,7 @@ namespace Fig.Core.Timeline
             _snapFadeOut = _first.FadeOutSec;
             _snapTransitionIn = _first.TransitionIn?.Clone();
             _snapTransitionOut = _first.TransitionOut?.Clone();
+            _snapMarkers = _first.Markers.Select(m => m.Clone()).ToList();
 
             _second = Split(_first, offset);
 
@@ -79,6 +82,7 @@ namespace Fig.Core.Timeline
             _first.FadeOutSec = _snapFadeOut;
             _first.TransitionIn = _snapTransitionIn?.Clone();
             _first.TransitionOut = _snapTransitionOut?.Clone();
+            _first.Markers = _snapMarkers.Select(m => m.Clone()).ToList();
         }
 
         public void Redo()
@@ -108,6 +112,8 @@ namespace Fig.Core.Timeline
             // left keeps transition-in; clears transition-out (cut breaks the out edge)
             clip.TransitionIn = _snapTransitionIn?.Clone();
             clip.TransitionOut = null;
+            // markers before the cut stay with the left half, at their original offsets
+            clip.Markers = _snapMarkers.Where(m => m.StartSec < offset).Select(m => m.Clone()).ToList();
         }
 
         private Clip CloneSecondHalf(Clip first, double offset)
@@ -125,6 +131,13 @@ namespace Fig.Core.Timeline
             result.TransitionOut = _snapTransitionOut?.Clone();
             // break the link: the right half gets a fresh group id (or none if unlinked)
             result.LinkGroupId = _secondGroupId;
+            // markers at/after the cut move to the right half, re-anchored to its start
+            result.Markers = _snapMarkers.Where(m => m.StartSec >= offset).Select(m =>
+            {
+                var marker = m.Clone();
+                marker.StartSec -= offset;
+                return marker;
+            }).ToList();
             return result;
         }
 

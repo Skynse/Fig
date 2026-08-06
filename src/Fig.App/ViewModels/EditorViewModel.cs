@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -60,6 +61,16 @@ public partial class EditorViewModel : ViewModelBase
 
     public event Action<PlaybackEngine?>? PlaybackAssigned;
     public Action<string>? Notify { get; set; }
+
+    /// <summary>
+    /// Resolves the app's main window from the desktop lifetime. Used as a fallback owner
+    /// for file pickers so commands work from any binding context (e.g. popup menu items
+    /// where <c>$parent[Window]</c> cannot resolve).
+    /// </summary>
+    private static Window? MainWindow =>
+        Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } mw }
+            ? mw
+            : null;
 
     public IReadOnlyDictionary<string, MediaAsset> MediaById =>
         Media.ToDictionary(m => m.Id);
@@ -464,6 +475,7 @@ public partial class EditorViewModel : ViewModelBase
     [RelayCommand]
     private async Task ImportAsync(Window? owner)
     {
+        owner ??= MainWindow;
         if (owner is null || ProjectManager is null)
             return;
 
@@ -518,6 +530,33 @@ public partial class EditorViewModel : ViewModelBase
         _store?.SaveProject(Project!);
     }
 
+    /// <summary>
+    /// Imports one file and returns the media asset. Side-effect: adds to the library
+    /// and kicks off backfill work (filmstrip/waveform). Used by file-drop handlers.
+    /// </summary>
+    public MediaAsset? ImportFile(string path)
+    {
+        if (ProjectManager is null)
+            return null;
+        var result = ProjectManager.ImportMedia(path);
+        if (result.Asset is null)
+            return null;
+        if (!Media.Contains(result.Asset))
+            Media.Add(result.Asset);
+        var asset = result.Asset;
+        _ = System.Threading.Tasks.Task.Run(() =>
+            ProjectManager.FinalizeMediaArtifacts(asset, _ =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    Preview.InvalidateSources();
+                    NotifyMediaArtifactsChanged();
+                });
+            }));
+        _store?.SaveProject(Project!);
+        return asset;
+    }
+
     [RelayCommand]
     private void Save() => SaveWithThumbnail();
 
@@ -553,6 +592,7 @@ public partial class EditorViewModel : ViewModelBase
     [RelayCommand]
     private async Task SaveAsAsync(Window? owner)
     {
+        owner ??= MainWindow;
         if (owner is null || Project is null)
             return;
 
@@ -638,6 +678,76 @@ public partial class EditorViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Adds a marker at the playhead. Attaches to the selected clip (local offset), the
+    /// active track, or the timeline, in that order of context. Selects the new marker.
+    /// </summary>
+    [RelayCommand]
+    private void AddMarkerAtPlayhead()
+    {
+        var time = Editor.SnapTime(PlayheadTimeSec);
+        Marker? marker;
+        if (Editor.Selection.SelectedClipIds.FirstOrDefault() is { } clipId)
+        {
+            var clip = Editor.Document.Tracks.SelectMany(t => t.Clips).FirstOrDefault(c => c.Id == clipId);
+            marker = clip is not null ? Editor.AddMarker(clip, time - clip.StartSec) : null;
+        }
+        else if (Editor.Selection.ActiveTrackId is { } trackId)
+        {
+            var track = Editor.Document.Tracks.FirstOrDefault(t => t.Id == trackId);
+            marker = track is not null ? Editor.AddMarker(track, time) : null;
+        }
+        else
+        {
+            marker = Editor.AddMarker(Editor.Document, time);
+        }
+
+        if (marker is null)
+            return;
+        Editor.Selection.SelectMarker(marker.Id);
+        Properties.Refresh();
+        Preview.RefreshFrame();
+        Notify?.Invoke(marker.Name.Length == 0 ? "Added marker at playhead" : $"Added marker \"{marker.Name}\"");
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedMarker()
+    {
+        if (Editor.Selection.SelectedMarkerId is not { } id)
+            return;
+        Editor.DeleteMarker(id);
+        Properties.Refresh();
+        Preview.RefreshFrame();
+        Notify?.Invoke("Deleted marker");
+    }
+
+    [RelayCommand]
+    private void ToggleClipEnabledSelected()
+    {
+        if (Editor.Selection.Count == 0)
+        {
+            Notify?.Invoke("Select a clip to enable or disable");
+            return;
+        }
+        Editor.ToggleEnabledSelected();
+        Properties.Refresh();
+        Preview.RefreshFrame();
+    }
+
+    [RelayCommand]
+    private void RemoveSelectedTransition()
+    {
+        if (Editor.Selection.SelectedTransitionKey is null)
+        {
+            Notify?.Invoke("Select a transition to remove it");
+            return;
+        }
+        Editor.RemoveSelectedTransition();
+        Properties.Refresh();
+        Preview.RefreshFrame();
+        Notify?.Invoke("Removed transition");
+    }
+
+    /// <summary>
     /// Captures every clip start, runs <paramref name="mutate"/>, then emits slide deltas
     /// for survivors whose start changed (matches RippleDeleteCommand's following set).
     /// </summary>
@@ -705,6 +815,32 @@ public partial class EditorViewModel : ViewModelBase
 
     [RelayCommand]
     private void StepForwardFrame() => SeekFromUser(PlayheadTimeSec + FrameDurationSec);
+
+    [RelayCommand]
+    private async Task GenerateProxyAsync(MediaAsset? asset)
+    {
+        if (asset is null || ProjectManager is null || asset.Kind != MediaKind.Video)
+            return;
+        var force = asset.ProxyStatus is ProxyStatus.Ready or ProxyStatus.Failed;
+        try
+        {
+            await System.Threading.Tasks.Task.Run(() => ProjectManager.RequestProxy(asset, force));
+        }
+        catch
+        {
+            return;
+        }
+        Preview.InvalidateSources();
+        NotifyMediaArtifactsChanged();
+    }
+
+    [RelayCommand]
+    private void RemoveMedia(MediaAsset? asset)
+    {
+        if (asset is null)
+            return;
+        Media.Remove(asset);
+    }
 
     private static TimelineEditor CreateSeededEditor()
     {

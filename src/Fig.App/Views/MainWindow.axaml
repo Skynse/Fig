@@ -10,6 +10,15 @@
         Icon="/Assets/avalonia-logo.ico"
         Title="fig">
 
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+S" Command="{Binding Editor.SaveCommand}"/>
+        <KeyBinding Gesture="Ctrl+Z" Command="{Binding Editor.UndoCommand}"/>
+        <KeyBinding Gesture="Ctrl+Y" Command="{Binding Editor.RedoCommand}"/>
+        <KeyBinding Gesture="Ctrl+K" Command="{Binding Editor.SplitAtPlayheadCommand}"/>
+        <KeyBinding Gesture="Ctrl+W" Command="{Binding CloseProjectCommand}"/>
+        <KeyBinding Gesture="Space" Command="{Binding Editor.TogglePlaybackCommand}"/>
+    </Window.KeyBindings>
+
     <Grid>
         <ContentControl Content="{Binding CurrentView}"/>
         <views:ToastHost DataContext="{Binding Toasts}"/>

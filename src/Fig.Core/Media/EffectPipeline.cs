@@ -59,6 +59,29 @@ namespace Fig.Core.Media
             IReadOnlyList<EffectInstance> effects,
             double localT)
         {
+            var rented = new List<byte[]>();
+            try
+            {
+                return ApplyStack(frame, effects, localT, rented);
+            }
+            finally
+            {
+                foreach (var buf in rented)
+                    FramePool.Return(buf);
+            }
+        }
+
+        /// <summary>
+        /// Runs a clip's enabled effect stack in order. Buffers freshly rented for effect
+        /// output are appended to <paramref name="rentedOut"/>; the caller is responsible for
+        /// returning them to the pool after the composite consumes the result.
+        /// </summary>
+        public static DecodedFrame ApplyStack(
+            DecodedFrame frame,
+            IReadOnlyList<EffectInstance> effects,
+            double localT,
+            List<byte[]>? rentedOut)
+        {
             if (effects.Count == 0)
                 return frame;
 
@@ -73,7 +96,10 @@ namespace Fig.Core.Media
                 var processor = EffectRegistry.Resolve(fx.TypeId);
                 if (processor is null)
                     continue;
-                current = processor.Apply(current, fx.Params, localT);
+                var next = processor.Apply(current, fx.Params, localT);
+                if (!ReferenceEquals(current, next))
+                    rentedOut?.Add(next.Pixels);
+                current = next;
             }
             return current;
         }
@@ -113,6 +139,8 @@ namespace Fig.Core.Media
                 {
                     var a = clips[i];
                     var b = clips[i + 1];
+                    if (!a.Enabled || !b.Enabled)
+                        continue;
                     var cut = a.StartSec + a.DurSec;
                     if (Math.Abs(b.StartSec - cut) > AbutEps)
                         continue;
@@ -195,12 +223,15 @@ namespace Fig.Core.Media
                 return frame;
 
             var delta = (int)Math.Round(amount * 255);
-            var px = (byte[])frame.Pixels.Clone();
-            for (var i = 0; i < px.Length; i += 4)
+            var src = frame.Pixels;
+            var size = frame.Width * frame.Height * 4;
+            var px = FramePool.Rent(size);
+            for (var i = 0; i < size; i += 4)
             {
-                px[i] = ClampByte(px[i] + delta);
-                px[i + 1] = ClampByte(px[i + 1] + delta);
-                px[i + 2] = ClampByte(px[i + 2] + delta);
+                px[i] = ClampByte(src[i] + delta);
+                px[i + 1] = ClampByte(src[i + 1] + delta);
+                px[i + 2] = ClampByte(src[i + 2] + delta);
+                px[i + 3] = src[i + 3];
             }
             return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
         }
@@ -218,13 +249,15 @@ namespace Fig.Core.Media
             if (amount < 1e-6)
                 return frame;
 
-            var px = (byte[])frame.Pixels.Clone();
-            for (var i = 0; i < px.Length; i += 4)
+            var src = frame.Pixels;
+            var size = frame.Width * frame.Height * 4;
+            var px = FramePool.Rent(size);
+            for (var i = 0; i < size; i += 4)
             {
                 // Rec. 601 luma from BGRA
-                var b = px[i];
-                var g = px[i + 1];
-                var r = px[i + 2];
+                var b = src[i];
+                var g = src[i + 1];
+                var r = src[i + 2];
                 var y = (byte)Math.Clamp((int)(0.299 * r + 0.587 * g + 0.114 * b), 0, 255);
                 if (amount >= 1)
                 {
@@ -238,6 +271,7 @@ namespace Fig.Core.Media
                     px[i + 1] = Lerp(g, y, amount);
                     px[i + 2] = Lerp(r, y, amount);
                 }
+                px[i + 3] = src[i + 3];
             }
             return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
         }
@@ -260,16 +294,15 @@ namespace Fig.Core.Media
             if (outgoing.Width != incoming.Width || outgoing.Height != incoming.Height)
                 return t01 < 0.5 ? outgoing : incoming;
 
-            var w = outgoing.Width;
-            var h = outgoing.Height;
             var a = outgoing.Pixels;
             var b = incoming.Pixels;
-            var dst = new byte[a.Length];
+            var size = outgoing.Width * outgoing.Height * 4;
+            var dst = FramePool.Rent(size);
             var inv = 1.0 - t01;
-            for (var i = 0; i < dst.Length; i++)
+            for (var i = 0; i < size; i++)
                 dst[i] = (byte)Math.Clamp((int)Math.Round(a[i] * inv + b[i] * t01), 0, 255);
 
-            return new DecodedFrame { Width = w, Height = h, Pixels = dst };
+            return new DecodedFrame { Width = outgoing.Width, Height = outgoing.Height, Pixels = dst };
         }
     }
 }

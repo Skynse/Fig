@@ -29,6 +29,7 @@ public partial class AppViewModel : ViewModelBase
         Home = new HomeViewModel(store);
         Editor = new EditorViewModel(gestures);
         Editor.Notify = msg => Toasts.Show(msg);
+        Home.Notify = msg => Toasts.Show(msg);
 
         Home.ProjectOpened += OpenProject;
         Home.ProjectCreated += OpenProject;
@@ -114,8 +115,8 @@ public partial class AppViewModel : ViewModelBase
             var discard = new Button { Content = "Discard", Width = 80 };
             var cancel = new Button { Content = "Cancel", Width = 80 };
             var result = false;
-            save.Click += async (_, _) => { editor.SaveNow(); await Task.Delay(50); dialog.Close(); result = true; };
-            discard.Click += (_, _) => { dialog.Close(); result = true; };
+            save.Click += async (_, _) => { editor.SaveNow(); await Task.Delay(50); result = true; dialog.Close(); };
+            discard.Click += (_, _) => { result = true; dialog.Close(); };
             cancel.Click += (_, _) => { dialog.Close(); };
             buttons.Children.Add(save);
             buttons.Children.Add(discard);
@@ -128,7 +129,14 @@ public partial class AppViewModel : ViewModelBase
                 return false;
         }
 
-        editor?.DisposePlayback();
+        try
+        {
+            editor?.DisposePlayback();
+        }
+        catch
+        {
+            // teardown failure must not block leaving the project
+        }
         GoHome();
         return true;
     }

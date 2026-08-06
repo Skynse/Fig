@@ -6,9 +6,9 @@ namespace Fig.Core.Timeline
     public static class TimelineGeometry
     {
         public const double DefaultPixelsPerSecond = 100.0;
-        public const double TrackHeight = 50.0;
-        public const double ClipHeight = 34.0;
-        public const double ClipLabelHeight = 12.0;
+        public const double TrackHeight = 76.0;
+        public const double ClipHeight = 52.0;
+        public const double ClipLabelHeight = 14.0;
 
         /// <summary>Total height of a clip widget including its label strip.</summary>
         public const double ClipTotalHeight = ClipLabelHeight + ClipHeight;

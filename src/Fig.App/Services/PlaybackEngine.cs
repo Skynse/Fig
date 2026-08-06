@@ -235,7 +235,11 @@ namespace Fig.App.Services
             double end = 0;
             foreach (var track in timeline.Tracks)
                 foreach (var clip in track.Clips)
+                {
+                    if (!clip.Enabled)
+                        continue;
                     end = Math.Max(end, clip.StartSec + clip.DurSec);
+                }
             return end;
         }
 

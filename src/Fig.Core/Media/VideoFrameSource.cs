@@ -38,6 +38,11 @@ namespace Fig.Core.Media
         private PreviewDecodeMode _mode = PreviewDecodeMode.Playback;
         private bool _disposed;
 
+        // Reused output buffer: frames are consumed synchronously or copied (e.g. into the
+        // frame cache) before the next decode, so one scratch per source avoids a per-frame
+        // full-canvas allocation.
+        private byte[] _outputScratch = Array.Empty<byte>();
+
         public double LastPresentedTimeSec => _lastPresentedSec;
 
         public PreviewDecodeMode Mode
@@ -76,10 +81,12 @@ namespace Fig.Core.Media
                 ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, par), "avcodec_parameters_to_context");
                 decCtx->pkt_timebase = stream->time_base;
 
-                // Multi-thread decode — biggest free win for long/high-res sources.
-                var threads = Math.Clamp(Environment.ProcessorCount, 1, 8);
-                decCtx->thread_count = threads;
-                decCtx->thread_type = ffmpeg.FF_THREAD_FRAME | ffmpeg.FF_THREAD_SLICE;
+                // Preview decode is single-threaded — ffmpeg frame threading causes
+                // fctx->async_lock assertion crashes on teardown with certain codecs
+                // (VP8/VP9 in WebM, some H.264 profiles). The decode worker already
+                // marshals work to a background thread; multi-threaded decode isn't
+                // needed for preview-scale frames (360p default).
+                decCtx->thread_count = 1;
 
                 ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
 
@@ -290,7 +297,9 @@ namespace Fig.Core.Media
             var byteCount = _outW * _outH * 4;
 
             var rowSize = _outW * 4;
-            var bytes = new byte[byteCount];
+            if (_outputScratch.Length < byteCount)
+                _outputScratch = new byte[byteCount];
+            var bytes = _outputScratch;
             fixed (byte* dstBase = bytes)
             {
                 for (var y = 0; y < _outH; y++)

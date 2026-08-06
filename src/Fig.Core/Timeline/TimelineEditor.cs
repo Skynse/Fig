@@ -744,6 +744,88 @@ namespace Fig.Core.Timeline
             return true;
         }
 
+        /// <summary>Enumerates the transitions living across abutting cuts on a track.</summary>
+        public IEnumerable<CutTransition> EnumerateTransitions(Track track)
+        {
+            var sorted = track.Clips.OrderBy(c => c.StartSec).ToList();
+            for (var i = 0; i < sorted.Count - 1; i++)
+            {
+                var left = sorted[i];
+                var right = sorted[i + 1];
+                if (Math.Abs(right.StartSec - (left.StartSec + left.DurSec)) > 1e-3)
+                    continue;
+                var transition = ResolveCutTransition(left, right);
+                if (transition is not null)
+                    yield return transition;
+            }
+        }
+
+        public CutTransition? GetTransition(string key)
+        {
+            var parts = key.Split('|', 2);
+            if (parts.Length != 2)
+                return null;
+            var left = FindClip(parts[0]);
+            var right = FindClip(parts[1]);
+            if (left is null || right is null)
+                return null;
+            return ResolveCutTransition(left, right);
+        }
+
+        /// <summary>Removes the transition at a cut (undoable). Clears the selection when it points there.</summary>
+        public void RemoveTransition(string leftClipId, string rightClipId)
+        {
+            var left = FindClip(leftClipId);
+            var right = FindClip(rightClipId);
+            if (left is null || right is null || (left.TransitionOut is null && right.TransitionIn is null))
+                return;
+            History.Execute(new RemoveTransitionCommand(this, leftClipId, rightClipId));
+            if (Selection.SelectedTransitionKey == $"{leftClipId}|{rightClipId}")
+                Selection.SelectedTransitionKey = null;
+            RaiseChanged();
+        }
+
+        public void RemoveSelectedTransition()
+        {
+            if (Selection.SelectedTransitionKey is not { } key)
+                return;
+            var transition = GetTransition(key);
+            if (transition is null)
+            {
+                Selection.SelectedTransitionKey = null;
+                return;
+            }
+            RemoveTransition(transition.LeftClipId, transition.RightClipId);
+        }
+
+        /// <summary>Resizes a cut transition (drag/slider updates coalesce into one undo step).</summary>
+        public void SetTransitionDuration(string leftClipId, string rightClipId, double durationSec)
+        {
+            var left = FindClip(leftClipId);
+            var right = FindClip(rightClipId);
+            if (left is null || right is null || (left.TransitionOut is null && right.TransitionIn is null))
+                return;
+            History.ExecuteCoalescing(new SetTransitionDurationCommand(this, leftClipId, rightClipId, durationSec));
+            RaiseChanged();
+        }
+
+        /// <summary>Resizes a cut transition identified by its selection key ("{left}|{right}").</summary>
+        public void SetTransitionDuration(string key, double durationSec)
+        {
+            var transition = GetTransition(key);
+            if (transition is not null)
+                SetTransitionDuration(transition.LeftClipId, transition.RightClipId, durationSec);
+        }
+
+        private static CutTransition? ResolveCutTransition(Clip left, Clip right)
+        {
+            if (left.TransitionOut is null && right.TransitionIn is null)
+                return null;
+            var typeId = left.TransitionOut?.TypeId ?? right.TransitionIn!.TypeId;
+            var dur = Math.Max(left.TransitionOut?.DurationSec ?? 0, right.TransitionIn?.DurationSec ?? 0);
+            return new CutTransition(left.Id, right.Id, left, right, typeId, dur, left.StartSec + left.DurSec);
+        }
+
         public void SetVolume(string clipId, double volume)
         {
             volume = Math.Clamp(volume, 0, 1);
@@ -893,6 +975,104 @@ namespace Fig.Core.Timeline
                 ClipKind.Audio => TrackKind.Audio,
                 _ => TrackKind.Video,
             });
+        }
+
+        // ---- markers ----
+
+        /// <summary>Resolves where a marker lives. Returns null when it no longer exists.</summary>
+        public MarkerLocation? FindMarker(string markerId)
+        {
+            foreach (var m in Document.Markers)
+                if (m.Id == markerId)
+                    return new MarkerLocation(m, null, null, Document);
+
+            foreach (var track in Document.Tracks)
+            {
+                foreach (var m in track.Markers)
+                    if (m.Id == markerId)
+                        return new MarkerLocation(m, null, track, Document);
+                foreach (var clip in track.Clips)
+                    foreach (var m in clip.Markers)
+                        if (m.Id == markerId)
+                            return new MarkerLocation(m, clip, track, Document);
+            }
+            return null;
+        }
+
+        /// <summary>Adds a marker on a clip at a local offset, clamped into the clip's range.</summary>
+        public Marker AddMarker(Clip clip, double localSec, string name = "", string color = "#ffd60a")
+        {
+            localSec = Math.Clamp(localSec, 0, clip.DurSec);
+            var cmd = new AddMarkerCommand(clip, null, Document, localSec, name, color);
+            History.Execute(cmd);
+            RaiseChanged();
+            return cmd.Marker;
+        }
+
+        /// <summary>Adds a marker on a track at an absolute timeline time.</summary>
+        public Marker AddMarker(Track track, double sec, string name = "", string color = "#ffd60a")
+        {
+            var cmd = new AddMarkerCommand(null, track, Document, Math.Max(0, sec), name, color);
+            History.Execute(cmd);
+            RaiseChanged();
+            return cmd.Marker;
+        }
+
+        /// <summary>Adds a marker on the timeline at an absolute time.</summary>
+        public Marker AddMarker(Timeline timeline, double sec, string name = "", string color = "#ffd60a")
+        {
+            var cmd = new AddMarkerCommand(null, null, timeline, Math.Max(0, sec), name, color);
+            History.Execute(cmd);
+            RaiseChanged();
+            return cmd.Marker;
+        }
+
+        public void DeleteMarker(string markerId)
+        {
+            if (FindMarker(markerId) is null)
+                return;
+            History.Execute(new DeleteMarkerCommand(this, markerId));
+            if (Selection.SelectedMarkerId == markerId)
+                Selection.SelectedMarkerId = null;
+            RaiseChanged();
+        }
+
+        public void MoveMarker(string markerId, double newSec)
+        {
+            var loc = FindMarker(markerId);
+            if (loc is null)
+                return;
+            var clamped = loc.Clip is not null ? Math.Clamp(newSec, 0, loc.Clip.DurSec) : Math.Max(0, newSec);
+            History.ExecuteCoalescing(new MoveMarkerCommand(this, markerId, clamped));
+            RaiseChanged();
+        }
+
+        public void UpdateMarker(string markerId, string? name = null, string? color = null)
+        {
+            if (FindMarker(markerId) is null || (name is null && color is null))
+                return;
+            History.Execute(new UpdateMarkerCommand(this, markerId, name, color));
+            RaiseChanged();
+        }
+
+        // ---- clip enable / disable ----
+
+        public void ToggleEnabled(string clipId)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new ToggleEnabledCommand(this, new[] { clipId }));
+            RaiseChanged();
+        }
+
+        /// <summary>Toggles Enabled on every distinct selected link group.</summary>
+        public void ToggleEnabledSelected()
+        {
+            var seeds = SelectedGroupSeeds();
+            if (seeds.Count == 0)
+                return;
+            History.Execute(new ToggleEnabledCommand(this, seeds));
+            RaiseChanged();
         }
     }
 }

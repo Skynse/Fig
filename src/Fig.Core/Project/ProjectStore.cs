@@ -117,6 +117,15 @@ namespace Fig.Core.Project
             return Path.Combine(ProjectDirectory(id), "media.cache");
         }
 
+        public bool DeleteProject(string id)
+        {
+            var dir = ProjectDirectory(id);
+            if (!Directory.Exists(dir))
+                return false;
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+
         private string ProjectPath(string id)
         {
             return Path.Combine(ProjectDirectory(id), "project.json");

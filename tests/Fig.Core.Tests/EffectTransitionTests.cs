@@ -164,6 +164,101 @@ public class EffectTransitionTests
         Assert.Single(produced[1].Effects);
     }
 
+    // ---- cut transition enumeration / selection / editing ----
+
+    private static (TimelineEditor Editor, Track Track) TransitionTimeline()
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var track = new Track { Kind = TrackKind.Video, Index = 0 };
+        track.Clips.Add(new VideoClip { Id = "a", SourceId = "m", StartSec = 0, DurSec = 2 });
+        track.Clips.Add(new VideoClip { Id = "b", SourceId = "m", StartSec = 2, DurSec = 2 });
+        track.Clips.Add(new VideoClip { Id = "c", SourceId = "m", StartSec = 4, DurSec = 2 });
+        timeline.Tracks.Add(track);
+        var editor = new TimelineEditor(timeline);
+        editor.ApplyTransitionAtCut("a", "b", TransitionCatalog.Find(TransitionCatalog.CrossDissolve)!.CreateRef(0.4));
+        return (editor, track);
+    }
+
+    [Fact]
+    public void EnumerateTransitions_FindsAbuttingCutWithTransition()
+    {
+        var (editor, track) = TransitionTimeline();
+
+        var transitions = editor.EnumerateTransitions(track).ToList();
+        var cut = Assert.Single(transitions);
+        Assert.Equal("a|b", cut.Key);
+        Assert.Equal("a", cut.LeftClipId);
+        Assert.Equal("b", cut.RightClipId);
+        Assert.Equal(TransitionCatalog.CrossDissolve, cut.TypeId);
+        Assert.Equal(0.4, cut.DurationSec, 3);
+        Assert.Equal(2.0, cut.CutSec, 3);
+    }
+
+    [Fact]
+    public void RemoveTransition_ClearsBothEdges_AndUndoRestores()
+    {
+        var (editor, track) = TransitionTimeline();
+
+        editor.RemoveTransition("a", "b");
+        Assert.Null(track.Clips[0].TransitionOut);
+        Assert.Null(track.Clips[1].TransitionIn);
+        Assert.Empty(editor.EnumerateTransitions(track));
+
+        editor.Undo();
+        Assert.NotNull(track.Clips[0].TransitionOut);
+        Assert.NotNull(track.Clips[1].TransitionIn);
+    }
+
+    [Fact]
+    public void RemoveTransition_WithNoTransition_IsNoOp()
+    {
+        var (editor, track) = TransitionTimeline();
+
+        editor.RemoveTransition("b", "c");   // no transition on this cut
+
+        Assert.NotNull(track.Clips[0].TransitionOut);
+    }
+
+    [Fact]
+    public void SetTransitionDuration_WritesBothEdges_AndCoalescesDrag()
+    {
+        var (editor, track) = TransitionTimeline();
+
+        editor.SetTransitionDuration("a", "b", 0.7);
+        Assert.Equal(0.7, track.Clips[0].TransitionOut!.DurationSec, 3);
+        Assert.Equal(0.7, track.Clips[1].TransitionIn!.DurationSec, 3);
+
+        // drag updates coalesce: a second set is part of the same undo step
+        editor.SetTransitionDuration("a", "b", 0.9);
+        Assert.True(editor.Undo());
+        Assert.Equal(0.4, track.Clips[0].TransitionOut!.DurationSec, 3);
+    }
+
+    [Fact]
+    public void SetTransitionDuration_ByKey_MatchesClipPair()
+    {
+        var (editor, track) = TransitionTimeline();
+
+        editor.SetTransitionDuration("a|b", 0.55);
+
+        Assert.Equal(0.55, track.Clips[0].TransitionOut!.DurationSec, 3);
+        Assert.Equal(0.55, track.Clips[1].TransitionIn!.DurationSec, 3);
+    }
+
+    [Fact]
+    public void SelectedTransition_CanBeSelectedAndRemoved()
+    {
+        var (editor, _) = TransitionTimeline();
+
+        editor.Selection.SelectTransition("a|b");
+        Assert.Equal("a|b", editor.Selection.SelectedTransitionKey);
+        Assert.Empty(editor.Selection.SelectedClipIds);
+        Assert.Null(editor.Selection.SelectedMarkerId);
+
+        editor.RemoveSelectedTransition();
+        Assert.Null(editor.Selection.SelectedTransitionKey);
+    }
+
     [Fact]
     public void Effects_DeserializesLegacyEmptyObject_AsEmptyList()
     {

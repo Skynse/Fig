@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Fig.App.Services;
 using Fig.App.ViewModels;
 using Fig.Core.Media;
@@ -12,14 +13,9 @@ namespace Fig.App.Views;
 
 public partial class EditorView : UserControl
 {
-    public static readonly DataFormat<MediaAsset> MediaFormat =
-        DataFormat<MediaAsset>.CreateInProcessFormat<MediaAsset>("fig.media");
-
-    public static readonly DataFormat<EffectCatalogEntry> EffectFormat =
-        DataFormat<EffectCatalogEntry>.CreateInProcessFormat<EffectCatalogEntry>("fig.effect");
-
-    public static readonly DataFormat<TransitionCatalogEntry> TransitionFormat =
-        DataFormat<TransitionCatalogEntry>.CreateInProcessFormat<TransitionCatalogEntry>("fig.transition");
+    public static DataFormat<MediaAsset> MediaFormat => DragFormats.Media;
+    public static DataFormat<EffectCatalogEntry> EffectFormat => DragFormats.Effect;
+    public static DataFormat<TransitionCatalogEntry> TransitionFormat => DragFormats.Transition;
 
     private const double DragThresholdPx = 8.0;
     private bool _dragArmed;
@@ -31,6 +27,9 @@ public partial class EditorView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        DragDrop.SetAllowDrop(this, true);
+        DragDrop.AddDragOverHandler(this, OnFileDragOver);
+        DragDrop.AddDropHandler(this, OnFileDrop);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -149,14 +148,36 @@ public partial class EditorView : UserControl
 
     private void ExitMenu_Click(object? sender, RoutedEventArgs e)
     {
-        if (VisualRoot is Window window)
+        if (TopLevel.GetTopLevel(this) is Window window)
             window.Close();
     }
 
     private async void CloseProjectMenu_Click(object? sender, RoutedEventArgs e)
     {
-        var window = VisualRoot as Window;
+        var window = TopLevel.GetTopLevel(this) as Window;
         if (window?.DataContext is ViewModels.AppViewModel app)
             await app.CloseProjectAsync(window);
+    }
+
+    private void OnFileDragOver(object? sender, DragEventArgs e)
+    {
+        if (e.DataTransfer.Formats.Contains(DataFormat.File))
+            e.DragEffects = DragDropEffects.Copy;
+    }
+
+    private void OnFileDrop(object? sender, DragEventArgs e)
+    {
+        var vm = _boundVm ?? DataContext as EditorViewModel;
+        if (vm is null)
+            return;
+        var files = e.DataTransfer.TryGetFiles();
+        if (files is null)
+            return;
+        foreach (var file in files)
+        {
+            var path = file.TryGetLocalPath();
+            if (path is not null)
+                vm.ImportFile(path);
+        }
     }
 }

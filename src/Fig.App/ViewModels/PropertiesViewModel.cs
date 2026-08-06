@@ -12,6 +12,8 @@ public enum PropertiesContextKind
     Media,
     Clip,
     Track,
+    Marker,
+    Transition,
 }
 
 /// <summary>
@@ -68,11 +70,49 @@ public partial class PropertiesViewModel : ViewModelBase
     [ObservableProperty] private string? _trackFlagsLabel;
     [ObservableProperty] private bool _showTrackSection;
 
+    // marker
+    [ObservableProperty] private bool _showMarkerSection;
+    [ObservableProperty] private string _markerName = "";
+    [ObservableProperty] private string? _markerTimeLabel;
+    [ObservableProperty] private string? _markerDurationLabel;
+    [ObservableProperty] private string _markerColor = "#ffd60a";
+
+    // transition
+    [ObservableProperty] private bool _showTransitionSection;
+    [ObservableProperty] private string? _transitionTypeLabel;
+    [ObservableProperty] private string? _transitionSpanLabel;
+    [ObservableProperty] private double _transitionDurationValue;
+    [ObservableProperty] private double _transitionMaxDuration = 1;
+
+    /// <summary>Color swatches offered in the marker inspector.</summary>
+    public IReadOnlyList<string> MarkerPalette { get; } =
+    [
+        "#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#5ac8fa",
+        "#0a84ff", "#af52de", "#ff2d55", "#f5f5f7", "#1c1c1e",
+    ];
+
+    private string? _markerId;
+    private string? _transitionKey;
     private MediaAsset? _proxyTarget;
 
     public void Refresh()
     {
         var ed = _editor.Editor;
+
+        if (ed.Selection.SelectedMarkerId is { } markerId
+            && ed.FindMarker(markerId) is { } location)
+        {
+            ShowMarker(location);
+            return;
+        }
+
+        if (ed.Selection.SelectedTransitionKey is { } transitionKey
+            && ed.GetTransition(transitionKey) is { } transition)
+        {
+            ShowTransition(transition);
+            return;
+        }
+
         var clipId = ed.Selection.SelectedClipIds.FirstOrDefault();
         if (clipId is not null)
         {
@@ -223,6 +263,102 @@ public partial class PropertiesViewModel : ViewModelBase
         _suppressApply = false;
     }
 
+    private void ShowMarker(MarkerLocation location)
+    {
+        var marker = location.Marker;
+        var absolute = location.Clip is not null ? location.Clip.StartSec + marker.StartSec : marker.StartSec;
+
+        _suppressApply = true;
+        Kind = PropertiesContextKind.Marker;
+        Title = "Marker";
+        Subtitle = marker.Name.Length == 0 ? "Unnamed marker" : marker.Name;
+        ClearSections();
+        _clipId = null;
+        _markerId = marker.Id;
+        ShowMarkerSection = true;
+        MarkerName = marker.Name;
+        MarkerColor = marker.Color;
+        MarkerTimeLabel = FormatTime(absolute);
+        MarkerDurationLabel = marker.DurSec > 0 ? FormatTime(marker.DurSec) : "Point";
+        _proxyTarget = null;
+        ShowProxySection = false;
+        CanGenerateProxy = false;
+        _suppressApply = false;
+    }
+
+    partial void OnMarkerNameChanged(string value)
+    {
+        if (_suppressApply || _markerId is null || Kind != PropertiesContextKind.Marker)
+            return;
+        _editor.Editor.UpdateMarker(_markerId, name: value);
+        Subtitle = value.Length == 0 ? "Unnamed marker" : value;
+    }
+
+    [RelayCommand]
+    private void SetMarkerColor(string? hex)
+    {
+        if (_markerId is null || Kind != PropertiesContextKind.Marker || string.IsNullOrEmpty(hex))
+            return;
+        _editor.Editor.UpdateMarker(_markerId, color: hex);
+        _suppressApply = true;
+        MarkerColor = hex;
+        _suppressApply = false;
+    }
+
+    private void ShowTransition(CutTransition transition)
+    {
+        var displayName = TransitionCatalog.Find(transition.TypeId)?.DisplayName ?? transition.TypeId;
+
+        _suppressApply = true;
+        Kind = PropertiesContextKind.Transition;
+        Title = "Transition";
+        Subtitle = displayName;
+        ClearSections();
+        _clipId = null;
+        _transitionKey = transition.Key;
+        ShowTransitionSection = true;
+        TransitionTypeLabel = displayName;
+        TransitionDurationValue = transition.DurationSec;
+        TransitionMaxDuration = Math.Max(0.1, Math.Min(transition.Left.DurSec, transition.Right.DurSec));
+        TransitionSpanLabel = $"{FormatTime(transition.DurationSec)} across the cut";
+        _proxyTarget = null;
+        ShowProxySection = false;
+        CanGenerateProxy = false;
+        _suppressApply = false;
+    }
+
+    partial void OnTransitionDurationValueChanged(double value)
+    {
+        if (_suppressApply || _transitionKey is null || Kind != PropertiesContextKind.Transition)
+            return;
+        var transition = _editor.Editor.GetTransition(_transitionKey);
+        if (transition is null)
+            return;
+        var clamped = Math.Clamp(value, 0, TransitionMaxDuration);
+        _editor.Editor.SetTransitionDuration(transition.LeftClipId, transition.RightClipId, clamped);
+        if (Math.Abs(clamped - value) > 1e-6)
+        {
+            _suppressApply = true;
+            TransitionDurationValue = clamped;
+            _suppressApply = false;
+        }
+        TransitionSpanLabel = $"{FormatTime(clamped)} across the cut";
+        _editor.Preview.RefreshFrame();
+    }
+
+    [RelayCommand]
+    private void RemoveTransition()
+    {
+        if (_transitionKey is null || Kind != PropertiesContextKind.Transition)
+            return;
+        var transition = _editor.Editor.GetTransition(_transitionKey);
+        if (transition is null)
+            return;
+        _editor.Editor.RemoveTransition(transition.LeftClipId, transition.RightClipId);
+        _editor.Preview.RefreshFrame();
+        Refresh();
+    }
+
     private void ApplyMediaFields(MediaAsset asset)
     {
         FileName = asset.FileName;
@@ -282,6 +418,8 @@ public partial class PropertiesViewModel : ViewModelBase
         ShowAudioControls = false;
         ShowFadeControls = false;
         ShowTrackSection = false;
+        ShowMarkerSection = false;
+        ShowTransitionSection = false;
         FileName = null;
         KindLabel = null;
         ResolutionLabel = null;
@@ -292,6 +430,13 @@ public partial class PropertiesViewModel : ViewModelBase
         SourceRangeLabel = null;
         TrackNameLabel = null;
         TrackFlagsLabel = null;
+        MarkerName = "";
+        MarkerTimeLabel = null;
+        MarkerDurationLabel = null;
+        TransitionTypeLabel = null;
+        TransitionSpanLabel = null;
+        _markerId = null;
+        _transitionKey = null;
     }
 
     partial void OnOpacityValueChanged(double value)

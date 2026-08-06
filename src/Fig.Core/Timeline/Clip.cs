@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Fig.Core.Timeline
@@ -18,6 +19,9 @@ namespace Fig.Core.Timeline
         /// delete together (e.g. a video clip and its companion audio clip).
         /// </summary>
         public string? LinkGroupId { get; set; }
+
+        /// <summary>When false the clip is ignored by playback, mixing, and compositing.</summary>
+        public bool Enabled { get; set; } = true;
 
         public double StartSec { get; set; }
         public double DurSec { get; set; }
@@ -44,6 +48,12 @@ namespace Fig.Core.Timeline
 
         /// <summary>Optional transition out of this clip into the next abutting clip.</summary>
         public TransitionRef? TransitionOut { get; set; }
+
+        /// <summary>Editorial annotations pinned to the clip (seconds relative to clip start).</summary>
+        public List<Marker> Markers { get; set; } = new();
+
+        /// <summary>Source-format provenance preserved across imports.</summary>
+        public Dictionary<string, JsonElement> Metadata { get; set; } = new();
 
         public virtual double SourceIn => throw new NotSupportedException($"{GetType().Name} has no source range");
         public virtual double SourceOut => throw new NotSupportedException($"{GetType().Name} has no source range");

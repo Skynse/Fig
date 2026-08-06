@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using Fig.Core.Media;
 using TimelineModel = Fig.Core.Timeline.Timeline;
 
@@ -20,6 +21,9 @@ namespace Fig.Core.Project
         public List<MediaAsset> Media { get; set; } = new();
         public List<TimelineModel> Timelines { get; set; } = new();
         public ExportSettings Export { get; set; } = new();
+
+        /// <summary>Source-format provenance preserved across imports.</summary>
+        public Dictionary<string, JsonElement> Metadata { get; set; } = new();
 
         public static Project Create(string name) => new() { Name = name };
 

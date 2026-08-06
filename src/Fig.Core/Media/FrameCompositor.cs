@@ -41,22 +41,24 @@ namespace Fig.Core.Media
         public static DecodedFrame Compose(IReadOnlyList<CompositeLayer> layers, int width, int height)
         {
             var pixels = new byte[width * height * 4];
-            ComposeInto(layers, width, height, pixels);
+            byte[]? cropScratch = null;
+            ComposeInto(layers, width, height, pixels, ref cropScratch);
             return new DecodedFrame { Width = width, Height = height, Pixels = pixels };
         }
 
         /// <summary>
         /// Composites into a caller-provided buffer (avoiding per-frame allocation).
         /// The buffer must be at least <c>width * height * 4</c> bytes; it is treated as BGRA.
+        /// <paramref name="cropScratch"/> is a caller-owned reusable buffer for crop scaling —
+        /// pass <c>null</c> and a fresh one is allocated when a crop is present.
         /// </summary>
-        public static void ComposeInto(IReadOnlyList<CompositeLayer> layers, int width, int height, byte[] pixels)
+        public static void ComposeInto(IReadOnlyList<CompositeLayer> layers, int width, int height, byte[] pixels,
+            ref byte[]? cropScratch)
         {
             // start with an opaque black canvas
             Array.Clear(pixels, 0, pixels.Length);
             for (var i = 3; i < pixels.Length; i += 4)
                 pixels[i] = 255;
-
-            byte[]? cropScratch = null;
 
             // layers are topmost-first: blend bottom-to-top so the first (topmost) layer
             // is applied last and wins over the layers below it
@@ -73,7 +75,8 @@ namespace Fig.Core.Media
                 var src = layer.Frame.Pixels;
                 if (layer.Crop is { } crop && IsMeaningfulCrop(crop, width, height))
                 {
-                    cropScratch ??= new byte[width * height * 4];
+                    if (cropScratch is null || cropScratch.Length < width * height * 4)
+                        cropScratch = new byte[width * height * 4];
                     CropScaleNearest(src, width, height, crop, cropScratch);
                     src = cropScratch;
                 }

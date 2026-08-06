@@ -111,8 +111,12 @@ public class ProxyTests
             Assert.True(MediaService.ShouldGenerateProxy(asset.Width, asset.Height));
             Assert.True(ProjectManager.NeedsProxyBackfill(asset));
 
+            // FinalizeMediaArtifacts no longer auto-generates proxies — it is opt-in.
             manager.FinalizeMediaArtifacts(asset);
+            Assert.Equal(ProxyStatus.None, asset.ProxyStatus);
 
+            // Manual proxy generation works.
+            manager.RequestProxy(asset);
             Assert.Equal(ProxyStatus.Ready, asset.ProxyStatus);
             Assert.False(string.IsNullOrEmpty(asset.ProxyUrl));
             Assert.True(File.Exists(asset.ProxyUrl!), "proxy missing");
@@ -168,7 +172,8 @@ public class ProxyTests
         try
         {
             var asset = manager.ImportMedia(AssetPath).Asset!;
-            manager.FinalizeMediaArtifacts(asset);
+            // Proxy is opt-in — generate manually first.
+            manager.RequestProxy(asset);
             Assert.Equal(ProxyStatus.Ready, asset.ProxyStatus);
 
             Assert.True(manager.RelinkMedia(asset.Id, AssetPath));
@@ -184,7 +189,7 @@ public class ProxyTests
     }
 
     [Fact]
-    public void FinalizeMediaArtifacts_ProxyFailure_DoesNotBlockFilmstrip()
+    public void RequestProxy_Failure_DoesNotBlockFilmstrip()
     {
         var project = ProjectModel.Create("proxy-fail");
         var inner = new MediaService();
@@ -194,13 +199,16 @@ public class ProxyTests
         try
         {
             var asset = manager.ImportMedia(AssetPath).Asset!;
+            // Finalize generates filmstrip + waveform only (proxy is opt-in).
             manager.FinalizeMediaArtifacts(asset);
-
-            Assert.Equal(ProxyStatus.Failed, asset.ProxyStatus);
-            Assert.Null(asset.ProxyUrl);
             Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
             Assert.True(File.Exists(asset.Filmstrip!));
             Assert.NotNull(asset.WaveformPeaks);
+
+            // Requesting proxy should fail (media throws) but not touch other artifacts.
+            try { manager.RequestProxy(asset); } catch { }
+            Assert.Equal(ProxyStatus.Failed, asset.ProxyStatus);
+            Assert.Null(asset.ProxyUrl);
             Assert.Equal(asset.Url, asset.PlaybackVideoPath);
         }
         finally
@@ -237,7 +245,7 @@ public class ProxyTests
     }
 
     [Fact]
-    public void FinalizeMediaArtifacts_RejectsIncompleteProxyFile()
+    public void RequestProxy_ReplacesIncompleteProxyFile()
     {
         var project = ProjectModel.Create("proxy-incomplete");
         var media = new MediaService();
@@ -252,7 +260,7 @@ public class ProxyTests
             var stale = Path.Combine(cache, $"{asset.Hash}_proxy.mp4");
             WriteIncompleteMp4(stale);
 
-            manager.FinalizeMediaArtifacts(asset);
+            manager.RequestProxy(asset);
 
             Assert.Equal(ProxyStatus.Ready, asset.ProxyStatus);
             Assert.Equal(stale, asset.ProxyUrl);

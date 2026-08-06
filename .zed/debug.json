@@ -1,0 +1,28 @@
+[
+  {
+    "label": "Debug Fig.App",
+    "adapter": "netcoredbg",
+    "request": "launch",
+    "program": "${workspaceFolder}/src/Fig.App/bin/Debug/net10.0/Fig.App.dll",
+    "cwd": "${workspaceFolder}",
+    "args": [],
+    "env": {},
+    "build": {
+      "command": "dotnet",
+      "args": ["build", "src/Fig.App/Fig.App.csproj"]
+    }
+  },
+  {
+    "label": "Debug Fig.Core.Tests",
+    "adapter": "netcoredbg",
+    "request": "launch",
+    "program": "${workspaceFolder}/tests/Fig.Core.Tests/bin/Debug/net10.0/Fig.Core.Tests.dll",
+    "cwd": "${workspaceFolder}",
+    "args": [],
+    "env": {},
+    "build": {
+      "command": "dotnet",
+      "args": ["build", "tests/Fig.Core.Tests/Fig.Core.Tests.csproj"]
+    }
+  }
+]

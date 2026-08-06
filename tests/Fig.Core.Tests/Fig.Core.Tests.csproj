@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\src\Fig.Core\Fig.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

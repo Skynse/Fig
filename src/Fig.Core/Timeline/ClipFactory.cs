@@ -56,10 +56,23 @@ namespace Fig.Core.Timeline
                 _ => throw new NotSupportedException($"Unsupported clip kind '{source.Kind}'")
             };
             clone.LinkGroupId = source.LinkGroupId;
+            clone.Enabled = source.Enabled;
             clone.Effects = CloneEffects(source.Effects);
             clone.TransitionIn = source.TransitionIn?.Clone();
             clone.TransitionOut = source.TransitionOut?.Clone();
+            clone.Markers = CloneMarkers(source.Markers);
+            clone.Metadata = source.Metadata.Count == 0
+                ? new Dictionary<string, System.Text.Json.JsonElement>()
+                : new Dictionary<string, System.Text.Json.JsonElement>(source.Metadata);
             return clone;
+        }
+
+        private static List<Marker> CloneMarkers(List<Marker> source)
+        {
+            var list = new List<Marker>(source.Count);
+            foreach (var m in source)
+                list.Add(m.Clone());
+            return list;
         }
 
         private static List<EffectInstance> CloneEffects(List<EffectInstance> source)

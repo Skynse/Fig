@@ -59,6 +59,9 @@ namespace Fig.Core.Audio
 
                 foreach (var clip in track.Clips)
                 {
+                    if (!clip.Enabled)
+                        continue;
+
                     var clipStart = clip.StartSec;
                     var clipEnd = clipStart + clip.DurSec;
                     if (clipEnd <= timelineStart || clipStart >= end)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Fig.Core.Timeline
@@ -62,6 +63,15 @@ namespace Fig.Core.Timeline
         public int Revision { get; set; }
         public bool IsAutosave { get; set; }
         public List<Track> Tracks { get; set; } = new();
+
+        /// <summary>Timeline start timecode (seconds); 0 when the program starts at zero.</summary>
+        public double GlobalStartSec { get; set; }
+
+        /// <summary>Editorial annotations pinned to the timeline (absolute seconds).</summary>
+        public List<Marker> Markers { get; set; } = new();
+
+        /// <summary>Source-format provenance preserved across imports (reels, comments, etc.).</summary>
+        public Dictionary<string, JsonElement> Metadata { get; set; } = new();
     }
 
     public class Track
@@ -77,6 +87,12 @@ namespace Fig.Core.Timeline
         /// <summary>Audio tracks: mutes the track's audio.</summary>
         public bool Muted { get; set; }
         public List<Clip> Clips { get; set; } = new();
+
+        /// <summary>Editorial annotations pinned to the track (absolute seconds).</summary>
+        public List<Marker> Markers { get; set; } = new();
+
+        /// <summary>Source-format provenance preserved across imports.</summary>
+        public Dictionary<string, JsonElement> Metadata { get; set; } = new();
     }
 
     public enum TrackKind

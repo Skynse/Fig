@@ -114,8 +114,6 @@ namespace Fig.Core.Project
                         asset.FilmstripFrameIntervalSec = 0;
                     }
                 }
-
-                FinalizeProxy(asset);
             }
 
             if (asset.HasAudio && asset.WaveformPeaks is null)
@@ -296,7 +294,7 @@ namespace Fig.Core.Project
                     continue;
                 foreach (var clip in track.Clips)
                 {
-                    if (clip is not Timeline.VideoClip vc)
+                    if (!clip.Enabled || clip is not Timeline.VideoClip)
                         continue;
                     if (earliest is null || clip.StartSec < earliest)
                         earliest = clip.StartSec;
@@ -314,7 +312,8 @@ namespace Fig.Core.Project
                     continue;
 
                 var clip = track.Clips.LastOrDefault(c =>
-                    c is Timeline.VideoClip vc
+                    c.Enabled
+                    && c is Timeline.VideoClip
                     && earliest >= c.StartSec
                     && earliest < c.StartSec + c.DurSec);
                 if (clip is not Timeline.VideoClip top)
@@ -431,9 +430,6 @@ namespace Fig.Core.Project
                         || asset.FilmstripFrameCount <= 0;
                     if (stripMissing)
                         report.Notes.Add($"\"{label}\": filmstrip pending (will generate in background).");
-
-                    if (NeedsProxyBackfill(asset))
-                        report.Notes.Add($"\"{label}\": proxy pending (will generate in background).");
                 }
 
                 if (asset.HasAudio && asset.WaveformPeaks is null)
@@ -455,8 +451,6 @@ namespace Fig.Core.Project
             if (asset.Kind == MediaKind.Video
                 && (string.IsNullOrEmpty(asset.Filmstrip) || !File.Exists(asset.Filmstrip)
                     || asset.FilmstripFrameWidth <= 0 || asset.FilmstripFrameCount <= 0))
-                return true;
-            if (NeedsProxyBackfill(asset))
                 return true;
             if (asset.HasAudio && asset.WaveformPeaks is null)
                 return true;

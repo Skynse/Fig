@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace Fig.Core.Media
 {
@@ -82,6 +83,15 @@ namespace Fig.Core.Media
 
         public bool Offline { get; set; }
         public List<string> Tags { get; set; } = new();
+
+        /// <summary>
+        /// Offset into the source where usable content begins (OTIO available_range
+        /// start). Previews and playback start from here rather than from frame zero.
+        /// </summary>
+        public double SourceStartSec { get; set; }
+
+        /// <summary>Source-format provenance preserved across imports.</summary>
+        public Dictionary<string, JsonElement> Metadata { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonIgnore]
         public string FileName => Path.GetFileName(Url);

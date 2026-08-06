@@ -177,14 +177,13 @@ public class ProjectManagerTests
         Assert.Equal(0, report.FailedArtifacts);
         // filmstrip is deferred to background backfill so open never hangs
         Assert.Contains(report.Notes, n => n.Contains("filmstrip pending", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(report.Notes, n => n.Contains("proxy pending", StringComparison.OrdinalIgnoreCase));
         Assert.True(ProjectManager.NeedsPreviewBackfill(asset));
 
         manager.FinalizeMediaArtifacts(asset);
         Assert.False(string.IsNullOrEmpty(asset.Filmstrip));
         Assert.True(File.Exists(asset.Filmstrip!), "filmstrip not written");
         Assert.True(asset.FilmstripFrameWidth > 0);
-        Assert.Equal(ProxyStatus.Ready, asset.ProxyStatus);
+        Assert.Equal(ProxyStatus.None, asset.ProxyStatus); // proxy is opt-in
         Assert.False(ProjectManager.NeedsPreviewBackfill(asset));
 
         // now break the source: validation should flag offline and NOT throw

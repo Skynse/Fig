@@ -15,7 +15,10 @@
         <conv:SecondsToTimeConverter x:Key="SecondsToTime"/>
     </UserControl.Resources>
 
-    <DockPanel Margin="8" Background="#1e1e1e">
+    <DockPanel Margin="8" Background="#1e1e1e"
+               DragDrop.AllowDrop="True"
+               DragDrop.DragOver="OnFileDragOver"
+               DragDrop.Drop="OnFileDrop">
 
         <Menu DockPanel.Dock="Top" Margin="0,0,0,4" Background="Transparent">
             <MenuItem Header="_File">
@@ -49,6 +52,13 @@
                         <local:StrokeIcon Icon="ripple" Width="16" Height="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
+                <Separator/>
+                <MenuItem Header="Add _Marker at Playhead" Command="{Binding AddMarkerAtPlayheadCommand}"
+                          InputGesture="M"/>
+                <MenuItem Header="_Delete Marker" Command="{Binding DeleteSelectedMarkerCommand}"
+                          InputGesture="Shift+Delete"/>
+                <MenuItem Header="_Enable / Disable Clip" Command="{Binding ToggleClipEnabledSelectedCommand}"
+                          InputGesture="Ctrl+E"/>
             </MenuItem>
         </Menu>
 
@@ -118,10 +128,12 @@
                                    Margin="0,0,0,8"/>
 
                         <!-- Media browser -->
-                        <ListBox IsVisible="{Binding IsLibraryMedia}"
+                        <ListBox x:Name="MediaBox" IsVisible="{Binding IsLibraryMedia}" DragDrop.AllowDrop="True"
                                  ItemsSource="{Binding Media}"
                                  SelectedItem="{Binding SelectedMedia}"
                                  Background="Transparent"
+                                 DragDrop.Drop="OnFileDrop"
+                                 DragDrop.DragOver="OnFileDragOver"
                                  BorderThickness="0">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -145,6 +157,16 @@
                                             PointerPressed="MediaCard_PointerPressed"
                                             PointerMoved="MediaCard_PointerMoved"
                                             PointerReleased="MediaCard_PointerReleased">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Generate Proxy"
+                                                          Command="{Binding #MediaBox.DataContext.GenerateProxyCommand}"
+                                                          CommandParameter="{Binding}"/>
+                                                <MenuItem Header="Remove"
+                                                          Command="{Binding #MediaBox.DataContext.RemoveMediaCommand}"
+                                                          CommandParameter="{Binding}"/>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
                                         <StackPanel>
                                             <Grid Height="90">
                                                 <Border Background="#111111">
@@ -459,6 +481,69 @@
                                         <TextBlock Text="State" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding TrackFlagsLabel}" Foreground="#dddddd" FontSize="12"/>
                                     </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Spacing="6" IsVisible="{Binding ShowMarkerSection}">
+                                    <TextBlock Text="MARKER" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBox Text="{Binding MarkerName}"
+                                                 Foreground="#dddddd" Background="#1e1e1e"
+                                                 BorderBrush="#333333" BorderThickness="1"
+                                                 CornerRadius="3" Padding="6,4"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Time" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding MarkerTimeLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding MarkerDurationLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" Margin="0,6,0,0">
+                                        <TextBlock Text="Color" Foreground="#8a8a8a" FontSize="11"/>
+                                        <ItemsControl ItemsSource="{Binding MarkerPalette}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel/>
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Width="20" Height="20" Margin="0,0,6,6"
+                                                            CornerRadius="10" BorderThickness="0"
+                                                            Background="{Binding}"
+                                                            Command="{Binding $parent[ItemsControl].DataContext.SetMarkerColorCommand}"
+                                                            CommandParameter="{Binding}"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <StackPanel Spacing="6" IsVisible="{Binding ShowTransitionSection}">
+                                    <TextBlock Text="TRANSITION" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Type" Foreground="#8a8a8a" FontSize="11"/>
+                                        <TextBlock Text="{Binding TransitionTypeLabel}" Foreground="#dddddd" FontSize="12"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4" Margin="0,4,0,0">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding TransitionDurationValue, StringFormat={}{0:0.00}s}"
+                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
+                                            <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
+                                        </DockPanel>
+                                        <Slider Minimum="0.05" Maximum="{Binding TransitionMaxDuration}"
+                                                Value="{Binding TransitionDurationValue}"
+                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
+                                        <TextBlock Text="{Binding TransitionSpanLabel}" Foreground="#8a8a8a" FontSize="11"/>
+                                    </StackPanel>
+                                    <Button Content="Remove Transition"
+                                            Command="{Binding RemoveTransitionCommand}"
+                                            Margin="0,6,0,0" Padding="8,4" FontSize="11"
+                                            Background="#3a1f22" Foreground="#ff6b6b"
+                                            BorderThickness="0" CornerRadius="3"
+                                            HorizontalAlignment="Left"/>
                                 </StackPanel>
 
                                 <StackPanel Spacing="6"

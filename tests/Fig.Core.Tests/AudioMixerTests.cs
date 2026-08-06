@@ -74,6 +74,18 @@ public class AudioMixerTests
         Assert.All(buf, s => Assert.Equal(0f, s));
     }
 
+    [Fact]
+    public void Mix_DisabledClip_ReturnsSilence()
+    {
+        var timeline = TimelineWithAudioClip(0, 1.0);
+        timeline.Tracks[0].Clips[0].Enabled = false;
+        var mixer = new AudioMixer(new MediaService(), _ => new MediaAsset { Id = "a1", Url = AssetPath, DurationSec = 4.1 });
+
+        var buf = mixer.Mix(timeline, 0, 0.5);
+
+        Assert.All(buf, s => Assert.Equal(0f, s));
+    }
+
     private static MediaAsset Asset() => new() { Id = "a1", Kind = MediaKind.Video, Url = AssetPath, DurationSec = 4.1, HasAudio = true };
 
     [Fact]

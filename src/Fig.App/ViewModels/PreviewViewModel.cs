@@ -8,6 +8,18 @@ using Fig.Core.Timeline;
 
 namespace Fig.App.ViewModels;
 
+/// <summary>One selectable preview decode resolution (Kdenlive's consumer-level preview scaling).</summary>
+public sealed record PreviewScaleOption(string Name, int Height)
+{
+    public static readonly PreviewScaleOption P270 = new("270p", 270);
+    public static readonly PreviewScaleOption P360 = new("360p", 360);
+    public static readonly PreviewScaleOption P540 = new("540p", 540);
+    public static readonly PreviewScaleOption P720 = new("720p", 720);
+    public static readonly PreviewScaleOption P1080 = new("1080p", 1080);
+
+    public static readonly IReadOnlyList<PreviewScaleOption> All = [P270, P360, P540, P720, P1080];
+}
+
 public partial class PreviewViewModel : ViewModelBase
 {
     private readonly IMediaService _media;
@@ -17,10 +29,17 @@ public partial class PreviewViewModel : ViewModelBase
     [ObservableProperty]
     private string _decodeStatus = "";
 
+    [ObservableProperty]
+    private PreviewScaleOption _previewScale = PreviewScaleOption.P360;
+
+    /// <summary>Available preview decode resolutions (bound to the preview ComboBox).</summary>
+    public IReadOnlyList<PreviewScaleOption> PreviewScaleOptions => PreviewScaleOption.All;
+
     private double _playheadSec;
     private int _targetWidth = 640;
     private int _targetHeight = 360;
     private byte[]? _composeBuffer;
+    private byte[]? _cropScratch;
 
     // persistent sequential decoders per source path, so playback decodes forward without re-seeking
     private readonly Dictionary<string, IVideoFrameSource> _sources = new();
@@ -48,7 +67,7 @@ public partial class PreviewViewModel : ViewModelBase
         if (_editor is not null)
             _editor.PropertyChanged += OnEditorPropertyChanged;
         if (editor is null)
-            DisposeSources();
+            RequestReset(null, null);
         OnPropertyChanged(nameof(TimeDisplay));
         OnPropertyChanged(nameof(PlaybackIconKey));
         OnPropertyChanged(nameof(JumpToStartCommand));
@@ -57,21 +76,20 @@ public partial class PreviewViewModel : ViewModelBase
         OnPropertyChanged(nameof(StepForwardFrameCommand));
     }
 
-    /// <summary>Frees all persistent decoders (called when leaving the editor or when proxy paths change).</summary>
-    public void InvalidateSources() => DisposeSources();
+    /// <summary>Requests that all persistent decoders be reopened on the decode worker thread.</summary>
+    public void InvalidateSources() => RequestReset(null, null);
 
-    /// <summary>Frees all persistent decoders (called when leaving the editor).</summary>
-    private void DisposeSources()
+    /// <summary>
+    /// Preview resolution changed (Kdenlive's consumer-level preview scaling): schedules a
+    /// reset that the decode worker applies on its own thread (it is the only thread allowed
+    /// to dispose decoders), then re-decodes the current playhead at the new size. Keeps the
+    /// aspect locked to 16:9 to match the existing canvas behavior.
+    /// </summary>
+    partial void OnPreviewScaleChanged(PreviewScaleOption value)
     {
-        lock (_decodeLock)
-        {
-            foreach (var source in _sources.Values)
-                source.Dispose();
-            _sources.Clear();
-            _failedPaths.Clear();
-            _frameCache.Clear();
-        }
-        _lastRequestSec = -1;
+        var height = Math.Clamp(value.Height, 90, 2160);
+        RequestReset(width: height * 16 / 9, height: height);
+        RequestFrame();
     }
 
     public string PlaybackIconKey => _editor is { IsPlaying: true } ? "pause" : "play";
@@ -111,6 +129,66 @@ public partial class PreviewViewModel : ViewModelBase
     private readonly object _decodeLock = new();
     private bool _decodeRunning;
     private double? _pendingPlayhead;
+
+    // A decoder reset (scale change, proxy swap, editor detach) requested by the UI thread.
+    // Consumed by the decode worker, which is the only thread allowed to dispose decoders.
+    private bool _pendingReset;
+    private bool _pendingResetHasSize;
+    private int _pendingResetWidth;
+    private int _pendingResetHeight;
+
+    /// <summary>
+    /// Requests that all open decoders be closed (and optionally resized). Never touches
+    /// decoders here: the UI thread just records the request; the decode worker performs
+    /// the disposal on its own thread, which is what makes scale/proxy changes safe.
+    /// </summary>
+    private void RequestReset(int? width, int? height)
+    {
+        lock (_decodeLock)
+        {
+            _pendingReset = true;
+            _pendingResetHasSize = width is not null;
+            if (width is not null)
+            {
+                _pendingResetWidth = width.Value;
+                _pendingResetHeight = height ?? _targetHeight;
+            }
+        }
+    }
+
+    /// <summary>Applies a pending reset on the worker thread. Returns true when one was applied.</summary>
+    private bool ConsumeReset()
+    {
+        bool reset;
+        bool hasSize;
+        int w;
+        int h;
+        lock (_decodeLock)
+        {
+            reset = _pendingReset;
+            _pendingReset = false;
+            hasSize = _pendingResetHasSize;
+            w = _pendingResetWidth;
+            h = _pendingResetHeight;
+        }
+        if (!reset)
+            return false;
+
+        foreach (var source in _sources.Values)
+            source.Dispose();
+        _sources.Clear();
+        _failedPaths.Clear();
+        _frameCache.Clear();
+
+        if (hasSize)
+        {
+            _targetWidth = w;
+            _targetHeight = h;
+        }
+        _cropScratch = null;
+        _lastRequestSec = -1;
+        return true;
+    }
 
     public double PlayheadSec
     {
@@ -153,18 +231,26 @@ public partial class PreviewViewModel : ViewModelBase
                 return;
             _decodeRunning = true;
         }
-        _ = DecodeWorkerAsync();
+        _ = System.Threading.Tasks.Task.Run(DecodeWorkerAsync);
     }
 
     private async Task DecodeWorkerAsync()
     {
         while (true)
         {
+            // A reset was requested (scale change, proxy swap, detach). Dispose and reopen
+            // on this worker thread before anything else — never on the UI thread.
+            if (ConsumeReset())
+                continue;
+
             double target;
             lock (_decodeLock)
             {
                 if (_pendingPlayhead is null)
                 {
+                    // an idle worker must stay alive to drain a reset that just arrived
+                    if (_pendingReset)
+                        continue;
                     _decodeRunning = false;
                     return;
                 }
@@ -174,10 +260,17 @@ public partial class PreviewViewModel : ViewModelBase
 
             await DecodeOneFrameAsync(target);
 
+            // playback: decode a few frames AHEAD of the playhead into the cache so the
+            // display hits the cache instead of waiting on decode (producer/consumer
+            // decoupling, like Kdenlive's FrameRenderer). Runs on the decode worker's
+            // thread — no extra Task.Run churn.
+            if (_editor is { IsPlaying: true })
+                PrefillAhead(target);
+
             lock (_decodeLock)
             {
-                // a newer position arrived while decoding -> loop to catch up
-                if (_pendingPlayhead is null)
+                // a newer position or a reset arrived while decoding -> loop to catch up
+                if (_pendingPlayhead is null && !_pendingReset)
                 {
                     _decodeRunning = false;
                     return;
@@ -186,52 +279,136 @@ public partial class PreviewViewModel : ViewModelBase
         }
     }
 
+    private const int PrefillFrames = 3;
+
+    /// <summary>
+    /// Decodes a few source frames ahead of <paramref name="baseTime"/> into the frame
+    /// cache so playback presents cached frames instead of stalling on FFmpeg. Best-effort:
+    /// aborts as soon as a newer request arrives and never touches the decoder from two threads.
+    /// </summary>
+    private void PrefillAhead(double baseTime)
+    {
+        var frameDur = 1.0 / Math.Max(_editor?.Editor.Document.Rate.Fps ?? 30, 1);
+        var touchedSources = new HashSet<IVideoFrameSource>();
+        var savedPositions = new Dictionary<IVideoFrameSource, double>();
+        try
+        {
+            for (var k = 1; k <= PrefillFrames; k++)
+            {
+                lock (_decodeLock)
+                {
+                    if (_pendingPlayhead is not null)
+                        return;
+                }
+                PrefillOneFrame(baseTime + k * frameDur, touchedSources, savedPositions);
+            }
+        }
+        catch
+        {
+            // prefill is best-effort; playback falls back to on-demand decode
+        }
+        finally
+        {
+            // Restore source positions so the next main decode does not see the source
+            // far ahead and needlessly seek backward — the cache already holds the
+            // prefilled frames, so the main decode will hit the cache instead.
+            foreach (var (source, pos) in savedPositions)
+                source.Seek(pos);
+        }
+    }
+
+    private void PrefillOneFrame(double timelineSec,
+        HashSet<IVideoFrameSource> touched, Dictionary<IVideoFrameSource, double> saved)
+    {
+        var layers = _resolver(timelineSec);
+        if (layers.Count == 0)
+            return;
+        foreach (var layer in layers)
+        {
+            // only plain source frames are cacheable; effect/crop layers can't share pixels
+            if (layer.Clip.Effects.Count > 0)
+                continue;
+            if (_frameCache.TryGet(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, out _))
+                continue;
+            if (!TryGetOrOpenSource(layer.SourcePath, out var source) || source is null)
+                continue;
+            // Save the source position before the first prefill touch so we can
+            // restore it when we are done — otherwise the main decode sees a
+            // stale-ahead position and seeks backward on the next frame.
+            if (touched.Add(source))
+                saved[source] = source.LastPresentedTimeSec;
+            // sequential forward decode (no seek) toward the future source time
+            if (source.LastPresentedTimeSec < 0 || layer.TimeSec < source.LastPresentedTimeSec - 0.05)
+                source.Seek(layer.TimeSec);
+            var frame = source.DecodeForward(layer.TimeSec, PreviewDecodeMode.Playback);
+            if (frame is not null)
+                _frameCache.Put(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, frame);
+        }
+    }
+
     private async Task DecodeOneFrameAsync(double target)
     {
         try
         {
-            var (width, height, buffer, status) = await Task.Run(() =>
+            // Runs on the decode worker's thread pool thread (RequestFrame starts the
+            // worker via Task.Run), so no per-frame Task.Run hop is needed.
+            var needsSeek = target < _lastRequestSec - 0.05;
+            var scrubbing = _editor is not { IsPlaying: true };
+            var decodeMode = scrubbing ? PreviewDecodeMode.Scrub : PreviewDecodeMode.Playback;
+            _lastRequestSec = target;
+
+            var size = _targetWidth * _targetHeight * 4;
+            var pixels = _composeBuffer;
+            if (pixels is null || pixels.Length < size)
             {
-                var needsSeek = target < _lastRequestSec - 0.05;
-                var scrubbing = _editor is not { IsPlaying: true };
-                var decodeMode = scrubbing ? PreviewDecodeMode.Scrub : PreviewDecodeMode.Playback;
-                _lastRequestSec = target;
+                pixels = new byte[size];
+                _composeBuffer = pixels;
+            }
 
-                var size = _targetWidth * _targetHeight * 4;
-                var pixels = _composeBuffer;
-                if (pixels is null || pixels.Length < size)
+            var document = _editor?.Editor.Document;
+            var activeTx = document is not null
+                ? TransitionResolver.FindActive(document, target)
+                : null;
+
+            string status;
+            if (activeTx is not null
+                && activeTx.Outgoing is VideoClip outVc
+                && activeTx.Incoming is VideoClip inVc
+                && TransitionRegistry.Resolve(activeTx.TypeId) is { } blender
+                && TryDecodeClipFrame(outVc, target, needsSeek, decodeMode, out var outFrame, out var outLocal)
+                && TryDecodeClipFrame(inVc, target, needsSeek, decodeMode, out var inFrame, out var inLocal))
+            {
+                var txRented = new List<byte[]>();
+                outFrame = EffectPipeline.ApplyStack(outFrame!, outVc.Effects, outLocal, txRented);
+                inFrame = EffectPipeline.ApplyStack(inFrame!, inVc.Effects, inLocal, txRented);
+                var blended = blender.Blend(outFrame, inFrame, activeTx.Progress01, activeTx.Params);
+                try
                 {
-                    pixels = new byte[size];
-                    _composeBuffer = pixels;
-                }
-
-                var document = _editor?.Editor.Document;
-                var activeTx = document is not null
-                    ? TransitionResolver.FindActive(document, target)
-                    : null;
-
-                if (activeTx is not null
-                    && activeTx.Outgoing is VideoClip outVc
-                    && activeTx.Incoming is VideoClip inVc
-                    && TransitionRegistry.Resolve(activeTx.TypeId) is { } blender
-                    && TryDecodeClipFrame(outVc, target, needsSeek, decodeMode, out var outFrame, out var outLocal)
-                    && TryDecodeClipFrame(inVc, target, needsSeek, decodeMode, out var inFrame, out var inLocal))
-                {
-                    outFrame = EffectPipeline.ApplyStack(outFrame!, outVc.Effects, outLocal);
-                    inFrame = EffectPipeline.ApplyStack(inFrame!, inVc.Effects, inLocal);
-                    var blended = blender.Blend(outFrame, inFrame, activeTx.Progress01, activeTx.Params);
                     FrameCompositor.ComposeInto(
                         new[] { new CompositeLayer { Frame = blended, Opacity = 1 } },
-                        _targetWidth, _targetHeight, pixels);
-                    return (_targetWidth, _targetHeight, pixels, $"transition {activeTx.TypeId} · {(int)(activeTx.Progress01 * 100)}%");
+                        _targetWidth, _targetHeight, pixels, ref _cropScratch);
                 }
-
+                finally
+                {
+                    // blend output is always pooled; effect outputs are pooled when effects ran
+                    FramePool.Return(blended.Pixels);
+                    foreach (var buf in txRented)
+                        FramePool.Return(buf);
+                }
+                status = $"transition {activeTx.TypeId} · {(int)(activeTx.Progress01 * 100)}%";
+            }
+            else
+            {
                 var layers = _resolver(target);
                 if (layers.Count == 0)
-                    return (_targetWidth, _targetHeight, pixels, "No video at playhead");
+                {
+                    SetDecodeStatus("No video at playhead");
+                    return;
+                }
 
                 var composites = new List<CompositeLayer>(layers.Count);
                 var cacheHits = 0;
+                var rented = new List<byte[]>();
                 foreach (var layer in layers)
                 {
                     DecodedFrame? frame = null;
@@ -243,7 +420,7 @@ public partial class PreviewViewModel : ViewModelBase
                         if (frame is not null)
                         {
                             var localT = target - layer.Clip.StartSec;
-                            frame = EffectPipeline.ApplyStack(frame, layer.Clip.Effects, localT);
+                            frame = EffectPipeline.ApplyStack(frame, layer.Clip.Effects, localT, rented);
                         }
                     }
                     catch
@@ -258,29 +435,31 @@ public partial class PreviewViewModel : ViewModelBase
                     });
                 }
 
-                FrameCompositor.ComposeInto(composites, _targetWidth, _targetHeight, pixels);
+                try
+                {
+                    FrameCompositor.ComposeInto(composites, _targetWidth, _targetHeight, pixels, ref _cropScratch);
+                }
+                finally
+                {
+                    foreach (var buf in rented)
+                        FramePool.Return(buf);
+                }
                 var modeTag = scrubbing ? "scrub" : "play";
                 var cacheTag = cacheHits > 0 ? $" · cache {cacheHits}/{layers.Count}" : "";
-                return (_targetWidth, _targetHeight, pixels,
-                    $"{_targetWidth}x{_targetHeight} · {layers.Count} layer(s) · {modeTag}{cacheTag}");
-            });
-
-            if (status == "No video at playhead")
-            {
-                SetDecodeStatus(status);
-                return;
+                var dropsTag = _consecutiveDrops > 30 ? " · dropping" : "";
+                status = $"{_targetWidth}x{_targetHeight} · {layers.Count} layer(s) · {modeTag}{cacheTag}{dropsTag}";
             }
 
             if (Dispatcher.UIThread.CheckAccess())
             {
                 _lastRenderedTimeSec = target;
-                FrameReady?.Invoke(width, height, buffer);
+                FrameReady?.Invoke(_targetWidth, _targetHeight, pixels);
             }
             else
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     _lastRenderedTimeSec = target;
-                    FrameReady?.Invoke(width, height, buffer);
+                    FrameReady?.Invoke(_targetWidth, _targetHeight, pixels);
                 });
 
             SetDecodeStatus(status);

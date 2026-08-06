@@ -23,11 +23,17 @@
                         CommandParameter="{Binding $parent[Window]}"
                         Padding="12,6"/>
 
+                <Button DockPanel.Dock="Right" Content="Import OTIO Project..."
+                        Command="{Binding ImportOtioCommand}"
+                        CommandParameter="{Binding $parent[Window]}"
+                        Margin="0,0,10,0"
+                        Padding="12,6"/>
+
             </DockPanel>
         </Border>
 
         <!-- project list -->
-        <ItemsControl Margin="24,20" ItemsSource="{Binding Projects}">
+        <ItemsControl x:Name="ProjectList" Margin="24,20" ItemsSource="{Binding Projects}">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <WrapPanel/>
@@ -39,6 +45,13 @@
                             Background="Transparent" BorderThickness="0"
                             Command="{Binding $parent[ItemsControl].DataContext.OpenProjectCommand}"
                             CommandParameter="{Binding}">
+                        <Button.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Delete Project"
+                                          Command="{Binding #ProjectList.DataContext.DeleteProjectCommand}"
+                                          CommandParameter="{Binding}"/>
+                            </ContextMenu>
+                        </Button.ContextMenu>
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <StackPanel>

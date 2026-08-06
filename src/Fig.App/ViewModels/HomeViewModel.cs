@@ -1,9 +1,13 @@
 using System;
+using System.Linq;
+using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fig.Core.Project;
@@ -19,6 +23,7 @@ public partial class HomeViewModel : ViewModelBase
 
     public event Action<Project>? ProjectOpened;
     public event Action<Project>? ProjectCreated;
+    public Action<string>? Notify { get; set; }
 
     public HomeViewModel(ProjectStore store)
     {
@@ -47,6 +52,15 @@ public partial class HomeViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void DeleteProject(ProjectSummary? summary)
+    {
+        if (summary is null)
+            return;
+        _store.DeleteProject(summary.Id);
+        Refresh();
+    }
+
+    [RelayCommand]
     private async Task CreateProjectAsync(Window? owner)
     {
         var name = await PromptProjectNameAsync(owner, "New Project", $"Untitled {DateTime.Now:yyyy-MM-dd}");
@@ -61,10 +75,75 @@ public partial class HomeViewModel : ViewModelBase
         Refresh();
     }
 
+    /// <summary>
+    /// Imports one or more OpenTimelineIO (.otio) projects: parses them into the fig
+    /// model, saves each as a project in the store, and opens the first one.
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportOtioAsync(Window? owner)
+    {
+        owner ??= Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } mw }
+            ? mw
+            : null;
+        if (owner is null)
+            return;
+
+        var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import OpenTimelineIO Project",
+            AllowMultiple = true,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("OpenTimelineIO")
+                {
+                    Patterns = new[] { "*.otio", "*.otioz", "*.json" },
+                },
+            },
+        });
+
+        Project? first = null;
+        foreach (var file in files)
+        {
+            var path = file.TryGetLocalPath();
+            if (path is null)
+                continue;
+
+            try
+            {
+                var result = OtioImporter.ImportFromFile(path);
+                var project = result.Project;
+                project.Id = _store.CreateProject(project.Name);
+                _store.SaveProject(project);
+
+                Notify?.Invoke(SummarizeImport(Path.GetFileName(path), result));
+                first ??= project;
+            }
+            catch (Exception ex)
+            {
+                Notify?.Invoke($"Import failed for {Path.GetFileName(path)}: {ex.Message}");
+            }
+        }
+
+        Refresh();
+
+        if (first is not null)
+            ProjectOpened?.Invoke(first);
+    }
+
+    private static string SummarizeImport(string name, OtioImportResult result)
+    {
+        var tracks = result.Project.Timelines.Sum(t => t.Tracks.Count);
+        var summary = $"Imported \"{name}\": {result.ClipsImported} clips, {tracks} track(s), "
+                    + $"{result.MarkersImported} marker(s), {result.EffectsImported} effect(s), "
+                    + $"{result.TransitionsImported} transition(s)";
+        if (result.Warnings.Count > 0)
+            summary += $" ({result.Warnings.Count} warning(s))";
+        return summary;
+    }
+
     /// <summary>Asks for a project name. Returns null if the user cancels.</summary>
     public static async Task<string?> PromptProjectNameAsync(Window? owner, string title, string initial)
-    {
-        if (owner is null)
+    {        if (owner is null)
             return string.IsNullOrWhiteSpace(initial) ? "Untitled" : initial.Trim();
 
         var dialog = new Window
