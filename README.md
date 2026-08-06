@@ -60,11 +60,17 @@ tests/
 
 ## Goals
 
-- [ ] Free video transitions. A core pain point of other editors is that most transitions are pay-to-use.
-- [ ] Fast export. Rendering should take a few seconds to a few minutes for short projects.
-- [ ] A clean and modern intuitive interface that's easy to navigate. This is where capcut was attractive.
-- [ ] Smart editing aids: automatic cuts when voice is not detected, and AI transcription.
-- [ ] It should be extremely quick for creators to hop in and start editing a video, with tools and templates for popular niches.
+Tracked against the current build.
+
+**Legend:** ✅ Complete · 🟡 Partial / in progress · ⬜ Not started
+
+| Status | Goal | Notes |
+| :---: | :--- | :--- |
+| 🟡 | Free video transitions | The core pain point: transitions shouldn't be pay-to-use. Cross-dissolve ships free with a full timeline UI (apply, select, resize, remove). The catalog has one type so far. |
+| 🟡 | Fast export | Rendering should take seconds to minutes for short projects. Full timeline → MP4 (H.264/AAC) export works; encoder threading, quality presets, and hardware encoding are still to come. |
+| 🟡 | Clean, modern, intuitive interface | Keyboard-first Avalonia workspace that's easy to navigate. Functional, but panels and polish are still evolving. |
+| ⬜ | Smart editing aids | Automatic cuts when voice isn't detected, and AI transcription. |
+| ⬜ | Quick start for creators | Instant onboarding with tools and templates for popular niches. |
 
 ## Development Philosophy
 
