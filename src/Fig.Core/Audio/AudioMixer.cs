@@ -74,7 +74,7 @@ namespace Fig.Core.Audio
                     if (asset is null || string.IsNullOrEmpty(asset.Url) || asset.Offline)
                         continue;
 
-                    MixClip(mixed, timelineStart, frames, clipStart, clipEnd, ac, asset);
+                    MixClip(mixed, timelineStart, frames, clipStart, clipEnd, ac, asset, timeline.Rate.Fps);
                 }
             }
 
@@ -82,9 +82,11 @@ namespace Fig.Core.Audio
         }
 
         private void MixClip(float[] mixed, double winStart, int winFrames, double clipStart, double clipEnd,
-            AudioClip clip, MediaAsset asset)
+            AudioClip clip, MediaAsset asset, double timelineRateFps)
         {
             var speed = clip.Speed <= 0 ? 1.0 : clip.Speed;
+            // conform: source time advances by speed × (source rate / timeline rate)
+            var playRate = speed * (clip.SourceRate is { } r ? r.Fps / timelineRateFps : 1.0);
             var winEnd = winStart + winFrames / (double)SampleRate;
 
             var overlapStart = Math.Max(winStart, clipStart);
@@ -92,8 +94,8 @@ namespace Fig.Core.Audio
             if (overlapEnd <= overlapStart)
                 return;
 
-            var srcIn = clip.SrcInSec + (overlapStart - clipStart) * speed;
-            var srcDur = (overlapEnd - overlapStart) * speed;
+            var srcIn = clip.SrcInSec + (overlapStart - clipStart) * playRate;
+            var srcDur = (overlapEnd - overlapStart) * playRate;
 
             float[] decoded;
             try
@@ -107,6 +109,15 @@ namespace Fig.Core.Audio
             }
             if (decoded.Length == 0)
                 return;
+
+            // Speed ≠ 1 changes the playout rate: the source block is srcDur long but must
+            // fill overlapDur of timeline. Resample it (per-frame linear interpolation) so the
+            // audio matches the video speed — without this, the wrong number of samples is
+            // written and pitch/duration are wrong.
+            var srcFrames = decoded.Length / 2;
+            var overlapFrames = (int)Math.Round((overlapEnd - overlapStart) * SampleRate);
+            if (Math.Abs(playRate - 1.0) > 1e-6 && overlapFrames > 0)
+                decoded = ResampleStereoLinear(decoded, srcFrames, overlapFrames);
 
             // interleaved sample index: frame offset * 2 channels
             var outOffset = (int)Math.Round((overlapStart - winStart) * SampleRate) * 2;
@@ -134,6 +145,44 @@ namespace Fig.Core.Audio
                 var gain = (float)Math.Clamp(ClipFade.EffectiveVolume(clip, localT), 0, 1);
                 mixed[outOffset + written - 1] += decoded[written - 1] * gain;
             }
+        }
+
+        private static float[] ResampleStereoLinear(float[] src, double srcFrames, int outFrames)
+        {
+            var output = new float[outFrames * 2];
+            if (outFrames <= 0)
+                return output;
+            if (srcFrames <= 1)
+            {
+                // degenerate: copy the first source frame across the whole output
+                if (src.Length >= 2)
+                {
+                    var l = src[0];
+                    var r = src[1];
+                    for (var i = 0; i < outFrames; i++)
+                    {
+                        output[i * 2] = l;
+                        output[i * 2 + 1] = r;
+                    }
+                }
+                return output;
+            }
+
+            var step = srcFrames / outFrames;
+            var maxLo = (int)Math.Floor(srcFrames) - 1;
+            for (var i = 0; i < outFrames; i++)
+            {
+                var pos = i * step;
+                var lo = (int)pos;
+                if (lo > maxLo) lo = maxLo;
+                var hi = lo + 1 <= maxLo ? lo + 1 : lo;
+                var frac = (float)(pos - lo);
+                var si = lo * 2;
+                var s2 = hi * 2;
+                output[i * 2] = src[si] + (src[s2] - src[si]) * frac;
+                output[i * 2 + 1] = src[si + 1] + (src[s2 + 1] - src[si + 1]) * frac;
+            }
+            return output;
         }
 
         private IAudioSampleSource GetOrOpen(string path)

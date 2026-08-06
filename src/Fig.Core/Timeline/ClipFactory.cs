@@ -57,6 +57,7 @@ namespace Fig.Core.Timeline
             };
             clone.LinkGroupId = source.LinkGroupId;
             clone.Enabled = source.Enabled;
+            clone.SourceRate = source.SourceRate;
             clone.Effects = CloneEffects(source.Effects);
             clone.TransitionIn = source.TransitionIn?.Clone();
             clone.TransitionOut = source.TransitionOut?.Clone();

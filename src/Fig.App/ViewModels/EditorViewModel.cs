@@ -4,6 +4,7 @@ using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Fig.App.Services;
+using Fig.App.Views;
 using Fig.Core.Input;
 using Fig.Core.Media;
 using Fig.Core.Project;
@@ -61,6 +62,16 @@ public partial class EditorViewModel : ViewModelBase
 
     public event Action<PlaybackEngine?>? PlaybackAssigned;
     public Action<string>? Notify { get; set; }
+
+    /// <summary>Runs timeline exports as background jobs (progress shown in the jobs popup).</summary>
+    public ExportJobRunner Exports { get; }
+
+    [ObservableProperty]
+    private bool _isJobsOpen;
+
+    public bool HasExportJobs => Exports.Jobs.Count > 0;
+    public bool ShowEmptyJobs => !HasExportJobs;
+    public int ActiveExportCount => Exports.Jobs.Count(j => j.IsActive);
 
     /// <summary>
     /// Resolves the app's main window from the desktop lifetime. Used as a fallback owner
@@ -142,11 +153,23 @@ public partial class EditorViewModel : ViewModelBase
             OnPropertyChanged(nameof(MediaById));
             OnPropertyChanged(nameof(Media));
             OnPropertyChanged(nameof(SequenceEndSec));
+            Preview.UpdateCanvasFromMedia();
             Properties.Refresh();
         };
         WireEditorEvents(Editor);
         InitializePlaybackForCurrentEditor();
         Properties.Refresh();
+
+        Exports = new ExportJobRunner(_mediaService);
+        Exports.Jobs.CollectionChanged += (_, e) =>
+        {
+            if (e.NewItems is not null)
+                foreach (ExportJob job in e.NewItems)
+                    job.PropertyChanged += (_, _) => OnPropertyChanged(nameof(ActiveExportCount));
+            OnPropertyChanged(nameof(HasExportJobs));
+            OnPropertyChanged(nameof(ShowEmptyJobs));
+            OnPropertyChanged(nameof(ActiveExportCount));
+        };
     }
 
     private void WireEditorEvents(TimelineEditor editor)
@@ -273,7 +296,8 @@ public partial class EditorViewModel : ViewModelBase
                 if (!MediaById.TryGetValue(vc.SourceId, out var asset) || string.IsNullOrEmpty(asset.Url) || asset.Offline)
                     continue;
 
-                var srcTime = vc.SrcInSec + (timeSec - clip.StartSec) * vc.Speed;
+                var ratio = vc.SourceRate is { } r ? r.Fps / document.Rate.Fps : 1.0;
+                var srcTime = vc.SrcInSec + (timeSec - clip.StartSec) * vc.Speed * ratio;
                 var localT = timeSec - clip.StartSec;
                 var opacity = ClipFade.EffectiveOpacity(vc, localT);
                 layers.Add(new PreviewLayer(asset.PlaybackVideoPath, srcTime, opacity, vc));
@@ -772,6 +796,41 @@ public partial class EditorViewModel : ViewModelBase
         Preview.RefreshFrame();
         Notify?.Invoke("Removed transition");
     }
+
+    /// <summary>
+    /// Opens the export dialog (resolution, fps, quality, output path), then queues the export
+    /// as a background job visible in the jobs popup.
+    /// </summary>
+    [RelayCommand]
+    private async Task ExportAsync(Window? owner)
+    {
+        if (Project is null || Editor is null)
+            return;
+        owner ??= MainWindow;
+        if (owner is null)
+            return;
+
+        var timeline = Editor.Document;
+        var settings = Project.Export;
+        var dialog = new ExportDialog(timeline.Rate.Fps, settings.Width, settings.Height);
+        var options = await dialog.ShowDialog<ExportOptions?>(owner);
+        if (options is null)
+            return;
+        if (string.IsNullOrWhiteSpace(options.OutputPath))
+        {
+            Notify?.Invoke("Choose an output path");
+            return;
+        }
+
+        var width = Math.Max(2, options.Width & ~1);
+        var height = Math.Max(2, options.Height & ~1);
+        Exports.Enqueue(options.OutputPath, width, height, Math.Clamp(options.Crf, 0, 51), Project, timeline);
+        IsJobsOpen = true;
+        Notify?.Invoke($"Export started: {System.IO.Path.GetFileName(options.OutputPath)}");
+    }
+
+    [RelayCommand]
+    private void ToggleJobs() => IsJobsOpen = !IsJobsOpen;
 
     /// <summary>
     /// Captures every clip start, runs <paramref name="mutate"/>, then emits slide deltas

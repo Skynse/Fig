@@ -1,0 +1,87 @@
+@startuml
+' fig Persistence + validation: project store, import/artifact pipeline, save service.
+
+package Project {
+
+  class ProjectStore {
+    + rootDir : string
+    + CreateProject(name) : id
+    + SaveProject(project) : void
+    + LoadProject(id) : Project?
+    + ListProjects() : ProjectSummary[]
+    + DeleteProject(id) : void
+    + ProjectDirectory(id) : string
+    + CacheDirectory(id) : string
+  }
+
+  class ProjectManager {
+    + Project : Project
+    + CacheDirectory : string
+    + ImportMedia(path) : ProbeResult
+    + FinalizeMediaArtifacts(asset, onDone) : void
+    + RequestProxy(asset, force) : void
+    + ValidateAndRepair(progress) : ProjectValidationReport
+    + UpdateProjectThumbnail() : bool
+    + RemoveMedia(id) / RelinkMedia(id, newPath) / RefreshOfflineStatus()
+    + event ProjectChanged
+  }
+
+  class ProjectValidationReport {
+    assetsChecked : int
+    artifactsRepaired : int
+    offlineAssets : int
+    failedArtifacts : int
+    notes : string[]
+  }
+
+  class SaveService {
+    + path : string
+    + autosaveThrottle : TimeSpan
+    + backupCount : int
+    + Save(project) / Load() : Project?
+    + SaveThrottled(project) : void
+  }
+
+  class ProbeResult {
+    asset : MediaAsset?
+    error : string?
+  }
+
+  class Project {
+    name / id / appVersion
+    createdAt / updatedAt
+    media : MediaAsset[]
+    timelines : Timeline[]
+    export : ExportSettings
+    metadata : map
+  }
+}
+
+ProjectStore --> Project : "persists JSON"
+ProjectStore ..> SaveService : "atomic writes"
+ProjectManager o-- Project : "operates on"
+ProjectManager --> ProjectStore : "cache dir"
+ProjectManager --> IMediaService : "probe/artifacts"
+
+note bottom of ProjectManager
+  Import: probe + SHA-256 hash + thumbnail.
+  Finalize: filmstrip + waveform peaks + proxy,
+  each independent. ValidateAndRepair on open:
+  check source exists, re-probe stream metadata
+  (refreshes HasAudio/duration/dims), regen
+  stale thumbnails/filmstrips/peaks, record
+  offline + failures instead of swallowing.
+  Proxies are H.264 MP4s written via a .partial
+  file and validated with Mp4Container before
+  being marked ready.
+end note
+
+note bottom of ProjectStore
+  One folder per project: project.json + cache.
+  Folder id is a readable slug ("My-Cool-Edit_…").
+  SaveService writes atomically (temp + rename)
+  with a throttled autosave and rolling backups;
+  the undo stack stays in-memory per session.
+end note
+
+@enduml

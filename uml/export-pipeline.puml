@@ -1,0 +1,109 @@
+@startuml
+' fig Export pipeline: timeline -> MP4, plus the app-side job UI.
+
+package "Core.Media" {
+
+  class TimelineRender <<MediaService partial>> {
+    + RenderTimeline(project, timeline, outputPath, w, h, crf, progress)
+    - ComposeCanvas(project, timeline, sources, t, w, h, canvas)
+    - TryDecodeClip(project, timeline, sources, clip, t, ...) : bool
+    - EncodeAudioFrames(aEnc, outCtx, aStream, floats, frames, ref pts)
+    - DrainAudioPackets(...)
+    - TimelineEndSec(timeline) : double
+  }
+
+  class VideoFrameSource
+  class AudioMixer
+  class EffectPipeline
+  class TransitionResolver
+  class FrameCompositor
+}
+
+package "App.Services" {
+
+  class ExportJobRunner {
+    + Jobs : ObservableCollection<ExportJob>
+    + Enqueue(outputPath, w, h, crf, project, timeline) : ExportJob
+    - RunAsync(job, project, timeline, crf)
+  }
+
+  class ExportJob {
+    outputPath : string
+    width / height : int
+    fps : double
+    status : enum(queued, running, done, failed)
+    progress : double
+    error : string?
+    fileName / sizeLabel / statusLabel
+  }
+
+  enum ExportJobStatus {
+    Queued
+    Running
+    Done
+    Failed
+  }
+}
+
+package "App.ViewModels / Views" {
+
+  class EditorViewModel {
+    + ExportCommand
+    + Exports : ExportJobRunner
+    + IsJobsOpen : bool
+    + ActiveExportCount : int
+    + ToggleJobsCommand
+  }
+
+  class ExportDialogViewModel {
+    presets : ResolutionPreset[]
+    width / height : int
+    quality (CRF) : int
+    outputPath : string
+    fpsLabel : string
+  }
+
+  class ExportDialog {
+    ShowDialog() : ExportOptions?
+  }
+
+  class ExportOptions {
+    width / height : int
+    crf : int
+    outputPath : string
+  }
+}
+
+TimelineRender ..> VideoFrameSource : "persistent decoders per path"
+TimelineRender ..> AudioMixer : "audio chunks"
+TimelineRender ..> EffectPipeline : "per-clip stack"
+TimelineRender ..> TransitionResolver : "cross-dissolves"
+TimelineRender ..> FrameCompositor : "painters blend"
+TimelineRender ..> AudioMixer : "mix"
+
+ExportJobRunner o-- ExportJob : "queues"
+ExportJobRunner --> TimelineRender : "RenderTimeline (off UI thread)"
+ExportJobRunner --> ExportJobStatus
+EditorViewModel o-- ExportJobRunner
+EditorViewModel --> ExportDialog : "opens"
+ExportDialog o-- ExportDialogViewModel
+ExportDialog --> ExportOptions : "returns"
+
+note bottom of TimelineRender
+  Reuses the preview pipeline so the export
+  matches what the editor shows: aspect-correct
+  letterbox decode at the canvas size, effects,
+  transitions, fades, speed, conform, and the
+  last-track-on-top compositing order. Video is
+  H.264 at the timeline rate (CRF quality);
+  audio is AAC 48kHz mixed by AudioMixer in
+  1024-frame chunks. Runs entirely on a worker.
+end note
+
+note bottom of ExportJobRunner
+  One export at a time (semaphore). Progress is
+  marshalled to the UI thread; failures delete
+  the partial output and set the job's error.
+end note
+
+@enduml

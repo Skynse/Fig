@@ -1,0 +1,105 @@
+@startuml
+' fig OTIO (OpenTimelineIO) import: parse .otio JSON into the fig project model.
+
+package Project {
+
+  class OtioImporter {
+    {static} Import(json) : OtioImportResult
+    {static} ImportFromFile(path) : OtioImportResult
+    - ImportDocument(root)
+    - ImportStack(stack, timeline, result)
+    - ImportTrack(track, timeline, result)
+    - PopulateTrack(track, children, result)
+    - TryImportClip(clip, track, startSec, ...) : bool
+    - ImportMarkers(parent, ...)
+    - ImportEffects(clip, figClip, ...)
+  }
+
+  class OtioImportResult {
+    project : Project
+    warnings : string[]
+    sources : string[]
+    clipsImported : int
+    transitionsImported : int
+    effectsImported : int
+    markersImported : int
+    gapsSkipped : int
+  }
+}
+
+package "OTIO schemas" {
+  entity "Timeline.1" as OTIO_Timeline {
+    name
+    global_start_time
+    tracks
+  }
+  entity "Stack.1" as OTIO_Stack {
+    children
+    markers
+    metadata
+  }
+  entity "Track.1" as OTIO_Track <<also Sequence.1>> {
+    kind
+    children
+    markers
+  }
+  entity "Clip.1" as OTIO_Clip {
+    name
+    source_range
+    media_reference(s)
+    enabled
+    effects
+    markers
+  }
+  entity "Gap.1" as OTIO_Gap {
+    source_range
+  }
+  entity "Transition.1" as OTIO_Transition {
+    transition_type
+    in_offset
+    out_offset
+  }
+  entity "ExternalReference.1" as OTIO_External {
+    target_url
+    available_range
+  }
+  entity "MissingReference.1" as OTIO_Missing
+  entity "GeneratorReference.1" as OTIO_Generator {
+    generator_kind
+  }
+  entity "Marker.3" as OTIO_Marker {
+    name
+    color
+    marked_range
+  }
+}
+
+OtioImporter --> OtioImportResult
+OtioImporter ..> OTIO_Timeline : "root (or Stack/Track)"
+OtioImporter ..> OTIO_Stack : "children -> tracks"
+OtioImporter ..> OTIO_Track : "kind video/audio"
+OtioImporter ..> OTIO_Clip : "Clip.1 / Clip.2"
+OtioImporter ..> OTIO_Gap : "advances position"
+OtioImporter ..> OTIO_Transition : "-> clip-edge TransitionRef"
+OtioImporter ..> OTIO_External : "-> MediaAsset (dedup by url)"
+OtioImporter ..> OTIO_Marker : "clip/track/timeline markers"
+OtioImporter ..> OTIO_Missing : "clip with no url"
+OtioImporter ..> OTIO_Generator : "no source url"
+
+note bottom of OtioImporter
+  Maps OTIO -> fig:
+    source_range        -> SrcIn/SrcOut/Dur (falls back to available_range)
+    gaps                -> absolute StartSec (implicit)
+    dissolves           -> TransitionRef on both clip edges
+    markers             -> Marker (clip: offset from clip start;
+                            track/timeline: absolute), colors mapped to hex
+    metadata            -> per-object Metadata bags
+    global_start_time   -> Timeline.GlobalStartSec
+    available_range     -> MediaAsset.SourceStartSec
+    enabled             -> Clip.Enabled
+  Nested stacks/tracks flatten into one stream;
+  unsupported effects are counted + warned.
+  Times convert via value/rate (seconds).
+end note
+
+@enduml

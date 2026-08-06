@@ -635,6 +635,7 @@ namespace Fig.App.Views
                 return;
 
             var speed = clip.Speed <= 0 ? 1.0 : clip.Speed;
+            var ratio = clip.SourceRate is { } sr ? sr.Fps / (Editor?.Document.Rate.Fps ?? 1) : 1.0;
 
             // each tile scaled to the clip height, preserving the source aspect ratio
             var destH = rect.Height;
@@ -652,7 +653,7 @@ namespace Fig.App.Views
                 while (x < visRight)
                 {
                     var clipLocalSec = (x - rect.X) / (rect.Width / clip.DurSec);
-                    var srcTimeSec = clip.SrcInSec + clipLocalSec * speed;
+                    var srcTimeSec = clip.SrcInSec + clipLocalSec * speed * ratio;
 
                     var frameIndex = (int)(srcTimeSec / asset.FilmstripFrameIntervalSec);
                     frameIndex = Math.Clamp(frameIndex, 0, asset.FilmstripFrameCount - 1);

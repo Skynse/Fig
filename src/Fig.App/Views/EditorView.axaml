@@ -28,6 +28,8 @@
                 <MenuItem Header="_Save" Command="{Binding SaveCommand}" InputGesture="Ctrl+S"/>
                 <MenuItem Header="Save _As..." Command="{Binding SaveAsCommand}"
                           CommandParameter="{Binding $parent[Window]}"/>
+                <MenuItem Header="_Export..." Command="{Binding ExportCommand}"
+                          CommandParameter="{Binding $parent[Window]}"/>
                 <Separator/>
                 <MenuItem Header="_Close Project" Click="CloseProjectMenu_Click" InputGesture="Ctrl+W"/>
                 <Separator/>
@@ -72,6 +74,62 @@
                 <Button DockPanel.Dock="Right" Content="Import"
                         Command="{Binding ImportCommand}"
                         CommandParameter="{Binding $parent[Window]}"/>
+                <Button DockPanel.Dock="Right" Content="Export"
+                        Command="{Binding ExportCommand}"
+                        CommandParameter="{Binding $parent[Window]}"
+                        Margin="0,0,8,0"/>
+                <Button x:Name="JobsButton" DockPanel.Dock="Right"
+                        Command="{Binding ToggleJobsCommand}"
+                        ToolTip.Tip="Export jobs"
+                        Margin="0,0,8,0" Padding="8,4"
+                        Background="Transparent" BorderThickness="0">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <local:StrokeIcon Icon="download" Width="14" Height="14" IconBrush="#cccccc"/>
+                        <TextBlock Text="{Binding ActiveExportCount}" Foreground="#cccccc"
+                                   FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Popup IsOpen="{Binding IsJobsOpen}"
+                       PlacementTarget="{Binding #JobsButton}"
+                       Placement="Bottom">
+                    <Border Background="#252526" CornerRadius="6"
+                            BorderBrush="#333333" BorderThickness="1"
+                            Padding="10" MinWidth="300" MaxWidth="360" MaxHeight="380">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="EXPORT JOBS" Foreground="#8a8a8a"
+                                       FontSize="10" FontWeight="SemiBold"/>
+                            <ItemsControl ItemsSource="{Binding Exports.Jobs}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ExportJob">
+                                        <Border Background="#1e1e1e" CornerRadius="4"
+                                                Padding="8" Margin="0,0,0,6">
+                                            <StackPanel Spacing="3">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding StatusLabel}"
+                                                               Foreground="#8a8a8a" FontSize="11"
+                                                               VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding FileName}"
+                                                               Foreground="#dddddd" FontSize="12"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </DockPanel>
+                                                <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}"
+                                                             Height="5" Foreground="#4d8dff" Background="#333333"/>
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding SizeLabel}"
+                                                               Foreground="#6a6a6a" FontSize="10"/>
+                                                    <TextBlock Text="{Binding Error}" Foreground="#ff6b6b"
+                                                               FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                                </DockPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="No export jobs yet." Foreground="#6a6a6a"
+                                       FontSize="11" IsVisible="{Binding ShowEmptyJobs}"/>
+                        </StackPanel>
+                    </Border>
+                </Popup>
             </DockPanel>
         </Border>
 

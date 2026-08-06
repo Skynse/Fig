@@ -163,6 +163,7 @@ namespace Fig.Core.Timeline
                 ?? throw new InvalidOperationException($"Track '{targetTrackId}' not found");
 
             var clip = CreateClipFromAsset(asset);
+            PreparePlacement(clip, asset);
             clip.StartSec = FrameMath.SnapToFrame(startSec, Document.Rate);
             ClipFactory.SetSourceRange(clip, 0, asset.DurationSec);
 
@@ -196,6 +197,7 @@ namespace Fig.Core.Timeline
                     SrcInSec = 0,
                     SrcOutSec = asset.DurationSec,
                     LinkGroupId = groupId,
+                    SourceRate = asset.SourceRate,
                 };
                 // never reject just because A1 is busy — reuse a free audio lane or make one.
                 // this is what broke re-drops onto empty V2/A2 after deleting a second clip.
@@ -216,6 +218,7 @@ namespace Fig.Core.Timeline
         public Clip AddMediaNewTracks(MediaAsset asset, double startSec)
         {
             var clip = CreateClipFromAsset(asset);
+            PreparePlacement(clip, asset);
             clip.StartSec = FrameMath.SnapToFrame(startSec, Document.Rate);
             ClipFactory.SetSourceRange(clip, 0, asset.DurationSec);
 
@@ -243,6 +246,7 @@ namespace Fig.Core.Timeline
                     SrcInSec = 0,
                     SrcOutSec = asset.DurationSec,
                     LinkGroupId = groupId,
+                    SourceRate = asset.SourceRate,
                 };
                 InsertClip(audioTrack, audioClip);
             }
@@ -274,9 +278,34 @@ namespace Fig.Core.Timeline
         {
             return asset.Kind switch
             {
-                MediaKind.Audio => new AudioClip { SourceId = asset.Id, DurSec = asset.DurationSec },
-                _ => new VideoClip { SourceId = asset.Id, DurSec = asset.DurationSec },
+                MediaKind.Audio => new AudioClip { SourceId = asset.Id, DurSec = asset.DurationSec, SourceRate = asset.SourceRate },
+                _ => new VideoClip { SourceId = asset.Id, DurSec = asset.DurationSec, SourceRate = asset.SourceRate },
             };
+        }
+
+        /// <summary>
+        /// Applies placement-time conform for a newly created clip: the timeline adopts the
+        /// media's frame rate when it is still empty, and the clip's timeline duration is
+        /// scaled by the source↔timeline rate ratio so mixed-rate footage plays at the right
+        /// speed. Source range stays in source time.
+        /// </summary>
+        private Clip PreparePlacement(Clip clip, MediaAsset asset)
+        {
+            clip.SourceRate = asset.SourceRate;
+            if (clip.SourceRate is { } rate && HasNoClips())
+                Document.Rate = rate;
+            var ratio = clip.SourceRate is { } r ? r.Fps / Document.Rate.Fps : 1.0;
+            if (Math.Abs(ratio - 1.0) > 1e-6)
+                clip.DurSec = asset.DurationSec / ratio;
+            return clip;
+        }
+
+        private bool HasNoClips()
+        {
+            foreach (var track in Document.Tracks)
+                if (track.Clips.Count > 0)
+                    return false;
+            return true;
         }
 
         public void AddClip(Clip clip)

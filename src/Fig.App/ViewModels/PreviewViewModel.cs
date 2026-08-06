@@ -41,6 +41,12 @@ public partial class PreviewViewModel : ViewModelBase
     private byte[]? _composeBuffer;
     private byte[]? _cropScratch;
 
+    // The preview canvas follows the project's dominant video aspect instead of being
+    // hardcoded 16:9. Set from the first video asset; layers that don't match are
+    // letterboxed by the decoder, never stretched.
+    private int _baseCanvasW = 640;
+    private int _baseCanvasH = 360;
+
     // persistent sequential decoders per source path, so playback decodes forward without re-seeking
     private readonly Dictionary<string, IVideoFrameSource> _sources = new();
     // Paths that failed to open — skip re-open spam (FFmpeg "moov atom not found") until InvalidateSources.
@@ -82,14 +88,39 @@ public partial class PreviewViewModel : ViewModelBase
     /// <summary>
     /// Preview resolution changed (Kdenlive's consumer-level preview scaling): schedules a
     /// reset that the decode worker applies on its own thread (it is the only thread allowed
-    /// to dispose decoders), then re-decodes the current playhead at the new size. Keeps the
-    /// aspect locked to 16:9 to match the existing canvas behavior.
+    /// to dispose decoders), then re-decodes the current playhead at the new size. The canvas
+    /// aspect follows the project's media rather than a hardcoded 16:9.
     /// </summary>
     partial void OnPreviewScaleChanged(PreviewScaleOption value)
     {
         var height = Math.Clamp(value.Height, 90, 2160);
-        RequestReset(width: height * 16 / 9, height: height);
+        _targetHeight = height;
+        _targetWidth = Math.Max(1, (int)Math.Round(_baseCanvasW * height / (double)_baseCanvasH));
+        RequestReset(_targetWidth, _targetHeight);
         RequestFrame();
+    }
+
+    /// <summary>
+    /// Adopts the preview canvas aspect from the first video asset. Called when media is
+    /// added or a project is loaded, so the canvas matches the footage instead of forcing
+    /// everything into 16:9. Only the first asset wins, keeping the canvas stable mid-edit.
+    /// </summary>
+    public void UpdateCanvasFromMedia()
+    {
+        var asset = _editor?.MediaById.Values.FirstOrDefault(a => a.Width > 0 && a.Height > 0);
+        if (asset is null || (asset.Width == _baseCanvasW && asset.Height == _baseCanvasH))
+            return;
+
+        _baseCanvasW = asset.Width;
+        _baseCanvasH = asset.Height;
+
+        var height = _targetHeight;
+        var width = Math.Max(1, (int)Math.Round(asset.Width * height / (double)asset.Height));
+        if (width != _targetWidth)
+        {
+            _targetWidth = width;
+            RequestReset(width, height);
+        }
     }
 
     public string PlaybackIconKey => _editor is { IsPlaying: true } ? "pause" : "play";
@@ -514,7 +545,9 @@ public partial class PreviewViewModel : ViewModelBase
             || string.IsNullOrEmpty(asset.Url) || asset.Offline)
             return false;
 
-        var srcTime = clip.SrcInSec + localT * clip.Speed;
+        var timelineRate = _editor.Editor.Document.Rate.Fps;
+        var ratio = clip.SourceRate is { } r ? r.Fps / timelineRate : 1.0;
+        var srcTime = clip.SrcInSec + localT * clip.Speed * ratio;
         try
         {
             var path = asset.PlaybackVideoPath;

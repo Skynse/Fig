@@ -27,6 +27,8 @@ namespace Fig.Core.Media
         private readonly int _vIdx;
         private readonly int _srcW, _srcH;
         private readonly int _outW, _outH;
+        private readonly int _fitW, _fitH;
+        private readonly int _offX, _offY;
         private readonly AVRational _timeBase;
 
         private AVFrame* _pendingFrame;
@@ -57,6 +59,13 @@ namespace Fig.Core.Media
             }
         }
 
+        /// <summary>
+        /// Opens a sequential decoder that produces full-canvas frames of
+        /// <paramref name="width"/>×<paramref name="height"/>. The source is scaled to the
+        /// largest centered region that fits the canvas while preserving its aspect ratio —
+        /// the rest of the canvas stays black. This keeps the compositor simple (every layer
+        /// is full-canvas) while never stretching the picture.
+        /// </summary>
         internal VideoFrameSource(string sourcePath, int width, int height)
         {
             AVFormatContext* inCtx = null;
@@ -81,12 +90,11 @@ namespace Fig.Core.Media
                 ThrowIfError(ffmpeg.avcodec_parameters_to_context(decCtx, par), "avcodec_parameters_to_context");
                 decCtx->pkt_timebase = stream->time_base;
 
-                // Preview decode is single-threaded — ffmpeg frame threading causes
-                // fctx->async_lock assertion crashes on teardown with certain codecs
-                // (VP8/VP9 in WebM, some H.264 profiles). The decode worker already
-                // marshals work to a background thread; multi-threaded decode isn't
-                // needed for preview-scale frames (360p default).
-                decCtx->thread_count = 1;
+                // Multi-threaded decode for smoother preview/scrub. Safe now that decoders are
+                // only ever disposed on the single decode worker thread, never concurrently with
+                // an in-flight decode (the previous single-threaded workaround for a teardown
+                // crash is obsolete).
+                decCtx->thread_count = 4;
 
                 ThrowIfError(ffmpeg.avcodec_open2(decCtx, dec, null), "avcodec_open2");
 
@@ -98,6 +106,13 @@ namespace Fig.Core.Media
                 _outW = width;
                 _outH = height;
                 _timeBase = stream->time_base;
+
+                // largest centered region that fits the canvas while preserving aspect
+                var scale = Math.Min(width / (double)Math.Max(1, _srcW), height / (double)Math.Max(1, _srcH));
+                _fitW = Math.Max(1, (int)Math.Round(_srcW * scale));
+                _fitH = Math.Max(1, (int)Math.Round(_srcH * scale));
+                _offX = (width - _fitW) / 2;
+                _offY = (height - _fitH) / 2;
 
                 _pendingFrame = ffmpeg.av_frame_alloc();
                 EnsureRgbFrame();
@@ -138,8 +153,8 @@ namespace Fig.Core.Media
                 return;
             _rgbFrame = ffmpeg.av_frame_alloc();
             _rgbFrame->format = (int)AVPixelFormat.AV_PIX_FMT_BGRA;
-            _rgbFrame->width = _outW;
-            _rgbFrame->height = _outH;
+            _rgbFrame->width = _fitW;
+            _rgbFrame->height = _fitH;
             ThrowIfError(ffmpeg.av_frame_get_buffer(_rgbFrame, 32), "av_frame_get_buffer");
         }
 
@@ -154,7 +169,7 @@ namespace Fig.Core.Media
             }
             _sws = ffmpeg.sws_getContext(
                 _srcW, _srcH, srcFmt,
-                _outW, _outH, AVPixelFormat.AV_PIX_FMT_BGRA,
+                _fitW, _fitH, AVPixelFormat.AV_PIX_FMT_BGRA,
                 SwsBilinear, null, null, null);
             _swsSrcFmt = srcFmt;
         }
@@ -193,6 +208,7 @@ namespace Fig.Core.Media
                 var acceptAfter = timeSec - 0.35;
 
                 var got = false;
+                var lastDecodedSec = -1.0;
                 int ret;
                 while ((ret = ffmpeg.av_read_frame(ctx, packet)) >= 0)
                 {
@@ -208,6 +224,7 @@ namespace Fig.Core.Media
                                 _lastPresentedSec = sec;
                                 break;
                             }
+                            lastDecodedSec = sec;
                         }
                         if (got) break;
                     }
@@ -226,11 +243,18 @@ namespace Fig.Core.Media
                             _lastPresentedSec = sec;
                             break;
                         }
+                        lastDecodedSec = sec;
                     }
                 }
 
                 if (!got)
+                {
+                    // past the end of the media: fall back to the last frame actually decoded
+                    // so the preview shows the final frame rather than a stale earlier one
+                    if (lastDecodedSec >= 0)
+                        _lastPresentedSec = lastDecodedSec;
                     return _lastFrame;
+                }
 
                 return ScalePendingToLastFrame();
             }
@@ -295,21 +319,29 @@ namespace Fig.Core.Media
                 _rgbFrame->data, _rgbFrame->linesize);
 
             var byteCount = _outW * _outH * 4;
-
-            var rowSize = _outW * 4;
             if (_outputScratch.Length < byteCount)
-                _outputScratch = new byte[byteCount];
-            var bytes = _outputScratch;
-            fixed (byte* dstBase = bytes)
             {
-                for (var y = 0; y < _outH; y++)
+                _outputScratch = new byte[byteCount];
+                Array.Clear(_outputScratch, 0, _outputScratch.Length);   // letterbox bars = black
+            }
+            var canvas = _outputScratch;
+
+            // Paste the aspect-correct fit region into the center of the canvas. Both the
+            // fit frame and the canvas use bottom-up row order, so fit row y lands on
+            // canvas row (y + _offY).
+            var fitRowBytes = _fitW * 4;
+            var canvasRowBytes = _outW * 4;
+            fixed (byte* dstBase = canvas)
+            {
+                for (var y = 0; y < _fitH; y++)
                 {
                     var src = _rgbFrame->data[0] + y * _rgbFrame->linesize[0];
-                    Buffer.MemoryCopy(src, dstBase + y * rowSize, rowSize, rowSize);
+                    var dst = dstBase + (y + _offY) * canvasRowBytes + _offX * 4;
+                    Buffer.MemoryCopy(src, dst, fitRowBytes, fitRowBytes);
                 }
             }
 
-            _lastFrame = new DecodedFrame { Width = _outW, Height = _outH, Pixels = bytes };
+            _lastFrame = new DecodedFrame { Width = _outW, Height = _outH, Pixels = canvas };
             return _lastFrame;
         }
 

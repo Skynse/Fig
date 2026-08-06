@@ -43,6 +43,9 @@ namespace Fig.Core.Media
         public double FilmstripFrameIntervalSec { get; set; }
         public bool HasAudio { get; set; }
 
+        /// <summary>The media's native frame rate (probe fps), used to conform clips to the timeline rate.</summary>
+        public Fig.Core.Timeline.FrameRate? SourceRate { get; set; }
+
         /// <summary>
         /// Normalized (0..1) audio peak magnitudes covering the full source duration,
         /// decoded once at import and rendered directly at draw time. Not serialized —

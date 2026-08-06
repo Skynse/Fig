@@ -1,0 +1,82 @@
+@startuml
+' fig Input: data-driven gesture system. The view asks the registry what a pattern maps to.
+
+package Input {
+
+  enum TimelineGesture {
+    None
+    ZoomIn
+    ZoomOut
+    ScrollHorizontal
+    ScrollVertical
+    Pan
+    MoveClip
+    ResizeClipStart
+    ResizeClipEnd
+    DragPlayhead
+  }
+
+  class GesturePattern <<record>> {
+    button : MouseButton
+    ctrl : bool
+    shift : bool
+    alt : bool
+    wheel : bool
+    wheelDir : WheelDirection
+  }
+
+  enum MouseButton {
+    None
+    Left
+    Middle
+    Right
+  }
+
+  enum WheelDirection {
+    None
+    Up
+    Down
+  }
+
+  class GesturePatternParser {
+    {static} Parse(text) : GesturePattern
+    {static} Serialize(pattern) : string
+  }
+
+  class GestureRegistry {
+    - _bindings : map<GesturePattern, TimelineGesture>
+    + SourcePath : string?
+    + Bind(pattern, gesture) : void
+    + Resolve(pattern) : TimelineGesture
+    + Load(path) : void
+    + Save(path) : void
+    - RegisterDefaults()
+  }
+
+  class GestureBinding <<record>> {
+    pattern : string
+    gesture : string
+  }
+
+  GestureRegistry o-- GesturePattern : "keys"
+  GestureRegistry --> TimelineGesture : "maps to"
+  GesturePatternParser ..> GesturePattern
+  GestureRegistry ..> GestureBinding : "serializes"
+
+  note bottom of GestureRegistry
+    Bindings live in an editable config file
+    (~/.fig/gestures.json), not hardcoded.
+    Defaults: Ctrl+Wheel = zoom, Shift+Wheel =
+    horizontal scroll, middle-drag = pan,
+    left-drag = move clip. Loaded at startup.
+  end note
+
+  note bottom of TimelineGesture
+    Mouse gestures only. Keyboard shortcuts
+    (M = add marker, Delete = remove selection,
+    Ctrl+E = enable/disable clip, ...) are
+    handled directly in the timeline view.
+  end note
+}
+
+@enduml

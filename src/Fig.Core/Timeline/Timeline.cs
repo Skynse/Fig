@@ -31,7 +31,10 @@ namespace Fig.Core.Timeline
 
         public static FrameRate FromFps(double fps)
         {
-            // find a rational approx: fps * 1000 / 1000 then reduce
+            var common = Common(fps);
+            if (Math.Abs(common.Fps - fps) < 0.001)
+                return common;
+            // high-precision rational approximation for unusual rates
             return new FrameRate((int)Math.Round(fps * 1000), 1000);
         }
 
@@ -39,6 +42,10 @@ namespace Fig.Core.Timeline
         {
             return Math.Abs(fps - 23.976) < 0.001 ? new FrameRate(24000, 1001)
                  : Math.Abs(fps - 29.97) < 0.001 ? new FrameRate(30000, 1001)
+                 : Math.Abs(fps - 59.94) < 0.001 ? new FrameRate(60000, 1001)
+                 : Math.Abs(fps - 25) < 0.001 ? new FrameRate(25, 1)
+                 : Math.Abs(fps - 50) < 0.001 ? new FrameRate(50, 1)
+                 : Math.Abs(fps - 60) < 0.001 ? new FrameRate(60, 1)
                  : new FrameRate((int)Math.Round(fps), 1);
         }
 

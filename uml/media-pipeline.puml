@@ -1,0 +1,141 @@
+@startuml
+' fig Media pipeline: FFmpeg decode, aspect-preserving scale, compositing, audio mixing, artifacts.
+
+package Media {
+
+  interface IMediaService {
+    + Probe(path) : MediaAsset
+    + OpenVideoSource(path, w, h) : IVideoFrameSource
+    + OpenAudioSource(path, rate) : IAudioSampleSource
+    + DecodeSamples(path, start, dur, rate) : float[]
+    + DecodeFrameAt(path, sec, w, h) : DecodedFrame?
+    + GenerateThumbnail(path, out, w) : void
+    + GenerateFilmstrip(path, out, tileH) : FilmstripInfo
+    + GenerateProxy(path, out, maxH) : ProxyInfo
+    + ExtractPeaks(path, buckets) : float[]
+    + SaveFrameAsJpeg(path, sec, out, w) : void
+    + RenderClip(src, clip, out, w, h) : void
+    + RenderTimeline(project, timeline, out, w, h, crf, progress) : void
+  }
+
+  class MediaService
+  class MediaAsset {
+    url / hash / kind
+    durationSec / width / height
+    sourceRate : FrameRate?
+    sourceStartSec : double
+    hasAudio / offline
+    thumbnail / filmstrip / proxyUrl
+    metadata : map
+  }
+
+  class DecodedFrame {
+    width : int
+    height : int
+    pixels : byte[]   ' BGRA32, bottom-up row order
+  }
+
+  interface IVideoFrameSource {
+    + DecodeForward(sec) : DecodedFrame?
+    + DecodeForward(sec, mode) : DecodedFrame?
+    + Seek(sec) : void
+    + Mode : PreviewDecodeMode
+    + LastPresentedTimeSec : double
+  }
+
+  class VideoFrameSource {
+    ' persistent sequential decoder, threadCount = 4
+    fitW : fitH : offX : offY   ' largest centered aspect-preserving region
+    canvasScratch : byte[]      ' full-canvas frame, letterbox bars stay black
+    DecodeForward() / Seek() / ScalePendingToLastFrame()
+  }
+
+  enum PreviewDecodeMode {
+    Playback   ' decode every frame
+    Scrub      ' skip non-reference frames, nearest-after
+  }
+
+  interface IAudioSampleSource {
+    + Read(startSec, durSec) : float[]   ' interleaved stereo, silence-padded
+    + Seek(sec) : void
+    + NextTimeSec : double
+  }
+
+  class AudioSampleSource {
+    ' persistent decoder, swr resample to stereo float, carry buffer
+  }
+
+  class AudioMixer {
+    {static} SampleRate = 48000
+    + Mix(timeline, startSec, durSec) : float[]
+    - MixClip()          ' Volume x fade envelope, speed/conform resample
+    - ResampleStereoLinear()
+  }
+
+  class FrameCompositor {
+    {static} ComposeInto(layers, w, h, pixels, ref cropScratch)
+    ' painters algorithm: layers[0] = topmost; AVX2 blend
+  }
+
+  class FramePool {
+    {static} Rent(size) : byte[]
+    {static} Return(buf)
+  }
+
+  class PreviewFrameCache {
+    ' LRU keyed path|widthxheight|timeBucket; owns pooled copies
+    TryGet() / Put() / Clear()
+  }
+
+  class FilmstripGenerator {
+    GenerateFilmstrip() : FilmstripInfo
+  }
+
+  class ProxyGenerator {
+    {static} ShouldGenerateProxy(w, h, maxH)
+    GenerateProxy() : ProxyInfo
+  }
+
+  class Mp4Container {
+    {static} IsCompleteMp4(path) : bool
+  }
+
+  MediaService ..|> IMediaService
+  VideoFrameSource ..|> IVideoFrameSource
+  AudioSampleSource ..|> IAudioSampleSource
+
+  MediaService o-- VideoFrameSource : "opens"
+  MediaService o-- AudioSampleSource : "opens"
+  MediaService o-- FilmstripGenerator
+  MediaService o-- ProxyGenerator
+  ProxyGenerator ..> Mp4Container : "validates"
+  VideoFrameSource --> DecodedFrame : "returns"
+  AudioMixer o-- IAudioSampleSource : "caches per path"
+  AudioMixer ..> ClipFade : "envelope"
+  FrameCompositor --> FramePool
+  PreviewFrameCache --> FramePool
+  PreviewFrameCache --> DecodedFrame : "owns copies"
+
+  note bottom of VideoFrameSource
+    Scaled to the largest centered rect that
+    fits the canvas, preserving aspect; the
+    rest of the canvas stays black. Never
+    stretches the picture (no 16:9 distortion).
+    Disposed only on the preview decode worker.
+  end note
+
+  note bottom of AudioMixer
+    Speed != 1 resamples the decoded block
+    (per-frame linear interpolation) so pitch
+    and duration follow the clip speed instead
+    of truncating the wrong sample count.
+  end note
+
+  note bottom of FrameCompositor
+    Layer order is topmost-first: the last
+    (bottom) track on screen wins, matching
+    the project thumbnail and the preview.
+  end note
+}
+
+@enduml

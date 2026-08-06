@@ -1,0 +1,221 @@
+@startuml
+' fig Editing command set: every timeline mutation is an undoable command object.
+
+package Timeline {
+
+  interface IEditCommand {
+    + Description : string
+    + Execute() : void
+    + Undo() : void
+    + Redo() : void
+  }
+
+  interface ICoalescingEditCommand {
+    + CanCoalesceWith(other) : bool
+    + CoalesceFrom(other) : void
+  }
+
+  class CompositeCommand {
+    - commands : IEditCommand[]
+  }
+
+  ' --- clip geometry ---
+  class CutCommand {
+    clipId : string
+    atSec : double
+    secondGroupId : string?
+  }
+  class TrimCommand {
+    clipId : string
+    newIn : double
+    newOut : double
+  }
+  class MoveCommand {
+    clipId : string
+    deltaSec : double
+  }
+  class RippleDeleteCommand {
+    clipId : string
+  }
+  class RippleInsertCommand {
+    trackId : string
+    clip : Clip
+    posSec : double
+  }
+  class OverwriteInsertCommand {
+    trackId : string
+    clip : Clip
+    posSec : double
+  }
+  class LiftCommand {
+    clipId : string
+  }
+
+  ' --- effects + transitions ---
+  class AddEffectCommand {
+    clipId : string
+    effect : EffectInstance
+  }
+  class RemoveEffectCommand {
+    clipId : string
+    effectId : string
+  }
+  class SetTransitionInCommand {
+    clipId : string
+    value : TransitionRef?
+  }
+  class SetTransitionOutCommand {
+    clipId : string
+    value : TransitionRef?
+  }
+  class ApplyTransitionAtCutCommand {
+    leftClipId : string
+    rightClipId : string
+    transition : TransitionRef
+  }
+
+  ' --- clip properties (coalescing) ---
+  class SetOpacityCommand {
+    clipId : string
+    newValue : double
+  }
+  class SetFadeInCommand {
+    clipId : string
+    newValue : double
+  }
+  class SetFadeOutCommand {
+    clipId : string
+    newValue : double
+  }
+  class SetVolumeCommand {
+    clipId : string
+    newValue : double
+  }
+  class SetCropCommand {
+    clipId : string
+    crop : (l, t, r, b)
+  }
+
+  ' --- markers + enable ---
+  class AddMarkerCommand {
+    clip? : Clip
+    track? : Track
+    timeline : Timeline
+    sec : double
+    name : string
+    color : string
+  }
+  class DeleteMarkerCommand {
+    markerId : string
+  }
+  class MoveMarkerCommand {
+    markerId : string
+    newSec : double
+  }
+  class UpdateMarkerCommand {
+    markerId : string
+    name? : string
+    color? : string
+  }
+  class ToggleEnabledCommand {
+    groupSeeds : string[]
+  }
+
+  ' --- cut transitions ---
+  class RemoveTransitionCommand {
+    leftClipId : string
+    rightClipId : string
+  }
+  class SetTransitionDurationCommand {
+    leftClipId : string
+    rightClipId : string
+    durationSec : double
+  }
+
+  IEditCommand <|-- ICoalescingEditCommand
+  IEditCommand <|-- CompositeCommand
+  IEditCommand <|-- CutCommand
+  IEditCommand <|-- TrimCommand
+  IEditCommand <|-- MoveCommand
+  IEditCommand <|-- RippleDeleteCommand
+  IEditCommand <|-- RippleInsertCommand
+  IEditCommand <|-- OverwriteInsertCommand
+  IEditCommand <|-- LiftCommand
+  IEditCommand <|-- AddEffectCommand
+  IEditCommand <|-- RemoveEffectCommand
+  IEditCommand <|-- SetTransitionInCommand
+  IEditCommand <|-- SetTransitionOutCommand
+  IEditCommand <|-- ApplyTransitionAtCutCommand
+  IEditCommand <|-- AddMarkerCommand
+  IEditCommand <|-- DeleteMarkerCommand
+  IEditCommand <|-- UpdateMarkerCommand
+  IEditCommand <|-- ToggleEnabledCommand
+  IEditCommand <|-- RemoveTransitionCommand
+
+  ICoalescingEditCommand <|-- SetOpacityCommand
+  ICoalescingEditCommand <|-- SetFadeInCommand
+  ICoalescingEditCommand <|-- SetFadeOutCommand
+  ICoalescingEditCommand <|-- SetVolumeCommand
+  ICoalescingEditCommand <|-- SetCropCommand
+  ICoalescingEditCommand <|-- MoveMarkerCommand
+  ICoalescingEditCommand <|-- SetTransitionDurationCommand
+
+  class TimelineEditor {
+    + Document : Timeline
+    + History : CommandHistory
+    + Selection : SelectionState
+    + Cut / Trim / TrimLinked / Move
+    + RippleDelete / RippleDeleteSelected / LiftSelected
+    + SplitAtPlayhead / RippleInsert / OverwriteInsert
+    + AddMediaLinked / AddMediaNewTracks / MoveClipToTrack
+    + AddEffect / RemoveEffect / SetOpacity / SetFadeIn / SetFadeOut / SetVolume / SetCrop
+    + ApplyTransitionAtCut / RemoveTransition / SetTransitionDuration / EnumerateTransitions
+    + AddMarker / DeleteMarker / MoveMarker / UpdateMarker / FindMarker
+    + ToggleEnabled / ToggleEnabledSelected
+    + Undo() / Redo()
+    + event TimelineChanged
+  }
+
+  class CommandHistory {
+    + MaxDepth : int
+    + Execute(cmd) / ExecuteCoalescing(cmd)
+    + Undo() : bool / Redo() : bool
+  }
+
+  class SelectionState {
+    + SelectedClipIds : string[]
+    + SelectedMarkerId : string?
+    + SelectedTransitionKey : string?
+    + ActiveTrackId : string?
+  }
+
+  TimelineEditor o-- CommandHistory
+  TimelineEditor o-- SelectionState
+  CommandHistory o-- IEditCommand : "stacks"
+
+  note bottom of CommandHistory
+    In-memory per session, bounded depth.
+    ExecuteCoalescing merges a new command into
+    the top undo entry when the pair coalesces
+    (scrubbing opacity/crop, dragging markers or
+    transition durations) so a drag is one step.
+  end note
+
+  note bottom of SelectionState
+    Clip, marker, and transition selection are
+    mutually exclusive; selecting one clears the
+    others. Marker/transition ids resolve through
+    TimelineEditor.FindMarker / GetTransition.
+  end note
+
+  note bottom of TimelineEditor
+    Facade for every edit operation. Linked groups
+    (video + audio sharing a LinkGroupId) are edited
+    together; rate conform (SourceRate vs timeline
+    rate) is applied at placement and in playback
+    mapping. Raises TimelineChanged so the UI and
+    preview refresh.
+  end note
+}
+
+@enduml

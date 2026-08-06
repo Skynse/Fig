@@ -137,7 +137,9 @@ namespace Fig.App.Services
         {
             _seekBaseSec = Math.Max(0, timelineSec);
             _queue.Reset();
-            _mixer.ResetSources();
+            // ResetSources can block behind an in-flight mix decode; don't stall the UI thread
+            // while scrubbing. Next Play() resets again synchronously, so this is just a fast path.
+            System.Threading.Tasks.Task.Run(() => _mixer.ResetSources());
             RaisePositionChanged();
         }
 
@@ -167,7 +169,7 @@ namespace Fig.App.Services
             // freeze the position: advance the base by however much the device has consumed
             _seekBaseSec += _queue.Position / (2.0 * AudioMixer.SampleRate);
             _queue.Reset();
-            _mixer.ResetSources();
+            System.Threading.Tasks.Task.Run(() => _mixer.ResetSources());
 
             IsPlaying = false;
             _cts?.Cancel();

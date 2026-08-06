@@ -11,6 +11,7 @@ entity Project {
   updatedAt : timestamp
   media : MediaAsset[]      ' flat list, no bins
   timelines : Timeline[]
+  metadata : map            ' source provenance (OTIO etc.)
 }
 
 entity MediaAsset {
@@ -18,14 +19,20 @@ entity MediaAsset {
   --
   url : string              ' absolute path, referenced in place
   hash : string
+  kind : enum(video, audio, image)
   durationSec : float
   width : int
   height : int
+  sourceRate : FrameRate?   ' native fps (probe), used to conform clips
+  sourceStartSec : float    ' available-range offset
   thumbnail : string        ' local path ref, null = not generated
+  filmstrip : string
   proxyUrl : string         ' low-res playback copy
   proxyStatus : enum(none, pending, ready, failed)
+  hasAudio : boolean
   offline : boolean         ' true when url no longer resolves
   tags : string[]
+  metadata : map
 }
 
 entity Timeline {
@@ -34,12 +41,25 @@ entity Timeline {
   rate : FrameRate          ' rational num/den (e.g. 24000/1001)
   revision : int
   isAutosave : boolean
+  globalStartSec : float    ' start timecode
   tracks : Track[]
+  markers : Marker[]        ' timeline markers (absolute)
+  metadata : map
 }
 
 entity FrameRate {
   num : int
   den : int
+}
+
+entity Marker {
+  * id : string
+  --
+  name : string
+  startSec : float          ' clip: offset from clip start; track/timeline: absolute
+  durSec : float            ' 0 = point marker
+  color : string            ' hex
+  metadata : map?
 }
 
 entity Track {
@@ -48,16 +68,22 @@ entity Track {
   kind : enum(video, audio)
   index : int
   name : string
-  muted : boolean
+  visible : boolean         ' video: show/hide
+  muted : boolean           ' audio: mute
   clips : Clip[]
+  markers : Marker[]
+  metadata : map
 }
 
 abstract class Clip {
   * id : string
   --
+  linkGroupId : string?     ' video + linked audio move together
+  enabled : boolean         ' false = ignored by playback/mix/composite
   startSec : float
   durSec : float
   speed : float
+  sourceRate : FrameRate?   ' source fps; rate-ratio conform
   volume : float
   opacity : float
   fadeInSec : float
@@ -65,6 +91,8 @@ abstract class Clip {
   effects : EffectInstance[]
   transitionIn : TransitionRef?
   transitionOut : TransitionRef?
+  markers : Marker[]        ' offsets relative to clip start
+  metadata : map
 }
 
 class VideoClip {
@@ -120,7 +148,10 @@ Project ||--o{ MediaAsset : "imports"
 Project ||--o{ Timeline : "contains"
 Project ||--|| ExportSettings : "configures"
 Timeline ||--o{ Track : "stacks"
+Timeline ||--o{ Marker : "marks"
 Track ||--o{ Clip : "orders"
+Track ||--o{ Marker : "marks"
+Clip ||--o{ Marker : "marks"
 VideoClip }o--|| MediaAsset : "src"
 AudioClip }o--|| MediaAsset : "src"
 MediaAsset ||--o{ Cache : "regenerable"
@@ -145,6 +176,21 @@ note right of Clip
   transitionIn/Out are optional TransitionRef
   at clip edges (library transitions); see
   uml/effects-transitions-schema.puml.
+  linkGroupId pairs a video clip with its audio;
+  enabled=false hides it from playback, mixing,
+  compositing, and transitions. Markers on a
+  clip are stored as offsets from clip start.
+  sourceRate drives conform: source time maps
+  at speed x (sourceRate / timelineRate), and
+  placement duration scales by the inverse ratio.
+end note
+
+note right of Marker
+  Editorial annotation. Clip markers are offsets
+  from the clip start (may be negative when the
+  mark predates the in point); track/timeline
+  markers are absolute seconds. Color is hex;
+  imported OTIO color names map to fixed palette.
 end note
 
 note right of Timeline

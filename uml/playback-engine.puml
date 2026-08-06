@@ -1,0 +1,96 @@
+@startuml
+' fig Playback: audio is the master clock; the timeline playhead and video preview follow it.
+
+package "App.Services" {
+
+  class PlaybackEngine {
+    - _seekBaseSec : double
+    + IsPlaying : bool
+    + PositionSec : double   ' _seekBase + queue.Position / (2 * SampleRate)
+    + Play() / Pause() / Seek(sec)
+    + event PositionChanged   ' ~66 Hz, coalesced to the UI thread
+    - ProducerLoop(token)
+    - EnqueueOneChunk() : bool
+    - FillUntil(frames)
+    + Dispose()
+  }
+
+  class QueueDataProvider {
+    ' bounded ring buffer, Block pacing, ~4s headroom
+    AddSamples() / ReadBytes() / Reset() / Position / TotalSamplesEnqueued
+  }
+
+  class QueueSource {
+    ' SoundComponent that pulls the next chunk on the device callback
+    GenerateAudio(buffer)
+  }
+
+  class MiniAudioEngine
+  class AudioPlaybackDevice
+}
+
+package "Core.Audio" {
+  class AudioMixer {
+    {static} SampleRate = 48000
+    + Mix(timeline, startSec, durSec) : float[]
+    + ResetSources() : void
+  }
+}
+
+package "App.ViewModels" {
+
+  class PreviewViewModel {
+    - _sources : map<path, IVideoFrameSource>
+    - _frameCache : PreviewFrameCache
+    - _targetWidth : _targetHeight   ' canvas follows media aspect
+    - _baseCanvasW : _baseCanvasH
+    + RequestFrame() / RefreshFrame()
+    + UpdateCanvasFromMedia() : void
+    + InvalidateSources() : void
+    + event FrameReady(w, h, bgra)
+    - DecodeWorkerAsync()
+    - ConsumeReset()   ' scale/proxy change: dispose+reopen on worker thread
+    - DecodeOneFrameAsync(target)
+    - PrefillAhead(base)
+    - TryGetOrOpenSource(path)
+  }
+
+  class EditorViewModel {
+    PlayheadTimeSec : double
+    IsPlaying : bool
+    SeekFromUser(sec) / NotifyPlaybackPosition(sec)
+  }
+}
+
+PlaybackEngine o-- QueueDataProvider
+PlaybackEngine o-- QueueSource
+QueueSource o-- QueueDataProvider : "reads"
+PlaybackEngine o-- AudioMixer : "producer mixes"
+PlaybackEngine --> MiniAudioEngine
+MiniAudioEngine --> AudioPlaybackDevice
+AudioPlaybackDevice ..> QueueSource : "drains"
+PlaybackEngine ..> EditorViewModel : "PositionChanged -> NotifyPlaybackPosition"
+EditorViewModel ..> PreviewViewModel : "PlayheadSec -> RequestFrame"
+EditorViewModel ..> PlaybackEngine : "IsPlaying gate"
+
+note bottom of PlaybackEngine
+  Audio device is the authoritative clock.
+  The producer loop keeps ~500ms decoded ahead
+  of the device; PositionSec derives from how
+  many frames the device has consumed. Pause
+  freezes the base, Seek resets the queue.
+end note
+
+note bottom of PreviewViewModel
+  A single decode worker consumes playhead
+  requests. During playback it decodes toward
+  the newest position (dropping intermediate
+  frames) and prefills a few frames ahead into
+  the cache. Decoders are disposed ONLY on the
+  worker thread (scale/proxy changes request a
+  reset that the worker applies) - never from
+  the UI thread, which is what kept the old
+  scale-change crash alive.
+end note
+
+@enduml

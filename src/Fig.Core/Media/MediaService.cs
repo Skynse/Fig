@@ -35,6 +35,11 @@ namespace Fig.Core.Media
 
                     var fpsNum = codec->framerate.num;
                     var fpsDen = codec->framerate.den;
+                    if (fpsNum <= 0 || fpsDen <= 0)
+                    {
+                        fpsNum = stream->avg_frame_rate.num;
+                        fpsDen = stream->avg_frame_rate.den;
+                    }
 
                     double duration = inCtx->duration > 0
                         ? inCtx->duration * ffmpeg.av_q2d(ffmpeg.av_get_time_base_q())
@@ -45,6 +50,8 @@ namespace Fig.Core.Media
                     probe.Height = codec->height;
                     probe.Kind = MediaKind.Video;
                     probe.HasAudio = HasAudioStream(inCtx);
+                    if (fpsNum > 0 && fpsDen > 0)
+                        probe.SourceRate = new Fig.Core.Timeline.FrameRate(fpsNum, fpsDen);
                     return probe;
                 }
 

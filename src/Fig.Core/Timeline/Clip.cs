@@ -23,6 +23,13 @@ namespace Fig.Core.Timeline
         /// <summary>When false the clip is ignored by playback, mixing, and compositing.</summary>
         public bool Enabled { get; set; } = true;
 
+        /// <summary>
+        /// The source media's frame rate. When it differs from the timeline rate the clip is
+        /// conformed: its source time advances by <c>speed × (sourceRate / timelineRate)</c>,
+        /// so a 25fps clip on a 30fps timeline plays at the correct speed and duration.
+        /// </summary>
+        public FrameRate? SourceRate { get; set; }
+
         public double StartSec { get; set; }
         public double DurSec { get; set; }
         public double Speed { get; set; } = 1.0;
