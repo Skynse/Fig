@@ -165,7 +165,7 @@ public partial class EditorView : UserControl
             e.DragEffects = DragDropEffects.Copy;
     }
 
-    private void OnFileDrop(object? sender, DragEventArgs e)
+    private async void OnFileDrop(object? sender, DragEventArgs e)
     {
         var vm = _boundVm ?? DataContext as EditorViewModel;
         if (vm is null)
@@ -177,7 +177,7 @@ public partial class EditorView : UserControl
         {
             var path = file.TryGetLocalPath();
             if (path is not null)
-                vm.ImportFile(path);
+                await vm.ImportFileAsync(path);
         }
     }
 }

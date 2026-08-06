@@ -242,8 +242,9 @@ public partial class EditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Collects every visible video clip covering a timeline time, ordered topmost-first
-    /// (the last track drawn on top), so the compositor can layer them painters-style.
+    /// Collects every visible, enabled video clip covering a timeline time, ordered
+    /// topmost-first (the last track drawn on top is the top layer, matching the project
+    /// thumbnail's painters algorithm), so the compositor can layer them painters-style.
     /// Returns an empty list when nothing is shown.
     /// </summary>
     private IReadOnlyList<PreviewLayer> ResolvePreviewLayers(double timeSec)
@@ -254,7 +255,9 @@ public partial class EditorViewModel : ViewModelBase
 
         var document = Editor.Document;
 
-        for (var i = 0; i < document.Tracks.Count; i++)
+        // The compositor treats layers[0] as the topmost (blended last). The last track is
+        // the top layer, so collect tracks in reverse order to make it win.
+        for (var i = document.Tracks.Count - 1; i >= 0; i--)
         {
             var track = document.Tracks[i];
             if (track.Kind != TrackKind.Video || !track.Visible)
@@ -262,7 +265,7 @@ public partial class EditorViewModel : ViewModelBase
 
             foreach (var clip in track.Clips)
             {
-                if (clip is not VideoClip vc)
+                if (clip is not VideoClip vc || !vc.Enabled)
                     continue;
                 if (timeSec < clip.StartSec || timeSec >= clip.StartSec + clip.DurSec)
                     continue;
@@ -503,10 +506,21 @@ public partial class EditorViewModel : ViewModelBase
             if (path is null)
                 continue;
 
-            // fast: probe + thumbnail so the card appears immediately
-            var result = ProjectManager.ImportMedia(path);
+            // probe + hash + thumbnail are heavy (SHA-256 of the whole file) — never run
+            // them on the UI thread or importing a large video freezes the window
+            ProbeResult result;
+            try
+            {
+                result = await System.Threading.Tasks.Task.Run(() => ProjectManager.ImportMedia(path));
+            }
+            catch (Exception ex)
+            {
+                result = new ProbeResult { Error = ex.Message };
+            }
+
             if (result.Asset is not null)
             {
+                // the card appears immediately once the probe lands on the UI thread
                 if (!Media.Contains(result.Asset))
                     Media.Add(result.Asset);
 
@@ -531,14 +545,26 @@ public partial class EditorViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Imports one file and returns the media asset. Side-effect: adds to the library
-    /// and kicks off backfill work (filmstrip/waveform). Used by file-drop handlers.
+    /// Imports one file and returns the media asset. Side-effect: adds to the library and
+    /// kicks off backfill work (filmstrip/waveform). Used by file-drop handlers. The heavy
+    /// probe/hash/thumbnail work runs off the UI thread; awaiting returns once the asset is
+    /// ready to be placed on the timeline.
     /// </summary>
-    public MediaAsset? ImportFile(string path)
+    public async Task<MediaAsset?> ImportFileAsync(string path)
     {
         if (ProjectManager is null)
             return null;
-        var result = ProjectManager.ImportMedia(path);
+
+        ProbeResult result;
+        try
+        {
+            result = await System.Threading.Tasks.Task.Run(() => ProjectManager.ImportMedia(path));
+        }
+        catch
+        {
+            return null;
+        }
+
         if (result.Asset is null)
             return null;
         if (!Media.Contains(result.Asset))

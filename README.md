@@ -62,8 +62,18 @@ tests/
 
 - [ ] Free video transitions. A core pain point of other editors is that most transitions are pay-to-use.
 - [ ] Fast export. Rendering should take a few seconds to a few minutes for short projects.
-- [ ] A clean, intuitive interface that's easy to navigate. This is where capcut was attractive.
+- [ ] A clean and modern intuitive interface that's easy to navigate. This is where capcut was attractive.
 - [ ] Smart editing aids: automatic cuts when voice is not detected, and AI transcription.
+- [ ] It should be extremely quick for creators to hop in and start editing a video, with tools and templates for popular niches.
+
+## Development Philosophy
+
+Extending Fig goes like this:
+1. Create a UML spec (this may or may not be required for certain things). PlantUML is used here for convenience, and UML helps me understand the architecture of the project and where things stand. AI can be used for assistance here, and this is actually where it properly follows instructions.
+2. Create the implementation code for the systems.
+3. Tests first, UI last. After the backend/headless infrastructure works, the UI can easily be built on top of it.
+
+This is the design philosophy I use for other projects, and it keeps things maintainable and **extensible**.
 
 ## Contributing
 

@@ -475,7 +475,7 @@ namespace Fig.App.Views
             InvalidateVisual();
         }
 
-        private void OnDrop(object? sender, DragEventArgs e)
+        private async void OnDrop(object? sender, DragEventArgs e)
         {
             if (Editor is null)
                 return;
@@ -514,7 +514,7 @@ namespace Fig.App.Views
                         var path = file.TryGetLocalPath();
                         if (path is null || vm is null)
                             continue;
-                        var asset = vm.ImportFile(path);
+                        var asset = await vm.ImportFileAsync(path);
                         if (asset is not null)
                         {
                             if (targetTrack is not null)
