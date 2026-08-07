@@ -81,7 +81,7 @@ namespace Fig.Core.Media
                 {
                     TypeId = outTx.TypeId,
                     DurationSec = Math.Max(outTx.DurationSec, inTx.DurationSec),
-                    Params = new Dictionary<string, double>(outTx.Params),
+                    Params = new Dictionary<string, ParamValue>(outTx.Params),
                 };
             }
 

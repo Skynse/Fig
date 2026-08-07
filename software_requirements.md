@@ -176,22 +176,26 @@ The primary user is a solo creator (hobbyist to semi-professional) who edits sho
 ### 3.7 Effects and transitions
 | ID | Requirement | Priority | Status |
 | --- | --- | --- | --- |
-| FR-080 | The application SHALL ship a catalog of clip effects (brightness, grayscale) applied as an ordered, toggleable stack. | P0 | O |
+| FR-080 | The application SHALL ship a catalog of built-in clip effects (brightness, contrast, saturation, hue, invert, sepia, vignette, sharpen, pixelate, flip, posterize, tint) applied as an ordered, toggleable stack. | P0 | X |
 | FR-081 | Effects SHALL be applicable to and removable from a selected clip. | P0 | X |
 | FR-082 | Video preview and export SHALL run each clip's enabled effect stack before compositing. | P0 | X |
-| FR-083 | The application SHALL ship a transition catalog (cross-dissolve) applied across abutting cuts. | P0 | O |
+| FR-083 | The application SHALL ship a transition catalog (cross-dissolve, wipe, slide, push, fade-to-black, iris, curtain) applied across abutting cuts. | P0 | X |
 | FR-084 | A transition SHALL be applicable by dragging a catalog entry onto a cut. | P0 | X |
 | FR-085 | Transitions SHALL be selectable, resizable (drag or slider), and removable, all undoable. | P0 | X |
-| FR-086 | The transition catalog SHALL grow beyond cross-dissolve (wipes, irises, etc.). | P1 | O |
+| FR-086 | The transition catalog SHALL keep growing (wipes, irises, slide, etc.). | P1 | O |
+| FR-087 | Effect and transition parameters SHALL be typed (Double, Int, Bool, Color, List) with schema-defined ranges, defaults, and choices, and SHALL persist (legacy bare-number params keep loading). | P0 | X |
+| FR-088 | The properties panel SHALL render each effect's parameters as controls generated from its schema (slider, checkbox, color, list) that write through the timeline editor with undo. | P0 | X |
+| FR-089 | The applied effect stack SHALL be visible on the selected clip with per-effect enable/disable and remove controls; adding an effect SHALL be a single self-describing class with no separate registration. | P0 | X |
+| FR-090 | Effect parameters SHALL support keyframes (add at playhead, step, clear) evaluated at render time; keyframes SHALL render as diamonds on the timeline and drive the preview/export. | P1 | X |
 
 ### 3.8 Markers and annotations
 | ID | Requirement | Priority | Status |
 | --- | --- | --- | --- |
-| FR-090 | The user SHALL add a marker at the playhead, attached to the selected clip, active track, or timeline. | P0 | X |
-| FR-091 | Markers SHALL be selectable and draggable in time (clip markers clamp to the clip range). | P0 | X |
-| FR-092 | Markers SHALL be renameable and recolorable via the properties panel. | P0 | X |
-| FR-093 | Markers SHALL be deletable (Delete key / context menu / panel). | P0 | X |
-| FR-094 | Markers SHALL render on clips, tracks, and the timeline ruler. | P0 | X |
+| FR-091 | The user SHALL add a marker at the playhead, attached to the selected clip, active track, or timeline. | P0 | X |
+| FR-092 | Markers SHALL be selectable and draggable in time (clip markers clamp to the clip range). | P0 | X |
+| FR-093 | Markers SHALL be renameable and recolorable via the properties panel. | P0 | X |
+| FR-094 | Markers SHALL be deletable (Delete key / context menu / panel). | P0 | X |
+| FR-095 | Markers SHALL render on clips, tracks, and the timeline ruler. | P0 | X |
 
 ### 3.9 Interoperability
 | ID | Requirement | Priority | Status |
@@ -264,4 +268,4 @@ These requirements are captured for extensibility but are not yet implemented.
 - **Status updates:** when a requirement changes status, update both this document and the README Goals table.
 - **New requirements:** assign the next free ID in the relevant module range; never reuse a retired ID.
 - **Rationale:** every requirement's "why" should remain traceable to either the README goals, a UML note, or a recorded design decision.
-- **Related artifacts:** see `uml/core-schema.puml` (editing commands), `uml/media-pipeline.puml`, `uml/playback-engine.puml`, `uml/persistence.puml`, `uml/otio-import.puml`, `uml/export-pipeline.puml`, and `uml/gestures-input.puml`.
+- **Related artifacts:** see `uml/domain/core-schema.puml` (editing commands), `uml/media/media-pipeline.puml`, `uml/playback/playback-engine.puml`, `uml/persistence/persistence.puml`, `uml/persistence/otio-import.puml`, `uml/export/export-pipeline.puml`, and `uml/input/gestures-input.puml`.

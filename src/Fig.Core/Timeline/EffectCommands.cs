@@ -221,4 +221,317 @@ namespace Fig.Core.Timeline
 
         public void Redo() => Execute();
     }
+
+    /// <summary>Sets one typed parameter on an effect. Slider drags coalesce into one undo step.</summary>
+    public sealed class SetEffectParamCommand : ICoalescingEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly string _effectId;
+        private readonly string _key;
+        private ParamValue _newValue;
+        private ParamValue _oldValue;
+        private bool _done;
+
+        public string Description => $"Set effect param {_key}";
+        public string CoalesceKey => $"{_clipId}|{_effectId}|{_key}";
+
+        public SetEffectParamCommand(TimelineEditor editor, string clipId, string effectId, string key, ParamValue newValue)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _effectId = effectId;
+            _key = key;
+            _newValue = newValue;
+        }
+
+        public void Execute()
+        {
+            if (FindEffect() is not { } effect || !effect.Params.ContainsKey(_key))
+                return;
+            _oldValue = effect.Params[_key];
+            effect.Params[_key] = _newValue;
+            _done = true;
+        }
+
+        public void Undo()
+        {
+            if (!_done)
+                return;
+            var effect = FindEffect();
+            if (effect is not null && effect.Params.ContainsKey(_key))
+                effect.Params[_key] = _oldValue;
+        }
+
+        public void Redo()
+        {
+            var effect = FindEffect();
+            if (effect is not null && effect.Params.ContainsKey(_key))
+                effect.Params[_key] = _newValue;
+        }
+
+        public bool CanCoalesceWith(IEditCommand other)
+            => other is SetEffectParamCommand o && o.CoalesceKey == CoalesceKey;
+
+        public void CoalesceFrom(IEditCommand other)
+        {
+            if (other is SetEffectParamCommand o && o.CoalesceKey == CoalesceKey)
+            {
+                _newValue = o._newValue;
+                Redo();
+            }
+        }
+
+        private EffectInstance? FindEffect()
+        {
+            var clip = _editor.FindClip(_clipId);
+            if (clip is null)
+                return null;
+            foreach (var effect in clip.Effects)
+                if (effect.Id == _effectId)
+                    return effect;
+            return null;
+        }
+    }
+
+    /// <summary>Flips an effect's enabled flag.</summary>
+    public sealed class ToggleEffectCommand : IEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly string _effectId;
+        private bool _old;
+        private bool _done;
+
+        public string Description => "Toggle effect";
+
+        public ToggleEffectCommand(TimelineEditor editor, string clipId, string effectId)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _effectId = effectId;
+        }
+
+        public void Execute()
+        {
+            if (FindEffect() is not { } effect)
+                return;
+            _old = effect.Enabled;
+            effect.Enabled = !effect.Enabled;
+            _done = true;
+        }
+
+        public void Undo()
+        {
+            if (!_done)
+                return;
+            if (FindEffect() is { } effect)
+                effect.Enabled = _old;
+        }
+
+        public void Redo() => Execute();
+
+        private EffectInstance? FindEffect()
+        {
+            var clip = _editor.FindClip(_clipId);
+            if (clip is null)
+                return null;
+            foreach (var effect in clip.Effects)
+                if (effect.Id == _effectId)
+                    return effect;
+            return null;
+        }
+    }
+
+    /// <summary>Adds or updates a keyframe on an effect parameter at a clip-relative time.</summary>
+    public sealed class SetKeyframeCommand : IEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly string _effectId;
+        private readonly string _key;
+        private readonly double _timeSec;
+        private readonly ParamValue _value;
+        private List<KeyframePoint>? _savedTrack;
+        private bool _done;
+
+        public string Description => "Set keyframe";
+
+        public SetKeyframeCommand(TimelineEditor editor, string clipId, string effectId, string key, double timeSec, ParamValue value)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _effectId = effectId;
+            _key = key;
+            _timeSec = timeSec;
+            _value = value;
+        }
+
+        public void Execute()
+        {
+            var effect = FindEffect();
+            if (effect is null)
+                return;
+            _savedTrack = effect.Keyframes.TryGetValue(_key, out var existing)
+                ? new List<KeyframePoint>(existing)
+                : null;
+            var track = effect.Keyframes.TryGetValue(_key, out var t) ? t : (effect.Keyframes[_key] = new List<KeyframePoint>());
+            Upsert(track, new KeyframePoint(_timeSec, _value));
+            _done = true;
+        }
+
+        public void Undo()
+        {
+            if (!_done || FindEffect() is not { } effect)
+                return;
+            if (_savedTrack is null)
+                effect.Keyframes.Remove(_key);
+            else
+                effect.Keyframes[_key] = _savedTrack;
+        }
+
+        public void Redo() => Execute();
+
+        private static void Upsert(List<KeyframePoint> track, KeyframePoint point)
+        {
+            for (var i = 0; i < track.Count; i++)
+            {
+                if (Math.Abs(track[i].TimeSec - point.TimeSec) < 1e-6)
+                {
+                    track[i] = point;
+                    return;
+                }
+                if (track[i].TimeSec > point.TimeSec)
+                {
+                    track.Insert(i, point);
+                    return;
+                }
+            }
+            track.Add(point);
+        }
+
+        private EffectInstance? FindEffect()
+        {
+            var clip = _editor.FindClip(_clipId);
+            if (clip is null)
+                return null;
+            foreach (var effect in clip.Effects)
+                if (effect.Id == _effectId)
+                    return effect;
+            return null;
+        }
+    }
+
+    /// <summary>Removes the keyframe nearest a clip-relative time on an effect parameter.</summary>
+    public sealed class RemoveKeyframeCommand : IEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly string _effectId;
+        private readonly string _key;
+        private readonly double _timeSec;
+        private List<KeyframePoint>? _savedTrack;
+        private bool _done;
+
+        public string Description => "Remove keyframe";
+
+        public RemoveKeyframeCommand(TimelineEditor editor, string clipId, string effectId, string key, double timeSec)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _effectId = effectId;
+            _key = key;
+            _timeSec = timeSec;
+        }
+
+        public void Execute()
+        {
+            var effect = FindEffect();
+            if (effect is null || !effect.Keyframes.TryGetValue(_key, out var track))
+                return;
+            for (var i = 0; i < track.Count; i++)
+            {
+                if (Math.Abs(track[i].TimeSec - _timeSec) < 1e-6)
+                {
+                    _savedTrack = new List<KeyframePoint>(track);
+                    track.RemoveAt(i);
+                    if (track.Count == 0)
+                        effect.Keyframes.Remove(_key);
+                    _done = true;
+                    return;
+                }
+            }
+        }
+
+        public void Undo()
+        {
+            if (!_done || FindEffect() is not { } effect || _savedTrack is null)
+                return;
+            effect.Keyframes[_key] = _savedTrack;
+        }
+
+        public void Redo() => Execute();
+
+        private EffectInstance? FindEffect()
+        {
+            var clip = _editor.FindClip(_clipId);
+            if (clip is null)
+                return null;
+            foreach (var effect in clip.Effects)
+                if (effect.Id == _effectId)
+                    return effect;
+            return null;
+        }
+    }
+
+    /// <summary>Clears every keyframe on one effect parameter.</summary>
+    public sealed class ClearKeyframesCommand : IEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly string _effectId;
+        private readonly string _key;
+        private List<KeyframePoint>? _savedTrack;
+        private bool _done;
+
+        public string Description => "Clear keyframes";
+
+        public ClearKeyframesCommand(TimelineEditor editor, string clipId, string effectId, string key)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _effectId = effectId;
+            _key = key;
+        }
+
+        public void Execute()
+        {
+            var effect = FindEffect();
+            if (effect is null || !effect.Keyframes.ContainsKey(_key))
+                return;
+            _savedTrack = new List<KeyframePoint>(effect.Keyframes[_key]);
+            effect.Keyframes.Remove(_key);
+            _done = true;
+        }
+
+        public void Undo()
+        {
+            if (!_done || FindEffect() is not { } effect || _savedTrack is null)
+                return;
+            effect.Keyframes[_key] = _savedTrack;
+        }
+
+        public void Redo() => Execute();
+
+        private EffectInstance? FindEffect()
+        {
+            var clip = _editor.FindClip(_clipId);
+            if (clip is null)
+                return null;
+            foreach (var effect in clip.Effects)
+                if (effect.Id == _effectId)
+                    return effect;
+            return null;
+        }
+    }
 }

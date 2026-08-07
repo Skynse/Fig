@@ -67,10 +67,84 @@ namespace Fig.Core.Timeline
         public void Redo() => Execute();
     }
 
-    /// <summary>
-    /// Resizes a cut transition by writing the same duration onto both clip edges.
-    /// Slider drags coalesce into a single undo step.
-    /// </summary>
+    /// <summary>Sets a typed parameter on a cut transition (writes both clip edges). Coalesces.</summary>
+    public sealed class SetTransitionParamCommand : ICoalescingEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _leftClipId;
+        private readonly string _rightClipId;
+        private readonly string _key;
+        private ParamValue _newValue;
+        private ParamValue _oldValue;
+        private bool _done;
+
+        public string Description => $"Set transition param {_key}";
+        public string CoalesceKey => $"{_leftClipId}|{_rightClipId}|{_key}";
+
+        public SetTransitionParamCommand(TimelineEditor editor, string leftClipId, string rightClipId, string key, ParamValue newValue)
+        {
+            _editor = editor;
+            _leftClipId = leftClipId;
+            _rightClipId = rightClipId;
+            _key = key;
+            _newValue = newValue;
+        }
+
+        public void Execute()
+        {
+            if (Resolve() is not { } pair)
+                return;
+            _oldValue = pair.Any.Params.TryGetValue(_key, out var v) ? v : default;
+            Write(pair, _key, _newValue);
+            _done = true;
+        }
+
+        public void Undo()
+        {
+            if (!_done || Resolve() is not { } pair)
+                return;
+            Write(pair, _key, _oldValue);
+        }
+
+        public void Redo()
+        {
+            if (Resolve() is not { } pair)
+                return;
+            Write(pair, _key, _newValue);
+        }
+
+        public bool CanCoalesceWith(IEditCommand other)
+            => other is SetTransitionParamCommand o && o.CoalesceKey == CoalesceKey;
+
+        public void CoalesceFrom(IEditCommand other)
+        {
+            if (other is SetTransitionParamCommand o && o.CoalesceKey == CoalesceKey)
+            {
+                _newValue = o._newValue;
+                Redo();
+            }
+        }
+
+        private (TransitionRef Any, TransitionRef? Left, TransitionRef? Right)? Resolve()
+        {
+            var left = _editor.FindClip(_leftClipId);
+            var right = _editor.FindClip(_rightClipId);
+            if (left is null || right is null)
+                return null;
+            TransitionRef? any = left.TransitionOut ?? right.TransitionIn;
+            return any is null ? null : (any, left.TransitionOut, right.TransitionIn);
+        }
+
+        private static void Write((TransitionRef Any, TransitionRef? Left, TransitionRef? Right) pair, string key, ParamValue value)
+        {
+            if (pair.Left is not null)
+                pair.Left.Params[key] = value;
+            if (pair.Right is not null)
+                pair.Right.Params[key] = value;
+        }
+    }
+
+    /// <summary>Resizes a cut transition by writing the same duration onto both clip edges.</summary>
     public sealed class SetTransitionDurationCommand : ICoalescingEditCommand
     {
         private readonly TimelineEditor _editor;

@@ -11,7 +11,7 @@ namespace Fig.Core.Media
         public required string TypeId { get; init; }
         public required double Progress01 { get; init; }
         public required double DurationSec { get; init; }
-        public required IReadOnlyDictionary<string, double> Params { get; init; }
+        public required IReadOnlyDictionary<string, ParamValue> Params { get; init; }
         public required double CutSec { get; init; }
     }
 }

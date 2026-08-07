@@ -713,6 +713,76 @@ namespace Fig.Core.Timeline
             RaiseChanged();
         }
 
+        /// <summary>Sets a typed parameter on an effect (slider drags coalesce into one undo step).</summary>
+        public void SetEffectParam(string clipId, string effectId, string key, ParamValue value)
+        {
+            var clip = FindClip(clipId);
+            if (clip is null)
+                return;
+            EffectInstance? effect = null;
+            foreach (var e in clip.Effects)
+                if (e.Id == effectId)
+                {
+                    effect = e;
+                    break;
+                }
+            if (effect is null || !effect.Params.TryGetValue(key, out var old) || old == value)
+                return;
+            History.ExecuteCoalescing(new SetEffectParamCommand(this, clipId, effectId, key, value));
+            RaiseChanged();
+        }
+
+        public void ToggleEffect(string clipId, string effectId)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new ToggleEffectCommand(this, clipId, effectId));
+            RaiseChanged();
+        }
+
+        /// <summary>Sets a typed parameter on the transition across a cut (writes both clip edges).</summary>
+        public void SetTransitionParam(string leftClipId, string rightClipId, string key, ParamValue value)
+        {
+            var left = FindClip(leftClipId);
+            var right = FindClip(rightClipId);
+            if (left is null || right is null)
+                return;
+            TransitionRef? any = left.TransitionOut ?? right.TransitionIn;
+            if (any is null)
+                return;
+            var old = any.Params.TryGetValue(key, out var v) ? v : default(ParamValue);
+            if (old == value)
+                return;
+            History.ExecuteCoalescing(new SetTransitionParamCommand(this, leftClipId, rightClipId, key, value));
+            RaiseChanged();
+        }
+
+        // ---- effect keyframes ----
+
+        public void SetKeyframe(string clipId, string effectId, string key, double timeSec, ParamValue value)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new SetKeyframeCommand(this, clipId, effectId, key, timeSec, value));
+            RaiseChanged();
+        }
+
+        public void RemoveKeyframe(string clipId, string effectId, string key, double timeSec)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new RemoveKeyframeCommand(this, clipId, effectId, key, timeSec));
+            RaiseChanged();
+        }
+
+        public void ClearKeyframes(string clipId, string effectId, string key)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new ClearKeyframesCommand(this, clipId, effectId, key));
+            RaiseChanged();
+        }
+
         public void SetTransitionIn(string clipId, TransitionRef? transition)
         {
             if (FindClip(clipId) is null)

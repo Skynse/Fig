@@ -180,4 +180,14 @@ public partial class EditorView : UserControl
                 await vm.ImportFileAsync(path);
         }
     }
+
+    private void TimelineZoomIn_Click(object? sender, RoutedEventArgs e) => Timeline.ZoomInAtPlayhead();
+
+    private void TimelineZoomOut_Click(object? sender, RoutedEventArgs e) => Timeline.ZoomOutAtPlayhead();
+
+    private void TimelineZoomFit_Click(object? sender, RoutedEventArgs e)
+    {
+        var end = _boundVm?.SequenceEndSec ?? 60;
+        Timeline.ZoomToFitSequence(end);
+    }
 }

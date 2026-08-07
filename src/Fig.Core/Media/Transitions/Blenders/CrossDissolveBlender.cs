@@ -5,6 +5,7 @@ using Fig.Core.Timeline;
 namespace Fig.Core.Media
 {
     /// <summary>Linearly blends the outgoing and incoming frames across the transition window.</summary>
+    [Transition(TransitionCatalog.CrossDissolve, "Cross Dissolve", Description = "Blend outgoing and incoming clips over the cut.")]
     internal sealed class CrossDissolveBlender : ITransitionBlender
     {
         public string TypeId => TransitionCatalog.CrossDissolve;
@@ -13,7 +14,7 @@ namespace Fig.Core.Media
             DecodedFrame outgoing,
             DecodedFrame incoming,
             double t01,
-            IReadOnlyDictionary<string, double> parameters)
+            IReadOnlyDictionary<string, ParamValue> parameters)
         {
             t01 = Math.Clamp(t01, 0, 1);
             if (outgoing.Width != incoming.Width || outgoing.Height != incoming.Height)

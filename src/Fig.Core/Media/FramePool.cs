@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace Fig.Core.Media
@@ -28,6 +29,23 @@ namespace Fig.Core.Media
         {
             if (buf is not null && Rented.Remove(buf))
                 ArrayPool<byte>.Shared.Return(buf);
+        }
+
+        /// <summary>
+        /// Makes a frame's pixels distinct from any buffer already seen this frame. A
+        /// <see cref="VideoFrameSource"/> reuses one scratch buffer for every decode, so two
+        /// clips referencing the same media file return the same byte array — blending them
+        /// would blend a frame with itself. Copies into a pooled buffer (tracked in
+        /// <paramref name="owned"/> so the caller returns it later) when an alias is found.
+        /// </summary>
+        public static void EnsureDistinct(DecodedFrame frame, HashSet<byte[]> seen, List<byte[]>? owned)
+        {
+            if (frame.Pixels is null || frame.Pixels.Length == 0 || seen.Add(frame.Pixels))
+                return;
+            var copy = Rent(frame.Pixels.Length);
+            Buffer.BlockCopy(frame.Pixels, 0, copy, 0, frame.Pixels.Length);
+            frame.Pixels = copy;
+            owned?.Add(copy);
         }
     }
 }

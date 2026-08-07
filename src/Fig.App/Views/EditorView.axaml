@@ -4,6 +4,7 @@
              xmlns:local="using:Fig.App.Views"
              xmlns:conv="using:Fig.App.Converters"
              xmlns:vm="using:Fig.App.ViewModels"
+
              xmlns:core="using:Fig.Core.Timeline"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="900"
@@ -12,8 +13,158 @@
 
     <UserControl.Resources>
         <conv:PathToBitmapConverter x:Key="PathToBitmap"/>
-        <conv:SecondsToTimeConverter x:Key="SecondsToTime"/>
     </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="Button.tool-btn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="7"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="Button.tool-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#333333"/>
+        </Style>
+        <Style Selector="Button.tool-btn:disabled /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.35"/>
+        </Style>
+        <Style Selector="ToggleButton.tool-btn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="7"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="MinWidth" Value="32"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="ToggleButton.tool-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#333333"/>
+        </Style>
+        <Style Selector="ToggleButton.tool-btn:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2a4a7a"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+        </Style>
+        <Style Selector="Button.kf-btn">
+            <Setter Property="Background" Value="#2a2a2b"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="MinHeight" Value="28"/>
+        </Style>
+        <Style Selector="Button.kf-btn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#3a3a3b"/>
+        </Style>
+        <Style Selector="Button.kf-btn.danger:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#4a2020"/>
+        </Style>
+        <Style Selector="TextBlock.inspector-section">
+            <Setter Property="Foreground" Value="#8a8a8a"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="LetterSpacing" Value="0.8"/>
+        </Style>
+        <Style Selector="Border.inspector-card">
+            <Setter Property="Background" Value="#1e1e1e"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.DataTemplates>
+
+        <!-- schema-driven parameter editors (implicit by VM type) -->
+        <DataTemplate DataType="vm:DoubleParamEditorViewModel">
+            <StackPanel Spacing="4" Margin="0,6,0,0">
+                <DockPanel>
+                    <TextBlock Text="{Binding Value, StringFormat={}{0:0.##}}" DockPanel.Dock="Right"
+                               Foreground="#dddddd" FontSize="11"/>
+                    <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+                </DockPanel>
+                <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Value}"
+                        TickFrequency="0.01" IsSnapToTickEnabled="False"/>
+                <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding ShowKeyframes}">
+                    <Border Background="#2a2510" CornerRadius="4" Padding="6,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="#eab308"/>
+                            <TextBlock Text="{Binding KeyframeCount}" Foreground="#eab308" FontSize="11" FontWeight="SemiBold"/>
+                        </StackPanel>
+                    </Border>
+                    <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
+                        <local:StrokeIcon Icon="plus" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="kf-btn" Command="{Binding StepKeyframesCommand}" CommandParameter="False"
+                            ToolTip.Tip="Previous keyframe">
+                        <local:StrokeIcon Icon="chevron-left" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="kf-btn" Command="{Binding StepKeyframesCommand}" CommandParameter="True"
+                            ToolTip.Tip="Next keyframe">
+                        <local:StrokeIcon Icon="chevron-right" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="kf-btn danger" Command="{Binding ClearKeyframesCommand}"
+                            ToolTip.Tip="Clear keyframes">
+                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                    </Button>
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate DataType="vm:BoolParamEditorViewModel">
+            <Grid Margin="0,6,0,0" ColumnDefinitions="*,Auto">
+                <CheckBox Grid.Column="0" IsChecked="{Binding Value}" Content="{Binding Label}"
+                          Foreground="#bbbbbb" FontSize="12"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" IsVisible="{Binding ShowKeyframes}">
+                    <Border Background="#2a2510" CornerRadius="4" Padding="6,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="#eab308"/>
+                            <TextBlock Text="{Binding KeyframeCount}" Foreground="#eab308" FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+                    <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
+                        <local:StrokeIcon Icon="plus" Width="14" Height="14"/>
+                    </Button>
+                    <Button Classes="kf-btn danger" Command="{Binding ClearKeyframesCommand}" ToolTip.Tip="Clear keyframes">
+                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate DataType="vm:ColorParamEditorViewModel">
+            <StackPanel Spacing="4" Margin="0,6,0,0">
+                <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Grid.Column="0" Width="32" Height="32" CornerRadius="4" Margin="0,0,8,0"
+                            BorderBrush="#555555" BorderThickness="1"
+                            Background="{Binding SwatchBrush}"/>
+                    <TextBox Grid.Column="1" Text="{Binding Hex}" FontSize="11"
+                             Foreground="#dddddd" Background="#252526" BorderBrush="#333333"
+                             Padding="8,6" CornerRadius="4" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0"
+                                IsVisible="{Binding ShowKeyframes}" VerticalAlignment="Center">
+                        <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
+                            <local:StrokeIcon Icon="plus" Width="14" Height="14"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate DataType="vm:ChoiceParamEditorViewModel">
+            <StackPanel Spacing="4" Margin="0,6,0,0">
+                <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+                <ComboBox ItemsSource="{Binding Choices}" SelectedIndex="{Binding Index}"
+                          FontSize="11" HorizontalAlignment="Stretch"/>
+            </StackPanel>
+        </DataTemplate>
+
+    </UserControl.DataTemplates>
 
     <DockPanel Margin="8" Background="#1e1e1e"
                DragDrop.AllowDrop="True"
@@ -52,6 +203,11 @@
                 <MenuItem Header="_Ripple Delete" Command="{Binding RippleDeleteSelectedCommand}">
                     <MenuItem.Icon>
                         <local:StrokeIcon Icon="ripple" Width="16" Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="_Lift Delete" Command="{Binding LiftSelectedCommand}">
+                    <MenuItem.Icon>
+                        <local:StrokeIcon Icon="lift" Width="16" Height="16"/>
                     </MenuItem.Icon>
                 </MenuItem>
                 <Separator/>
@@ -234,7 +390,7 @@
                                                 <Border HorizontalAlignment="Right" VerticalAlignment="Top"
                                                         Margin="4" Padding="4,1"
                                                         Background="#000000a0" CornerRadius="3">
-                                                    <TextBlock Text="{Binding DurationSec, Converter={StaticResource SecondsToTime}}"
+                                                    <TextBlock Text="{Binding DurationSec, Converter={x:Static conv:SecondsToTimeConverter.Instance}}"
                                                                Foreground="#ffffff" FontSize="11"/>
                                                 </Border>
                                                 <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
@@ -354,47 +510,65 @@
 
             <!-- Timeline row: tracks on the left, contextual properties on the right -->
             <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
-                  ColumnDefinitions="*,4,280">
+                  ColumnDefinitions="*,4,300">
 
                 <Border Grid.Column="0"
                         Padding="8" Background="#252526" CornerRadius="6">
                     <DockPanel>
-                        <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,4"
-                                Background="#1e1e1e" CornerRadius="4">
-                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                <Button Command="{Binding UndoCommand}" ToolTip.Tip="Undo"
-                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                    <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
-                                </Button>
-                                <Button Command="{Binding RedoCommand}" ToolTip.Tip="Redo"
-                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                    <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
-                                </Button>
-                                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
-                                <Button Command="{Binding SplitAtPlayheadCommand}" ToolTip.Tip="Split at playhead (Ctrl+K)"
-                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                    <local:StrokeIcon Icon="split" Width="18" Height="18"/>
-                                </Button>
-                                <Button Command="{Binding RippleDeleteSelectedCommand}" ToolTip.Tip="Ripple delete"
-                                        Background="Transparent" BorderThickness="0" Padding="6" Foreground="#cccccc">
-                                    <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
-                                </Button>
-                                <Rectangle Width="1" Height="20" Fill="#3a3a3a" Margin="6,0"/>
-                                <ToggleButton IsChecked="{Binding MagneticSnap}" ToolTip.Tip="Magnetic snap"
-                                              Background="Transparent" BorderThickness="0" Padding="6"
-                                              Foreground="#cccccc">
-                                    <ToggleButton.Styles>
-                                        <Style Selector="ToggleButton:checked">
-                                            <Setter Property="Background" Value="#2a4a7a"/>
-                                            <Setter Property="Foreground" Value="#ffffff"/>
-                                        </Style>
-                                        <Style Selector="ToggleButton:pointerover">
-                                            <Setter Property="Background" Value="#333333"/>
-                                        </Style>
-                                    </ToggleButton.Styles>
-                                    <local:StrokeIcon Icon="magnet" Width="18" Height="18"/>
-                                </ToggleButton>
-                            </StackPanel>
+                        <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="2,2"
+                                Background="#1e1e1e" CornerRadius="4" BorderBrush="#333333" BorderThickness="1">
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <StackPanel Orientation="Horizontal" Spacing="0">
+                                    <Button Classes="tool-btn" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
+                                        <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
+                                        <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
+                                    </Button>
+                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Button Classes="tool-btn" Command="{Binding SplitAtPlayheadCommand}"
+                                            ToolTip.Tip="Split at playhead (Ctrl+K)">
+                                        <local:StrokeIcon Icon="split" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Command="{Binding LiftSelectedCommand}"
+                                            ToolTip.Tip="Lift delete (Delete)">
+                                        <local:StrokeIcon Icon="lift" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Command="{Binding RippleDeleteSelectedCommand}"
+                                            ToolTip.Tip="Ripple delete">
+                                        <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
+                                    </Button>
+                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Button Classes="tool-btn" Command="{Binding AddMarkerAtPlayheadCommand}"
+                                            ToolTip.Tip="Add marker (M)">
+                                        <local:StrokeIcon Icon="marker" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Command="{Binding DeleteSelectedMarkerCommand}"
+                                            ToolTip.Tip="Delete marker (Shift+Delete)">
+                                        <local:StrokeIcon Icon="trash" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Command="{Binding ToggleClipEnabledSelectedCommand}"
+                                            ToolTip.Tip="Enable / disable clip (Ctrl+E)">
+                                        <local:StrokeIcon Icon="eye-off" Width="18" Height="18"/>
+                                    </Button>
+                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <ToggleButton Classes="tool-btn" IsChecked="{Binding MagneticSnap}"
+                                                  ToolTip.Tip="Magnetic snap">
+                                        <local:StrokeIcon Icon="magnet" Width="18" Height="18"/>
+                                    </ToggleButton>
+                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Button Classes="tool-btn" Click="TimelineZoomOut_Click" ToolTip.Tip="Zoom out">
+                                        <local:StrokeIcon Icon="zoom-out" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Click="TimelineZoomIn_Click" ToolTip.Tip="Zoom in">
+                                        <local:StrokeIcon Icon="zoom-in" Width="18" Height="18"/>
+                                    </Button>
+                                    <Button Classes="tool-btn" Click="TimelineZoomFit_Click"
+                                            ToolTip.Tip="Zoom to fit sequence">
+                                        <local:StrokeIcon Icon="maximize-2" Width="18" Height="18"/>
+                                    </Button>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
                         <local:TimelineView x:Name="Timeline"
                                              Editor="{Binding Editor}"
@@ -412,25 +586,26 @@
                 <Border Grid.Column="2"
                         Padding="10,8" Background="#252526" CornerRadius="6">
                     <DockPanel DataContext="{Binding Properties}">
-                        <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,10">
-                            <TextBlock Text="{Binding Title}"
-                                       Foreground="#cccccc"
-                                       FontSize="14" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding Subtitle}"
-                                       Foreground="#8a8a8a"
-                                       FontSize="12"
-                                       TextWrapping="Wrap"
-                                       TextTrimming="CharacterEllipsis"/>
-                        </StackPanel>
+                        <Border DockPanel.Dock="Top" Classes="inspector-card" Margin="0,0,0,10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Title}"
+                                           Foreground="#eeeeee"
+                                           FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding Subtitle}"
+                                           Foreground="#8a8a8a"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
 
                         <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Auto">
-                            <StackPanel Spacing="12">
+                            <StackPanel Spacing="10">
 
-                                <!-- Empty hint is the subtitle; no extra body -->
-
-                                <StackPanel Spacing="6" IsVisible="{Binding ShowClipSection}">
-                                    <TextBlock Text="CLIP" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowClipSection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="CLIP"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Timeline" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding ClipTimingLabel}" Foreground="#dddddd" FontSize="12" TextWrapping="Wrap"/>
@@ -523,10 +698,68 @@
                                             <Slider Minimum="0" Maximum="0.45" Value="{Binding CropRight}"/>
                                         </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
-                                <StackPanel Spacing="6" IsVisible="{Binding ShowTrackSection}">
-                                    <TextBlock Text="TRACK" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowEffectsSection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="EFFECTS"/>
+                                    <ListBox ItemsSource="{Binding Effects}" SelectedItem="{Binding SelectedEffect}"
+                                             Background="Transparent" BorderThickness="0">
+                                        <ListBox.Styles>
+                                            <Style Selector="ListBoxItem">
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="Margin" Value="0,0,0,4"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                                <Setter Property="Background" Value="Transparent"/>
+                                            </Style>
+                                        </ListBox.Styles>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EffectItemViewModel">
+                                                <Border Padding="8,6" CornerRadius="4"
+                                                        Background="#252526" BorderBrush="#333333" BorderThickness="1">
+                                                    <DockPanel>
+                                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                                                            <ToggleButton IsChecked="{Binding IsEnabled}"
+                                                                          Command="{Binding ToggleCommand}"
+                                                                          ToolTip.Tip="Enable / disable"
+                                                                          Classes="tool-btn" Padding="5">
+                                                                <local:StrokeIcon Icon="power" Width="14" Height="14"/>
+                                                            </ToggleButton>
+                                                            <Button Command="{Binding RemoveCommand}"
+                                                                    ToolTip.Tip="Remove effect"
+                                                                    Classes="tool-btn" Padding="5">
+                                                                <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                                            <local:StrokeIcon Icon="{Binding Icon}" Width="16" Height="16"
+                                                                              IconBrush="#4da3ff" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding DisplayName}" Foreground="#eeeeee"
+                                                                       FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </DockPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                    <Border Background="#252526" CornerRadius="4" Padding="10,8"
+                                            BorderBrush="#3a3a3a" BorderThickness="1"
+                                            IsVisible="{Binding SelectedEffect, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{Binding SelectedEffect.DisplayName}"
+                                                       Foreground="#4da3ff" FontSize="12" FontWeight="SemiBold"/>
+                                            <ItemsControl ItemsSource="{Binding EffectParams}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowTrackSection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="TRACK"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding TrackNameLabel}" Foreground="#dddddd" FontSize="12"/>
@@ -539,10 +772,12 @@
                                         <TextBlock Text="State" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding TrackFlagsLabel}" Foreground="#dddddd" FontSize="12"/>
                                     </StackPanel>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
-                                <StackPanel Spacing="6" IsVisible="{Binding ShowMarkerSection}">
-                                    <TextBlock Text="MARKER" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowMarkerSection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="MARKER"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBox Text="{Binding MarkerName}"
@@ -577,10 +812,12 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </StackPanel>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
-                                <StackPanel Spacing="6" IsVisible="{Binding ShowTransitionSection}">
-                                    <TextBlock Text="TRANSITION" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowTransitionSection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="TRANSITION"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Type" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding TransitionTypeLabel}" Foreground="#dddddd" FontSize="12"/>
@@ -596,17 +833,24 @@
                                                 TickFrequency="0.05" IsSnapToTickEnabled="False"/>
                                         <TextBlock Text="{Binding TransitionSpanLabel}" Foreground="#8a8a8a" FontSize="11"/>
                                     </StackPanel>
-                                    <Button Content="Remove Transition"
-                                            Command="{Binding RemoveTransitionCommand}"
-                                            Margin="0,6,0,0" Padding="8,4" FontSize="11"
+                                    <Button Command="{Binding RemoveTransitionCommand}"
+                                            Margin="0,6,0,0" Padding="10,6" FontSize="11"
                                             Background="#3a1f22" Foreground="#ff6b6b"
-                                            BorderThickness="0" CornerRadius="3"
-                                            HorizontalAlignment="Left"/>
-                                </StackPanel>
+                                            BorderThickness="0" CornerRadius="4"
+                                            HorizontalAlignment="Stretch">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                            <local:StrokeIcon Icon="trash" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                                            <TextBlock Text="Remove transition" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <ItemsControl ItemsSource="{Binding TransitionParams}"/>
+                                    </StackPanel>
+                                </Border>
 
-                                <StackPanel Spacing="6"
-                                            IsVisible="{Binding FileName, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                    <TextBlock Text="SOURCE" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card"
+                                        IsVisible="{Binding FileName, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="SOURCE"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="File" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding FileName}" Foreground="#dddddd" FontSize="12"
@@ -630,10 +874,12 @@
                                             <TextBlock Text="{Binding DurationLabel}" Foreground="#dddddd" FontSize="12"/>
                                         </StackPanel>
                                     </Grid>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
-                                <StackPanel Spacing="8" IsVisible="{Binding ShowProxySection}">
-                                    <TextBlock Text="PROXY" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"/>
+                                <Border Classes="inspector-card" IsVisible="{Binding ShowProxySection}">
+                                    <StackPanel Spacing="8">
+                                    <TextBlock Classes="inspector-section" Text="PROXY"/>
                                     <StackPanel Spacing="4">
                                         <TextBlock Text="Status" Foreground="#8a8a8a" FontSize="11"/>
                                         <TextBlock Text="{Binding ProxyStatusLabel}" Foreground="#dddddd" FontSize="12"/>
@@ -650,7 +896,8 @@
                                             Foreground="#ffffff"
                                             BorderThickness="0"
                                             CornerRadius="4"/>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
                             </StackPanel>
                         </ScrollViewer>

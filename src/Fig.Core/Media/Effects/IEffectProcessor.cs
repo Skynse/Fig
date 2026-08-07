@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Fig.Core.Timeline;
 
 namespace Fig.Core.Media
 {
@@ -11,6 +12,6 @@ namespace Fig.Core.Media
         /// Mutates or returns a new frame. <paramref name="localT"/> is seconds from clip start.
         /// Unknown/disabled effects are skipped by the pipeline before calling this.
         /// </summary>
-        DecodedFrame Apply(DecodedFrame frame, IReadOnlyDictionary<string, double> parameters, double localT);
+        DecodedFrame Apply(DecodedFrame frame, IReadOnlyDictionary<string, ParamValue> parameters, double localT);
     }
 }

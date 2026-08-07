@@ -223,6 +223,7 @@ namespace Fig.Core.Media
                 canvas[i] = 255;
 
             var rented = new List<byte[]>();
+            var seen = new HashSet<byte[]>();
             byte[]? cropScratch = null;
             try
             {
@@ -230,10 +231,14 @@ namespace Fig.Core.Media
                 if (activeTx is not null
                     && activeTx.Outgoing is VideoClip outVc
                     && activeTx.Incoming is VideoClip inVc
-                    && TransitionRegistry.Resolve(activeTx.TypeId) is { } blender
+                    && TransitionCatalog.Resolve(activeTx.TypeId) is { } blender
                     && TryDecodeClip(project, timeline, sources, outVc, t, width, height, out var outFrame, out var outLocal)
                     && TryDecodeClip(project, timeline, sources, inVc, t, width, height, out var inFrame, out var inLocal))
                 {
+                    // clips sharing one media file return the same source scratch — blending
+                    // aliased buffers would blend a frame with itself and freeze the transition
+                    FramePool.EnsureDistinct(outFrame!, seen, rented);
+                    FramePool.EnsureDistinct(inFrame!, seen, rented);
                     outFrame = EffectPipeline.ApplyStack(outFrame!, outVc.Effects, outLocal, rented);
                     inFrame = EffectPipeline.ApplyStack(inFrame!, inVc.Effects, inLocal, rented);
                     var blended = blender.Blend(outFrame, inFrame, activeTx.Progress01, activeTx.Params);
@@ -267,6 +272,8 @@ namespace Fig.Core.Media
 
                         if (!TryDecodeClip(project, timeline, sources, vc, t, width, height, out var frame, out var localT))
                             continue;
+                        // stacked clips may share one media file / source scratch buffer
+                        FramePool.EnsureDistinct(frame!, seen, rented);
                         frame = EffectPipeline.ApplyStack(frame!, vc.Effects, localT, rented);
                         composites.Add(new CompositeLayer
                         {

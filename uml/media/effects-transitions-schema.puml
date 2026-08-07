@@ -1,0 +1,124 @@
+@startuml
+' fig Effects + Transitions: self-describing assets, discovered catalogs, typed params.
+
+package Timeline {
+
+  abstract class Clip {
+    * id : string
+    --
+    enabled : bool
+    effects : EffectInstance[]   ' ordered filter stack
+    transitionIn : TransitionRef?
+    transitionOut : TransitionRef?
+  }
+
+  class EffectInstance {
+    * id : string
+    --
+    typeId : string
+    enabled : bool
+    order : int
+    params : map<string, ParamValue>
+    keyframes : map<string, KeyframePoint[]>
+  }
+
+  class TransitionRef {
+    typeId : string
+    durationSec : double
+    params : map<string, ParamValue>
+  }
+
+  class ParamValue <<struct>>
+  class ParamDef {
+    key / label / kind / min / max / default / choices
+  }
+
+  class EffectCatalogEntry {
+    typeId / kind / displayName / icon / description
+    paramSchema : ParamDef[]
+    + DefaultParams() : map<string, ParamValue>
+    + CreateInstance() : EffectInstance
+  }
+
+  class TransitionCatalogEntry {
+    typeId / displayName / icon / description
+    defaultDurationSec : double
+    paramSchema : ParamDef[]
+    + CreateRef(duration?) : TransitionRef
+  }
+
+  Clip "1" *-- "0..*" EffectInstance : stacks
+  Clip "1" o-- "0..1" TransitionRef : in
+  Clip "1" o-- "0..1" TransitionRef : out
+  EffectInstance o-- ParamValue : "params"
+  EffectInstance o-- ParamValue : "keyframes"
+  EffectCatalogEntry o-- ParamDef
+  TransitionCatalogEntry o-- ParamDef
+}
+
+package Media {
+
+  interface IEffectProcessor {
+    TypeId : string
+    Apply(frame, params : map<string, ParamValue>, localT) : frame
+  }
+
+  interface ITransitionBlender {
+    TypeId : string
+    Blend(a, b, t01, params : map<string, ParamValue>) : frame
+  }
+
+  class EffectCatalog {
+    {static} All / Find / Resolve / Discover
+  }
+
+  class TransitionCatalog {
+    {static} All / Find / Resolve / Discover
+  }
+
+  class EffectPipeline {
+    {static} ApplyStack(frame, effects, localT) : frame
+    - ResolveParams(effect, localT)   ' keyframe evaluation
+  }
+
+  class TransitionResolver {
+    {static} FindActive(timeline, timeSec) : ActiveTransition?
+  }
+
+  class EffectAttribute
+  class EffectParamAttribute
+  class TransitionAttribute
+  class TransitionParamAttribute
+
+  EffectPipeline --> EffectCatalog : "Resolve"
+  TransitionResolver --> TransitionCatalog : "Resolve"
+  EffectCatalog ..> EffectAttribute : "discovers"
+  EffectCatalog ..> EffectParamAttribute
+  TransitionCatalog ..> TransitionAttribute
+  TransitionCatalog ..> TransitionParamAttribute
+  EffectCatalog --> EffectCatalogEntry : "builds"
+  TransitionCatalog --> TransitionCatalogEntry : "builds"
+}
+
+note bottom of EffectCatalog
+  Adding an effect = one class with [Effect]
+  and [EffectParam] descriptors. Discovery
+  builds both the metadata list (UI) and the
+  processor map (render). Same for transitions.
+end note
+
+note bottom of EffectPipeline
+  Before dispatch each param is resolved at
+  localT: constant values pass through;
+  keyframed params are interpolated (linear
+  for Double/Int, stepped for Bool/Color/List).
+end note
+
+note bottom of TransitionRef
+  Attached to clip edges at an abutting cut.
+  Cross-dissolve + Wipe ship built in; both
+  edges carry matching typeId/duration, and
+  params (e.g. Wipe "soft") are editable.
+end note
+
+@enduml

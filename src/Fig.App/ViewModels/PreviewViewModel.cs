@@ -50,11 +50,19 @@ public partial class PreviewViewModel : ViewModelBase
     // persistent sequential decoders per source path, so playback decodes forward without re-seeking
     private readonly Dictionary<string, IVideoFrameSource> _sources = new();
     // Paths that failed to open — skip re-open spam (FFmpeg "moov atom not found") until InvalidateSources.
+
+    // Playback presentation queue: the decode worker fills a small FIFO of pre-decoded frames
+    // ahead of the playhead, and the UI thread presents each frame at its scheduled time on the
+    // audio clock (mirrors the audio ring-buffer producer/consumer model — decode is decoupled
+    // from presentation, so slow decode drops frames instead of making video lag the audio).
+    private const int PresentQueueDepth = 3;
+    private readonly object _presentLock = new();
+    private readonly List<(double TimeSec, int Width, int Height, byte[] Pixels)> _presentQueue = new();
+    private double _nextPlaybackDecodeSec = -1;
+    private int _playbackDrops;
     private readonly HashSet<string> _failedPaths = new();
     private readonly PreviewFrameCache _frameCache = new(capacity: 64, bucketSec: 1.0 / 30.0);
     private double _lastRequestSec = -1;
-    private double _lastRenderedTimeSec;
-    private int _consecutiveDrops;
 
     /// <summary>Invoked on the UI thread with a freshly composited BGRA frame to present.</summary>
     public event Action<int, int, byte[]>? FrameReady;
@@ -135,7 +143,11 @@ public partial class PreviewViewModel : ViewModelBase
         if (e.PropertyName is nameof(EditorViewModel.PlayheadTimeSec) or nameof(EditorViewModel.SequenceEndSec))
             OnPropertyChanged(nameof(TimeDisplay));
         if (e.PropertyName is nameof(EditorViewModel.IsPlaying))
+        {
             OnPropertyChanged(nameof(PlaybackIconKey));
+            if (!_editor.IsPlaying)
+                ClearPresentQueue();
+        }
     }
 
     public string TimeDisplay
@@ -210,6 +222,7 @@ public partial class PreviewViewModel : ViewModelBase
         _sources.Clear();
         _failedPaths.Clear();
         _frameCache.Clear();
+        ClearPresentQueue();
 
         if (hasSize)
         {
@@ -228,33 +241,20 @@ public partial class PreviewViewModel : ViewModelBase
         {
             _playheadSec = value;
             OnPropertyChanged();
+            // during playback, present the frame scheduled for this audio-clock time
+            if (_editor is { IsPlaying: true })
+                PresentDueFrames(value);
             RequestFrame();
         }
     }
 
     /// <summary>
-    /// Requests a frame at the current playhead. A single worker loop consumes these so the
-    /// decoder is never touched from two threads at once, and during playback it always decodes
-    /// toward the newest position (dropping intermediate ones), which removes jitter.
-    /// 
-    /// During playback, frames are throttled to the timeline framerate so we never decode
-    /// more frames than the display can show — audio position callbacks fire at ~100 Hz but
-    /// video only needs ~30 fps.
+    /// Requests decode work at the current playhead. During playback the worker fills the
+    /// presentation FIFO (no throttle — queue depth bounds the work); during scrub it decodes
+    /// and presents the frame at the playhead immediately.
     /// </summary>
     private void RequestFrame()
     {
-        var scrubbing = _editor is not { IsPlaying: true };
-        if (!scrubbing)
-        {
-            var frameDur = 1.0 / Math.Max(_editor?.Editor.Document.Rate.Fps ?? 30, 1);
-            if (_playheadSec - _lastRenderedTimeSec < frameDur * 0.9)
-            {
-                _consecutiveDrops++;
-                return;
-            }
-            _consecutiveDrops = 0;
-        }
-
         lock (_decodeLock)
         {
             _pendingPlayhead = _playheadSec;
@@ -289,14 +289,10 @@ public partial class PreviewViewModel : ViewModelBase
                 _pendingPlayhead = null;
             }
 
-            await DecodeOneFrameAsync(target);
-
-            // playback: decode a few frames AHEAD of the playhead into the cache so the
-            // display hits the cache instead of waiting on decode (producer/consumer
-            // decoupling, like Kdenlive's FrameRenderer). Runs on the decode worker's
-            // thread — no extra Task.Run churn.
             if (_editor is { IsPlaying: true })
-                PrefillAhead(target);
+                FillPlaybackQueue(target);
+            else
+                await DecodeOneFrameAsync(target);
 
             lock (_decodeLock)
             {
@@ -310,70 +306,110 @@ public partial class PreviewViewModel : ViewModelBase
         }
     }
 
-    private const int PrefillFrames = 3;
-
     /// <summary>
-    /// Decodes a few source frames ahead of <paramref name="baseTime"/> into the frame
-    /// cache so playback presents cached frames instead of stalling on FFmpeg. Best-effort:
-    /// aborts as soon as a newer request arrives and never touches the decoder from two threads.
+    /// Playback: keeps the presentation FIFO filled with frames scheduled at the playhead and
+    /// just after it. Restarts the sequence (dropping queued frames) when the playhead jumps
+    /// (seek / loop / start). Frames are decoded into fresh pooled buffers owned by the queue
+    /// and presented later by <see cref="PresentDueFrames"/> on the audio clock.
     /// </summary>
-    private void PrefillAhead(double baseTime)
+    private void FillPlaybackQueue(double playhead)
     {
         var frameDur = 1.0 / Math.Max(_editor?.Editor.Document.Rate.Fps ?? 30, 1);
-        var touchedSources = new HashSet<IVideoFrameSource>();
-        var savedPositions = new Dictionary<IVideoFrameSource, double>();
-        try
+        while (true)
         {
-            for (var k = 1; k <= PrefillFrames; k++)
+            double target;
+            lock (_presentLock)
             {
-                lock (_decodeLock)
+                if (_nextPlaybackDecodeSec < 0
+                    || playhead < _nextPlaybackDecodeSec - frameDur * 1.5
+                    || playhead > _nextPlaybackDecodeSec + frameDur * (PresentQueueDepth + 2))
                 {
-                    if (_pendingPlayhead is not null)
-                        return;
+                    foreach (var f in _presentQueue)
+                        FramePool.Return(f.Pixels);
+                    _presentQueue.Clear();
+                    // first frame boundary at or after the playhead
+                    _nextPlaybackDecodeSec = Math.Ceiling(playhead / frameDur - 1e-9) * frameDur;
                 }
-                PrefillOneFrame(baseTime + k * frameDur, touchedSources, savedPositions);
+
+                if (_presentQueue.Count >= PresentQueueDepth)
+                    return;
+                target = _nextPlaybackDecodeSec;
+                _nextPlaybackDecodeSec += frameDur;
             }
-        }
-        catch
-        {
-            // prefill is best-effort; playback falls back to on-demand decode
-        }
-        finally
-        {
-            // Restore source positions so the next main decode does not see the source
-            // far ahead and needlessly seek backward — the cache already holds the
-            // prefilled frames, so the main decode will hit the cache instead.
-            foreach (var (source, pos) in savedPositions)
-                source.Seek(pos);
+
+            // decode outside the lock so presentation on the UI thread never blocks on it
+            var size = _targetWidth * _targetHeight * 4;
+            var buffer = FramePool.Rent(size);
+            if (ComposeFrame(target, buffer, out _))
+            {
+                lock (_presentLock)
+                    _presentQueue.Add((target, _targetWidth, _targetHeight, buffer));
+            }
+            else
+            {
+                FramePool.Return(buffer);
+                return;
+            }
+
+            // a newer position arrived while decoding -> let the loop restart at it
+            lock (_decodeLock)
+            {
+                if (_pendingPlayhead is not null)
+                    return;
+            }
         }
     }
 
-    private void PrefillOneFrame(double timelineSec,
-        HashSet<IVideoFrameSource> touched, Dictionary<IVideoFrameSource, double> saved)
+    /// <summary>
+    /// Presents the frame scheduled for <paramref name="sec"/> (the audio-clock position).
+    /// Frames whose time has already passed are dropped (returned to the pool) and the newest
+    /// due frame is shown — video stays aligned to audio instead of accumulating lag.
+    /// Runs on the UI thread (playhead updates), matching the preview surface.
+    /// </summary>
+    private void PresentDueFrames(double sec)
     {
-        var layers = _resolver(timelineSec);
-        if (layers.Count == 0)
-            return;
-        foreach (var layer in layers)
+        byte[]? present = null;
+        int w = 0, h = 0;
+        lock (_presentLock)
         {
-            // only plain source frames are cacheable; effect/crop layers can't share pixels
-            if (layer.Clip.Effects.Count > 0)
-                continue;
-            if (_frameCache.TryGet(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, out _))
-                continue;
-            if (!TryGetOrOpenSource(layer.SourcePath, out var source) || source is null)
-                continue;
-            // Save the source position before the first prefill touch so we can
-            // restore it when we are done — otherwise the main decode sees a
-            // stale-ahead position and seeks backward on the next frame.
-            if (touched.Add(source))
-                saved[source] = source.LastPresentedTimeSec;
-            // sequential forward decode (no seek) toward the future source time
-            if (source.LastPresentedTimeSec < 0 || layer.TimeSec < source.LastPresentedTimeSec - 0.05)
-                source.Seek(layer.TimeSec);
-            var frame = source.DecodeForward(layer.TimeSec, PreviewDecodeMode.Playback);
-            if (frame is not null)
-                _frameCache.Put(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, frame);
+            var lastDue = -1;
+            for (var i = 0; i < _presentQueue.Count; i++)
+            {
+                if (_presentQueue[i].TimeSec <= sec + 1e-6)
+                    lastDue = i;
+                else
+                    break;
+            }
+            if (lastDue >= 0)
+            {
+                // frames between the oldest and newest due are skipped (decode couldn't keep up)
+                _playbackDrops += lastDue;
+                for (var i = 0; i < lastDue; i++)
+                    FramePool.Return(_presentQueue[i].Pixels);
+                _presentQueue.RemoveRange(0, lastDue);
+                var due = _presentQueue[0];
+                _presentQueue.RemoveAt(0);
+                present = due.Pixels;
+                w = due.Width;
+                h = due.Height;
+            }
+        }
+
+        if (present is not null)
+        {
+            FrameReady?.Invoke(w, h, present);
+            FramePool.Return(present);
+        }
+    }
+
+    private void ClearPresentQueue()
+    {
+        lock (_presentLock)
+        {
+            foreach (var f in _presentQueue)
+                FramePool.Return(f.Pixels);
+            _presentQueue.Clear();
+            _nextPlaybackDecodeSec = -1;
         }
     }
 
@@ -381,13 +417,6 @@ public partial class PreviewViewModel : ViewModelBase
     {
         try
         {
-            // Runs on the decode worker's thread pool thread (RequestFrame starts the
-            // worker via Task.Run), so no per-frame Task.Run hop is needed.
-            var needsSeek = target < _lastRequestSec - 0.05;
-            var scrubbing = _editor is not { IsPlaying: true };
-            var decodeMode = scrubbing ? PreviewDecodeMode.Scrub : PreviewDecodeMode.Playback;
-            _lastRequestSec = target;
-
             var size = _targetWidth * _targetHeight * 4;
             var pixels = _composeBuffer;
             if (pixels is null || pixels.Length < size)
@@ -396,20 +425,61 @@ public partial class PreviewViewModel : ViewModelBase
                 _composeBuffer = pixels;
             }
 
+            if (!ComposeFrame(target, pixels, out var status))
+            {
+                SetDecodeStatus(status);
+                return;
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                FrameReady?.Invoke(_targetWidth, _targetHeight, pixels);
+            else
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    FrameReady?.Invoke(_targetWidth, _targetHeight, pixels));
+
+            SetDecodeStatus(status);
+        }
+        catch (Exception)
+        {
+            SetDecodeStatus("Decode failed");
+        }
+    }
+
+    /// <summary>
+    /// Composes the picture at a timeline time into <paramref name="pixels"/> (must be at
+    /// least <c>_targetWidth*_targetHeight*4</c>). Returns false and sets a status when there
+    /// is nothing to show. Used by both the scrub path (into the reused compose buffer, then
+    /// presented immediately) and the playback FIFO (into fresh pooled buffers).
+    /// </summary>
+    private bool ComposeFrame(double target, byte[] pixels, out string status)
+    {
+        status = "";
+        try
+        {
+            // Runs on the decode worker's thread pool thread.
+            var needsSeek = target < _lastRequestSec - 0.05;
+            var scrubbing = _editor is not { IsPlaying: true };
+            var decodeMode = scrubbing ? PreviewDecodeMode.Scrub : PreviewDecodeMode.Playback;
+            _lastRequestSec = target;
+
             var document = _editor?.Editor.Document;
             var activeTx = document is not null
                 ? TransitionResolver.FindActive(document, target)
                 : null;
 
-            string status;
             if (activeTx is not null
                 && activeTx.Outgoing is VideoClip outVc
                 && activeTx.Incoming is VideoClip inVc
-                && TransitionRegistry.Resolve(activeTx.TypeId) is { } blender
+                && TransitionCatalog.Resolve(activeTx.TypeId) is { } blender
                 && TryDecodeClipFrame(outVc, target, needsSeek, decodeMode, out var outFrame, out var outLocal)
                 && TryDecodeClipFrame(inVc, target, needsSeek, decodeMode, out var inFrame, out var inLocal))
             {
                 var txRented = new List<byte[]>();
+                var seen = new HashSet<byte[]>();
+                // the two clips may share one media file (same source scratch) — blending
+                // aliased buffers would blend a frame with itself and freeze the transition
+                FramePool.EnsureDistinct(outFrame!, seen, txRented);
+                FramePool.EnsureDistinct(inFrame!, seen, txRented);
                 outFrame = EffectPipeline.ApplyStack(outFrame!, outVc.Effects, outLocal, txRented);
                 inFrame = EffectPipeline.ApplyStack(inFrame!, inVc.Effects, inLocal, txRented);
                 var blended = blender.Blend(outFrame, inFrame, activeTx.Progress01, activeTx.Params);
@@ -433,13 +503,14 @@ public partial class PreviewViewModel : ViewModelBase
                 var layers = _resolver(target);
                 if (layers.Count == 0)
                 {
-                    SetDecodeStatus("No video at playhead");
-                    return;
+                    status = "No video at playhead";
+                    return false;
                 }
 
                 var composites = new List<CompositeLayer>(layers.Count);
                 var cacheHits = 0;
                 var rented = new List<byte[]>();
+                var seen = new HashSet<byte[]>();
                 foreach (var layer in layers)
                 {
                     DecodedFrame? frame = null;
@@ -450,6 +521,8 @@ public partial class PreviewViewModel : ViewModelBase
                             cacheHits++;
                         if (frame is not null)
                         {
+                            // stacked tracks may share one media file / source scratch buffer
+                            FramePool.EnsureDistinct(frame, seen, rented);
                             var localT = target - layer.Clip.StartSec;
                             frame = EffectPipeline.ApplyStack(frame, layer.Clip.Effects, localT, rented);
                         }
@@ -477,27 +550,16 @@ public partial class PreviewViewModel : ViewModelBase
                 }
                 var modeTag = scrubbing ? "scrub" : "play";
                 var cacheTag = cacheHits > 0 ? $" · cache {cacheHits}/{layers.Count}" : "";
-                var dropsTag = _consecutiveDrops > 30 ? " · dropping" : "";
+                var dropsTag = _playbackDrops > 30 ? " · dropping" : "";
                 status = $"{_targetWidth}x{_targetHeight} · {layers.Count} layer(s) · {modeTag}{cacheTag}{dropsTag}";
             }
 
-            if (Dispatcher.UIThread.CheckAccess())
-            {
-                _lastRenderedTimeSec = target;
-                FrameReady?.Invoke(_targetWidth, _targetHeight, pixels);
-            }
-            else
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    _lastRenderedTimeSec = target;
-                    FrameReady?.Invoke(_targetWidth, _targetHeight, pixels);
-                });
-
-            SetDecodeStatus(status);
+            return true;
         }
         catch (Exception)
         {
-            SetDecodeStatus("Decode failed");
+            status = "Decode failed";
+            return false;
         }
     }
 
@@ -505,10 +567,9 @@ public partial class PreviewViewModel : ViewModelBase
         PreviewLayer layer, bool needsSeek, PreviewDecodeMode mode, out bool fromCache)
     {
         fromCache = false;
-        // Effects invalidate pixel identity — only cache plain source frames (no crop/fx applied yet).
-        // Crop/fx are applied after; caching pre-fx frames is still a big scrub win.
-        if (layer.Clip.Effects.Count == 0
-            && _frameCache.TryGet(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, out var cached)
+        // Cache the pre-effect source frame (the pool owns a copy); effects are applied after
+        // retrieval, so effect clips benefit from the cache too instead of re-decoding every frame.
+        if (_frameCache.TryGet(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, out var cached)
             && cached is not null)
         {
             fromCache = true;
@@ -526,7 +587,7 @@ public partial class PreviewViewModel : ViewModelBase
         }
 
         var frame = source.DecodeForward(layer.TimeSec, mode);
-        if (frame is not null && layer.Clip.Effects.Count == 0)
+        if (frame is not null)
             _frameCache.Put(layer.SourcePath, layer.TimeSec, _targetWidth, _targetHeight, frame);
         return frame;
     }
@@ -562,8 +623,7 @@ public partial class PreviewViewModel : ViewModelBase
             if (source is null)
                 return false;
 
-            if (clip.Effects.Count == 0
-                && _frameCache.TryGet(path, srcTime, _targetWidth, _targetHeight, out var cached)
+            if (_frameCache.TryGet(path, srcTime, _targetWidth, _targetHeight, out var cached)
                 && cached is not null)
             {
                 frame = cached;
@@ -577,7 +637,7 @@ public partial class PreviewViewModel : ViewModelBase
                 source.Seek(srcTime);
             }
             frame = source.DecodeForward(srcTime, mode);
-            if (frame is not null && clip.Effects.Count == 0)
+            if (frame is not null)
                 _frameCache.Put(path, srcTime, _targetWidth, _targetHeight, frame);
             return frame is not null;
         }

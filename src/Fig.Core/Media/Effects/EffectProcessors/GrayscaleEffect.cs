@@ -5,13 +5,15 @@ using Fig.Core.Timeline;
 namespace Fig.Core.Media
 {
     /// <summary>Desaturates to monochrome using Rec. 601 luma (blendable via "amount").</summary>
+    [Effect(EffectCatalog.Grayscale, "Grayscale", Icon = "contrast", Description = "Desaturate to monochrome.")]
+    [EffectParam("amount", "Amount", Default = 1, Min = 0, Max = 1)]
     internal sealed class GrayscaleEffect : IEffectProcessor
     {
         public string TypeId => EffectCatalog.Grayscale;
 
-        public DecodedFrame Apply(DecodedFrame frame, IReadOnlyDictionary<string, double> parameters, double localT)
+        public DecodedFrame Apply(DecodedFrame frame, IReadOnlyDictionary<string, ParamValue> parameters, double localT)
         {
-            var amount = parameters.TryGetValue("amount", out var a) ? Math.Clamp(a, 0, 1) : 1;
+            var amount = parameters.TryGetValue("amount", out var a) ? Math.Clamp(a.AsDouble, 0, 1) : 1;
             if (amount < 1e-6)
                 return frame;
 

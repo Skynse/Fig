@@ -1,4 +1,4 @@
-# Fig
+# The Fig Project
 
 Fig is an open-source non-linear video editor built with C# and Avalonia. It is designed around a single idea: professional editing should not be locked behind paywalls or painfully slow exports.
 

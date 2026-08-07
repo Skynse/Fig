@@ -29,6 +29,8 @@ public static class IconService
     {
         ["split"] = "scissors",
         ["ripple"] = "ungroup",
+        ["lift"] = "trash-2",
+        ["marker"] = "flag",
         ["skip-start"] = "skip-back",
         ["volume"] = "volume-2",
         ["trash"] = "trash-2",

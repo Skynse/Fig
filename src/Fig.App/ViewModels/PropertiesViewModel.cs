@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -30,6 +32,14 @@ public partial class PropertiesViewModel : ViewModelBase
     public PropertiesViewModel(EditorViewModel editor)
     {
         _editor = editor;
+        _editor.PropertyChanged += OnEditorPropertyChanged;
+    }
+
+    private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // keyframed param values follow the playhead
+        if (e.PropertyName == nameof(EditorViewModel.PlayheadTimeSec) && ShowEffectsSection)
+            RefreshParams();
     }
 
     [ObservableProperty] private PropertiesContextKind _kind = PropertiesContextKind.Empty;
@@ -83,6 +93,17 @@ public partial class PropertiesViewModel : ViewModelBase
     [ObservableProperty] private string? _transitionSpanLabel;
     [ObservableProperty] private double _transitionDurationValue;
     [ObservableProperty] private double _transitionMaxDuration = 1;
+
+    // effect stack (clip context)
+    [ObservableProperty] private bool _showEffectsSection;
+    [ObservableProperty] private EffectItemViewModel? _selectedEffect;
+    public ObservableCollection<EffectItemViewModel> Effects { get; } = new();
+    public ObservableCollection<ParamEditorViewModel> EffectParams { get; } = new();
+    public ObservableCollection<ParamEditorViewModel> TransitionParams { get; } = new();
+
+    private string? _lastEffectsClipId;
+    private string? _selectedEffectId;
+    private string? _lastBuiltEffectId;
 
     /// <summary>Color swatches offered in the marker inspector.</summary>
     public IReadOnlyList<string> MarkerPalette { get; } =
@@ -193,6 +214,8 @@ public partial class PropertiesViewModel : ViewModelBase
         ShowAudioControls = clip is AudioClip || clip is VideoClip; // video often has linked volume
         ShowFadeControls = clip is VideoClip || clip is AudioClip;
         ClipTimingLabel = $"{FormatTime(clip.StartSec)} → {FormatTime(clip.StartSec + clip.DurSec)}  ({FormatTime(clip.DurSec)})";
+        BuildEffectStack(clip);
+        ShowEffectsSection = true;
 
         OpacityValue = clip.Opacity;
         FadeInValue = clip.FadeInSec;
@@ -321,6 +344,7 @@ public partial class PropertiesViewModel : ViewModelBase
         TransitionDurationValue = transition.DurationSec;
         TransitionMaxDuration = Math.Max(0.1, Math.Min(transition.Left.DurSec, transition.Right.DurSec));
         TransitionSpanLabel = $"{FormatTime(transition.DurationSec)} across the cut";
+        BuildTransitionParams(transition);
         _proxyTarget = null;
         ShowProxySection = false;
         CanGenerateProxy = false;
@@ -357,6 +381,293 @@ public partial class PropertiesViewModel : ViewModelBase
         _editor.Editor.RemoveTransition(transition.LeftClipId, transition.RightClipId);
         _editor.Preview.RefreshFrame();
         Refresh();
+    }
+
+    // ---- effect stack + schema-driven param editors ----
+
+    private void BuildEffectStack(Clip clip)
+    {
+        if (_lastEffectsClipId == clip.Id)
+        {
+            RefreshParams();
+            return;
+        }
+
+        _lastEffectsClipId = clip.Id;
+        Effects.Clear();
+        foreach (var effect in clip.Effects)
+        {
+            var entry = EffectCatalog.Find(effect.TypeId);
+            Effects.Add(new EffectItemViewModel(
+                effect.Id,
+                effect.TypeId,
+                entry?.DisplayName ?? effect.TypeId,
+                entry?.Icon ?? "wand-sparkles",
+                effect.Enabled,
+                ToggleEffect,
+                RemoveEffect));
+        }
+
+        SelectedEffect = Effects.FirstOrDefault();
+        _selectedEffectId = SelectedEffect?.EffectId;
+        RebuildEffectParams();
+    }
+
+    partial void OnSelectedEffectChanged(EffectItemViewModel? value)
+    {
+        var nextId = value?.EffectId;
+        if (nextId == _selectedEffectId && nextId == _lastBuiltEffectId)
+            return;
+        _selectedEffectId = nextId;
+        RebuildEffectParams();
+    }
+
+    private void ToggleEffect(EffectItemViewModel item)
+    {
+        if (_clipId is null)
+            return;
+        _editor.Editor.ToggleEffect(_clipId, item.EffectId);
+        item.IsEnabled = !item.IsEnabled;
+    }
+
+    private void RemoveEffect(EffectItemViewModel item)
+    {
+        if (_clipId is null)
+            return;
+        _editor.Editor.RemoveEffect(_clipId, item.EffectId);
+        _lastEffectsClipId = null; // force the stack to rebuild on the next refresh
+    }
+
+    private void RebuildEffectParams()
+    {
+        EffectParams.Clear();
+        _lastBuiltEffectId = _selectedEffectId;
+        if (_clipId is null || _selectedEffectId is null)
+            return;
+        var clip = FindClip(_clipId);
+        if (clip is null)
+            return;
+        var effect = FindEffect(clip, _selectedEffectId);
+        if (effect is null)
+            return;
+        var entry = EffectCatalog.Find(effect.TypeId);
+        if (entry is null)
+            return;
+
+        var clipId = _clipId;
+        foreach (var def in entry.ParamSchema)
+        {
+            var key = def.Key;
+            var editor = CreateParamEditor(clipId, effect, def,
+                write: value => WriteEffectParam(clipId, effect.Id, key, value),
+                addKeyframe: _ => AddEffectKeyframe(clipId, effect.Id, key),
+                clearKeyframes: _ =>
+                {
+                    _editor.Editor.ClearKeyframes(clipId, effect.Id, key);
+                    RefreshParams();
+                },
+                stepKeyframe: (_, forward) => StepEffectKeyframe(clipId, effect.Id, key, forward));
+            SetEvaluate(editor, clipId, effect.Id, def);
+            EffectParams.Add(editor);
+        }
+        RefreshParams();
+    }
+
+    private void SetEvaluate(ParamEditorViewModel editor, string clipId, string effectId, ParamDef def)
+    {
+        switch (editor)
+        {
+            case DoubleParamEditorViewModel d:
+                d.Evaluate = () => EvalParam(clipId, effectId, def.Key, v => v.AsNumber);
+                break;
+            case BoolParamEditorViewModel b:
+                b.Evaluate = () => EvalParam(clipId, effectId, def.Key, v => v.AsBool);
+                break;
+            case ColorParamEditorViewModel c:
+                c.Evaluate = () => EvalParam(clipId, effectId, def.Key, v => v.AsColor);
+                break;
+            case ChoiceParamEditorViewModel ch:
+                ch.Evaluate = () => EvalParam(clipId, effectId, def.Key, v => v.AsChoice);
+                break;
+        }
+    }
+
+    private static ParamEditorViewModel CreateParamEditor(string clipId, EffectInstance effect, ParamDef def,
+        Action<ParamValue> write, Action<string> addKeyframe, Action<string> clearKeyframes, Action<string, bool> stepKeyframe)
+    {
+        switch (def.Kind)
+        {
+            case ParamKind.Int:
+                return new DoubleParamEditorViewModel(def.Key, def.Label, def.Min, def.Max, true, write, addKeyframe, clearKeyframes, stepKeyframe);
+            case ParamKind.Bool:
+                return new BoolParamEditorViewModel(def.Key, def.Label, write, addKeyframe, clearKeyframes, stepKeyframe);
+            case ParamKind.Color:
+                return new ColorParamEditorViewModel(def.Key, def.Label, write, addKeyframe, clearKeyframes, stepKeyframe);
+            case ParamKind.List:
+                return new ChoiceParamEditorViewModel(def.Key, def.Label, def.Choices, write, addKeyframe, clearKeyframes, stepKeyframe);
+            default:
+                return new DoubleParamEditorViewModel(def.Key, def.Label, def.Min, def.Max, false, write, addKeyframe, clearKeyframes, stepKeyframe);
+        }
+    }
+
+    private void RefreshParams()
+    {
+        foreach (var editor in EffectParams)
+            editor.RefreshValue();
+    }
+
+    private (T Value, int Count) EvalParam<T>(string clipId, string effectId, string key, Func<ParamValue, T> convert)
+    {
+        var clip = FindClip(clipId);
+        if (clip is null)
+            return (default!, 0);
+        var effect = FindEffect(clip, effectId);
+        if (effect is null)
+            return (default!, 0);
+        var track = effect.Keyframes.TryGetValue(key, out var t) ? t : null;
+        var count = track?.Count ?? 0;
+        var localT = Math.Max(0, _editor.PlayheadTimeSec - clip.StartSec);
+        var value = count > 0 && track is not null
+            ? EffectPipeline.Evaluate(track, localT)
+            : (effect.Params.TryGetValue(key, out var constant) ? constant : default);
+        return (convert(value), count);
+    }
+
+    private void WriteEffectParam(string clipId, string effectId, string key, ParamValue value)
+    {
+        var clip = FindClip(clipId);
+        if (clip is null)
+            return;
+        var effect = FindEffect(clip, effectId);
+        var keyframed = effect?.Keyframes.TryGetValue(key, out var track) == true && track.Count > 0;
+        if (keyframed)
+            _editor.Editor.SetKeyframe(clipId, effectId, key, Math.Max(0, _editor.PlayheadTimeSec - clip.StartSec), value);
+        else
+            _editor.Editor.SetEffectParam(clipId, effectId, key, value);
+    }
+
+    private void AddEffectKeyframe(string clipId, string effectId, string key)
+    {
+        var clip = FindClip(clipId);
+        if (clip is null)
+            return;
+        var effect = FindEffect(clip, effectId);
+        if (effect is null)
+            return;
+        var localT = Math.Max(0, _editor.PlayheadTimeSec - clip.StartSec);
+        var value = effect.Keyframes.TryGetValue(key, out var track) && track.Count > 0
+            ? EffectPipeline.Evaluate(track, localT)
+            : (effect.Params.TryGetValue(key, out var constant) ? constant : default);
+        _editor.Editor.SetKeyframe(clipId, effectId, key, localT, value);
+        RefreshParams();
+    }
+
+    private void StepEffectKeyframe(string clipId, string effectId, string key, bool forward)
+    {
+        var clip = FindClip(clipId);
+        if (clip is null)
+            return;
+        var effect = FindEffect(clip, effectId);
+        if (effect is null || !effect.Keyframes.TryGetValue(key, out var track) || track.Count == 0)
+            return;
+        var localT = Math.Max(0, _editor.PlayheadTimeSec - clip.StartSec);
+        KeyframePoint? target = null;
+        if (forward)
+        {
+            foreach (var k in track)
+                if (k.TimeSec > localT + 1e-6)
+                {
+                    target = k;
+                    break;
+                }
+        }
+        else
+        {
+            for (var i = track.Count - 1; i >= 0; i--)
+                if (track[i].TimeSec < localT - 1e-6)
+                {
+                    target = track[i];
+                    break;
+                }
+        }
+        if (target is { } kf)
+            _editor.SeekFromUser(clip.StartSec + kf.TimeSec);
+    }
+
+    private void BuildTransitionParams(CutTransition transition)
+    {
+        TransitionParams.Clear();
+        var entry = TransitionCatalog.Find(transition.TypeId);
+        if (entry is null)
+            return;
+
+        foreach (var def in entry.ParamSchema)
+        {
+            var key = def.Key;
+            var editor = CreateTransitionParamEditor(def,
+                write: value => _editor.Editor.SetTransitionParam(transition.LeftClipId, transition.RightClipId, key, value));
+
+            ParamValue current;
+            if (transition.Left.TransitionOut?.Params.TryGetValue(key, out var v1) == true)
+                current = v1;
+            else if (transition.Right.TransitionIn?.Params.TryGetValue(key, out var v2) == true)
+                current = v2;
+            else
+                current = def.DefaultValue();
+            SetInitialValue(editor, current);
+            TransitionParams.Add(editor);
+        }
+    }
+
+    private static ParamEditorViewModel CreateTransitionParamEditor(ParamDef def, Action<ParamValue> write)
+    {
+        Action<string> noop = _ => { };
+        Action<string, bool> noop2 = (_, _) => { };
+        ParamEditorViewModel editor = def.Kind switch
+        {
+            ParamKind.Int => new DoubleParamEditorViewModel(def.Key, def.Label, def.Min, def.Max, true, write, noop, noop, noop2),
+            ParamKind.Bool => new BoolParamEditorViewModel(def.Key, def.Label, write, noop, noop, noop2),
+            ParamKind.Color => new ColorParamEditorViewModel(def.Key, def.Label, write, noop, noop, noop2),
+            ParamKind.List => new ChoiceParamEditorViewModel(def.Key, def.Label, def.Choices, write, noop, noop, noop2),
+            _ => new DoubleParamEditorViewModel(def.Key, def.Label, def.Min, def.Max, false, write, noop, noop, noop2),
+        };
+        editor.ShowKeyframes = false;
+        return editor;
+    }
+
+    private static void SetInitialValue(ParamEditorViewModel editor, ParamValue value)
+    {
+        switch (editor)
+        {
+            case DoubleParamEditorViewModel d:
+                d.SetSuppress(true);
+                d.Value = value.AsNumber;
+                d.SetSuppress(false);
+                break;
+            case BoolParamEditorViewModel b:
+                b.SetSuppress(true);
+                b.Value = value.AsBool;
+                b.SetSuppress(false);
+                break;
+            case ColorParamEditorViewModel c:
+                c.SetSuppress(true);
+                c.Hex = value.AsColor.ToString("X8");
+                c.SetSuppress(false);
+                break;
+            case ChoiceParamEditorViewModel ch:
+                ch.SetSuppress(true);
+                ch.Index = value.AsChoice;
+                ch.SetSuppress(false);
+                break;
+        }
+    }
+
+    private static EffectInstance? FindEffect(Clip clip, string effectId)
+    {
+        foreach (var effect in clip.Effects)
+            if (effect.Id == effectId)
+                return effect;
+        return null;
     }
 
     private void ApplyMediaFields(MediaAsset asset)
@@ -420,6 +731,7 @@ public partial class PropertiesViewModel : ViewModelBase
         ShowTrackSection = false;
         ShowMarkerSection = false;
         ShowTransitionSection = false;
+        ShowEffectsSection = false;
         FileName = null;
         KindLabel = null;
         ResolutionLabel = null;
@@ -435,6 +747,13 @@ public partial class PropertiesViewModel : ViewModelBase
         MarkerDurationLabel = null;
         TransitionTypeLabel = null;
         TransitionSpanLabel = null;
+        Effects.Clear();
+        EffectParams.Clear();
+        TransitionParams.Clear();
+        SelectedEffect = null;
+        _selectedEffectId = null;
+        _lastEffectsClipId = null;
+        _lastBuiltEffectId = null;
         _markerId = null;
         _transitionKey = null;
     }

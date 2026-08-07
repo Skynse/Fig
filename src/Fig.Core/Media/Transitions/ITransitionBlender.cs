@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Fig.Core.Timeline;
 
 namespace Fig.Core.Media
 {
@@ -11,6 +12,6 @@ namespace Fig.Core.Media
             DecodedFrame outgoing,
             DecodedFrame incoming,
             double t01,
-            IReadOnlyDictionary<string, double> parameters);
+            IReadOnlyDictionary<string, ParamValue> parameters);
     }
 }

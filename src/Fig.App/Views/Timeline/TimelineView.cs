@@ -124,6 +124,38 @@ namespace Fig.App.Views
             InvalidateVisual();
         }
 
+        public void ZoomInAtPlayhead()
+        {
+            ZoomAtTimelineX(PlayheadTimeSecToX(), ZoomFactor);
+        }
+
+        public void ZoomOutAtPlayhead()
+        {
+            ZoomAtTimelineX(PlayheadTimeSecToX(), 1.0 / ZoomFactor);
+        }
+
+        public void ZoomToFitSequence(double endTimeSec)
+        {
+            var width = Math.Max(1, Bounds.Width - TrackHeaderWidth);
+            var duration = Math.Max(0.5, endTimeSec);
+            Viewport.SetPixelsPerSecond(Math.Clamp(width / duration, TimelineViewport.MinPixelsPerSecond, TimelineViewport.MaxPixelsPerSecond));
+            Viewport.SetScrollTime(0);
+            InvalidateVisual();
+        }
+
+        private double PlayheadTimeSecToX()
+        {
+            var width = Math.Max(1, Bounds.Width - TrackHeaderWidth);
+            var x = Viewport.TimeToX(PlayheadTimeSec);
+            return Math.Clamp(x, 0, width);
+        }
+
+        private void ZoomAtTimelineX(double cursorX, double factor)
+        {
+            Viewport.ZoomAt(cursorX, factor);
+            InvalidateVisual();
+        }
+
         // pan state
         private bool _panning;
         private double _panStartX;
@@ -850,10 +882,74 @@ namespace Fig.App.Views
             IconService.DrawStroked(context, "blend", rect.Inflate(-5), Brushes.White, 1.6);
         }
 
+        /// <summary>Draws a small wand badge when a clip carries effects.</summary>
+        private void DrawEffectBadge(DrawingContext context, Rect labelRect, Clip clip)
+        {
+            if (clip.Effects.Count == 0)
+                return;
+            var badgeRect = new Rect(labelRect.Right - 18, labelRect.Y + 1, 16, labelRect.Height - 2);
+            IconService.DrawStroked(context, "wand-sparkles", badgeRect,
+                new SolidColorBrush(Color.Parse("#eab308")), 1.5);
+        }
+
+        /// <summary>Draws a diamond per effect keyframe, positioned on the clip body.</summary>
+        private void DrawKeyframeDiamonds(DrawingContext context, Clip clip, Rect bodyRect, double px)
+        {
+            foreach (var effect in clip.Effects)
+            {
+                foreach (var (_, track) in effect.Keyframes)
+                {
+                    foreach (var kf in track)
+                    {
+                        var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
+                        if (x < TrackHeaderWidth || x > Bounds.Width)
+                            continue;
+                        var cy = bodyRect.Bottom - 6;
+                        var geo = new StreamGeometry();
+                        using (var gc = geo.Open())
+                        {
+                            gc.BeginFigure(new Point(x, cy - 4), true);
+                            gc.LineTo(new Point(x + 4, cy));
+                            gc.LineTo(new Point(x, cy + 4));
+                            gc.LineTo(new Point(x - 4, cy));
+                            gc.EndFigure(true);
+                        }
+                        context.DrawGeometry(new SolidColorBrush(Color.Parse("#eab308")), null, geo);
+                    }
+                }
+            }
+        }
+
+        /// <summary>Returns the clip keyframe diamond under the pointer, or null.</summary>
+        private (Clip Clip, double TimeSec)? HitTestKeyframe(Point pos)
+        {
+            if (Editor is null || pos.X <= TrackHeaderWidth)
+                return null;
+            const double grabPx = 5;
+            for (var i = 0; i < Editor.Document.Tracks.Count; i++)
+            {
+                var track = Editor.Document.Tracks[i];
+                if (track.Kind != TrackKind.Video)
+                    continue;
+                var top = TimelineGeometry.TrackTop(i) + RulerHeight;
+                if (pos.Y < top || pos.Y >= TimelineGeometry.TrackBottom(i) + RulerHeight)
+                    continue;
+                foreach (var clip in track.Clips)
+                    foreach (var effect in clip.Effects)
+                        foreach (var (_, trackKf) in effect.Keyframes)
+                            foreach (var kf in trackKf)
+                            {
+                                var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
+                                if (Math.Abs(pos.X - x) <= grabPx)
+                                    return (clip, clip.StartSec + kf.TimeSec);
+                            }
+            }
+            return null;
+        }
+
         /// <summary>Returns the transition whose cut badge is near the pointer, or null.</summary>
         private CutTransition? HitTestTransition(Point pos)
-        {
-            if (Editor is null)
+        {            if (Editor is null)
                 return null;
 
             for (var i = 0; i < Editor.Document.Tracks.Count; i++)
@@ -1021,6 +1117,14 @@ namespace Fig.App.Views
                 _dragTransitionMaxSec = Math.Max(0.05, Math.Min(transitionHit.Left.DurSec, transitionHit.Right.DurSec));
                 _draggingTransition = true;
                 InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+
+            // keyframe diamond hit-test: seek the playhead to it
+            if (HitTestKeyframe(pos) is { } keyframe)
+            {
+                SetPlayhead(Editor.SnapTime(Math.Max(0, keyframe.TimeSec)));
                 e.Handled = true;
                 return;
             }
@@ -1891,6 +1995,8 @@ namespace Fig.App.Views
                         }
 
                         DrawClipMarkers(context, x, clipTop, clip);
+                        DrawEffectBadge(context, labelRect, clip);
+                        DrawKeyframeDiamonds(context, clip, rect, px);
 
                         if (!clip.Enabled)
                         {

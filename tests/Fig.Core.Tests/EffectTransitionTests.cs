@@ -11,22 +11,22 @@ public class EffectTransitionTests
     {
         Assert.Contains(EffectCatalog.All, e => e.TypeId == EffectCatalog.Brightness);
         Assert.Contains(EffectCatalog.All, e => e.TypeId == EffectCatalog.Grayscale);
-        Assert.NotNull(EffectRegistry.Resolve(EffectCatalog.Brightness));
-        Assert.NotNull(EffectRegistry.Resolve(EffectCatalog.Grayscale));
+        Assert.NotNull(EffectCatalog.Resolve(EffectCatalog.Brightness));
+        Assert.NotNull(EffectCatalog.Resolve(EffectCatalog.Grayscale));
     }
 
     [Fact]
     public void TransitionCatalog_HasCrossDissolve()
     {
         Assert.Contains(TransitionCatalog.All, e => e.TypeId == TransitionCatalog.CrossDissolve);
-        Assert.NotNull(TransitionRegistry.Resolve(TransitionCatalog.CrossDissolve));
+        Assert.NotNull(TransitionCatalog.Resolve(TransitionCatalog.CrossDissolve));
     }
 
     [Fact]
     public void TransitionCatalog_HasWipe()
     {
         Assert.Contains(TransitionCatalog.All, e => e.TypeId == TransitionCatalog.Wipe);
-        Assert.NotNull(TransitionRegistry.Resolve(TransitionCatalog.Wipe));
+        Assert.NotNull(TransitionCatalog.Resolve(TransitionCatalog.Wipe));
         Assert.Equal("arrow-right-left", TransitionCatalog.Find(TransitionCatalog.Wipe)!.Icon);
     }
 
@@ -35,9 +35,9 @@ public class EffectTransitionTests
     {
         var a = MakeFrame(64, 1, 0, 0, 0);      // outgoing: black
         var b = MakeFrame(64, 1, 200, 200, 200); // incoming: light gray
-        var blender = TransitionRegistry.Resolve(TransitionCatalog.Wipe)!;
+        var blender = TransitionCatalog.Resolve(TransitionCatalog.Wipe)!;
 
-        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, double> { ["soft"] = 0 });
+        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, ParamValue> { ["soft"] = ParamValue.OfDouble(0) });
 
         // leftmost column is fully incoming; rightmost column fully outgoing
         Assert.Equal(200, mid.Pixels[2]);     // x=0, R channel
@@ -49,9 +49,9 @@ public class EffectTransitionTests
     {
         var a = MakeFrame(64, 1, 0, 0, 0);
         var b = MakeFrame(64, 1, 200, 200, 200);
-        var blender = TransitionRegistry.Resolve(TransitionCatalog.Wipe)!;
+        var blender = TransitionCatalog.Resolve(TransitionCatalog.Wipe)!;
 
-        var hard = new Dictionary<string, double> { ["soft"] = 0 };
+        var hard = new Dictionary<string, ParamValue> { ["soft"] = ParamValue.OfDouble(0) };
         var start = blender.Blend(a, b, 0.0, hard);
         Assert.Equal(0, start.Pixels[2]);
         Assert.Equal(0, start.Pixels[(63 * 4) + 2]);
@@ -66,7 +66,7 @@ public class EffectTransitionTests
     {
         var frame = MakeFrame(2, 2, 100, 100, 100);
         var fx = EffectCatalog.Find(EffectCatalog.Brightness)!.CreateInstance();
-        fx.Params["amount"] = 0.2;
+        fx.Params["amount"] = ParamValue.OfDouble(0.2);
         var outFrame = EffectPipeline.ApplyStack(frame, new[] { fx }, 0);
         Assert.True(outFrame.Pixels[2] > 100); // R
     }
@@ -86,9 +86,115 @@ public class EffectTransitionTests
     {
         var a = MakeFrame(1, 1, 0, 0, 0);
         var b = MakeFrame(1, 1, 200, 200, 200);
-        var blender = TransitionRegistry.Resolve(TransitionCatalog.CrossDissolve)!;
-        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, double>());
+        var blender = TransitionCatalog.Resolve(TransitionCatalog.CrossDissolve)!;
+        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, ParamValue>());
         Assert.Equal(100, mid.Pixels[2]);
+    }
+
+    [Fact]
+    public void FramePool_EnsureDistinct_CopiesAliasedBuffer()
+    {
+        // two clips sharing one media file decode from the same source scratch buffer
+        var pixels = new byte[16];
+        pixels[2] = 100;
+        var a = new DecodedFrame { Width = 1, Height = 1, Pixels = pixels };
+        var b = new DecodedFrame { Width = 1, Height = 1, Pixels = pixels };
+
+        var seen = new HashSet<byte[]>();
+        var owned = new List<byte[]>();
+        try
+        {
+            FramePool.EnsureDistinct(a, seen, owned);
+            FramePool.EnsureDistinct(b, seen, owned);
+
+            Assert.Same(pixels, a.Pixels);    // first keeps its buffer
+            Assert.NotSame(pixels, b.Pixels); // alias got a distinct pooled copy
+            Assert.Single(owned);
+            Assert.Equal(100, b.Pixels[2]);
+        }
+        finally
+        {
+            foreach (var buf in owned)
+                FramePool.Return(buf);
+        }
+    }
+
+    // ---- library population (self-describing effects/transitions) ----
+
+    [Fact]
+    public void EffectCatalog_IncludesCommonEffects()
+    {
+        var expected = new[]
+        {
+            EffectCatalog.Brightness, EffectCatalog.Grayscale, EffectCatalog.Tint,
+            EffectCatalog.Contrast, EffectCatalog.Saturation, EffectCatalog.Hue,
+            EffectCatalog.Invert, EffectCatalog.Sepia, EffectCatalog.Vignette,
+            EffectCatalog.Sharpen, EffectCatalog.Pixelate, EffectCatalog.Flip, EffectCatalog.Posterize,
+        };
+        foreach (var typeId in expected)
+        {
+            Assert.NotNull(EffectCatalog.Find(typeId));
+            Assert.NotNull(EffectCatalog.Resolve(typeId));
+        }
+    }
+
+    [Fact]
+    public void TransitionCatalog_IncludesCommonTransitions()
+    {
+        var expected = new[]
+        {
+            TransitionCatalog.CrossDissolve, TransitionCatalog.Wipe, TransitionCatalog.Slide,
+            TransitionCatalog.Push, TransitionCatalog.FadeToBlack, TransitionCatalog.Iris, TransitionCatalog.Curtain,
+        };
+        foreach (var typeId in expected)
+        {
+            Assert.NotNull(TransitionCatalog.Find(typeId));
+            Assert.NotNull(TransitionCatalog.Resolve(typeId));
+        }
+    }
+
+    [Fact]
+    public void InvertEffect_FlipsChannels()
+    {
+        var frame = MakeFrame(1, 1, 200, 100, 50);
+        var fx = EffectCatalog.Find(EffectCatalog.Invert)!.CreateInstance();
+        fx.Params["amount"] = ParamValue.OfDouble(1);
+
+        var outFrame = EffectPipeline.ApplyStack(frame, new[] { fx }, 0);
+
+        Assert.Equal(255 - 50, outFrame.Pixels[0]); // B
+        Assert.Equal(255 - 100, outFrame.Pixels[1]); // G
+        Assert.Equal(255 - 200, outFrame.Pixels[2]); // R
+    }
+
+    [Fact]
+    public void FadeToBlack_Midpoint_IsDark_EndsBright()
+    {
+        var a = MakeFrame(1, 1, 200, 200, 200);
+        var b = MakeFrame(1, 1, 200, 200, 200);
+        var blender = TransitionCatalog.Resolve(TransitionCatalog.FadeToBlack)!;
+
+        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, ParamValue>());
+        Assert.Equal(0, mid.Pixels[2]);
+
+        var start = blender.Blend(a, b, 0.0, new Dictionary<string, ParamValue>());
+        Assert.Equal(200, start.Pixels[2]);
+        var end = blender.Blend(a, b, 1.0, new Dictionary<string, ParamValue>());
+        Assert.Equal(200, end.Pixels[2]);
+    }
+
+    [Fact]
+    public void Slide_Midpoint_SplitsLeftIncoming_RightOutgoing()
+    {
+        var a = MakeFrame(64, 1, 0, 0, 0);      // outgoing black
+        var b = MakeFrame(64, 1, 200, 200, 200); // incoming gray
+        var blender = TransitionCatalog.Resolve(TransitionCatalog.Slide)!;
+
+        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, ParamValue> { ["direction"] = ParamValue.OfChoice(0) });
+
+        // slide from the left: left half incoming, right half still outgoing
+        Assert.Equal(200, mid.Pixels[2]);
+        Assert.Equal(0, mid.Pixels[(63 * 4) + 2]);
     }
 
     [Fact]

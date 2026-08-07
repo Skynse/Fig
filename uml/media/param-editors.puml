@@ -1,0 +1,106 @@
+@startuml
+' fig Schema-driven param editing: the Properties panel builds controls from ParamSchema.
+
+package "App.ViewModels" {
+
+  abstract class ParamEditorViewModel {
+    key : string
+    label : string
+    keyframeCount : int
+    + RefreshValue() : void
+    # Write(value : ParamValue) : void
+    # AddKeyframeAtPlayhead() : void
+    # ClearKeyframes() : void
+  }
+
+  class DoubleParamEditorViewModel {
+    value : double
+    min / max : double
+    isInteger : bool
+  }
+
+  class BoolParamEditorViewModel {
+    value : bool
+  }
+
+  class ColorParamEditorViewModel {
+    color : uint
+    hex : string
+  }
+
+  class ChoiceParamEditorViewModel {
+    choices : string[]
+    index : int
+  }
+
+  class EffectItemViewModel {
+    effectId : string
+    typeId / displayName / icon : string
+    isEnabled : bool
+    + ToggleCommand / RemoveCommand
+  }
+
+  class PropertiesViewModel {
+    effects : EffectItemViewModel[]
+    selectedEffect : EffectItemViewModel?
+    effectParams : ParamEditorViewModel[]
+    transitionParams : ParamEditorViewModel[]
+    + Refresh() : void
+  }
+
+  class EditorViewModel {
+    + PlayheadTimeSec : double
+  }
+}
+
+package "Core.Timeline" {
+  class TimelineEditor {
+    + SetEffectParam(clipId, effectId, key, value) : void
+    + SetEffectParamCoalescing(...) : void
+    + ToggleEffect(clipId, effectId) : void
+    + RemoveEffect(clipId, effectId) : void
+    + SetTransitionParam(leftId, rightId, key, value) : void
+    + SetKeyframe(clipId, effectId, key, timeSec, value) : void
+    + RemoveKeyframe(clipId, effectId, key, timeSec) : void
+    + ClearKeyframes(clipId, effectId, key) : void
+  }
+}
+
+package "Fig.App.Views" {
+  class EditorView {
+    ' implicit DataTemplates per editor VM type
+  }
+}
+
+ParamEditorViewModel <|-- DoubleParamEditorViewModel
+ParamEditorViewModel <|-- BoolParamEditorViewModel
+ParamEditorViewModel <|-- ColorParamEditorViewModel
+ParamEditorViewModel <|-- ChoiceParamEditorViewModel
+
+PropertiesViewModel o-- EffectItemViewModel : "effects"
+PropertiesViewModel o-- ParamEditorViewModel : "effectParams / transitionParams"
+PropertiesViewModel --> TimelineEditor : "write-through (coalescing)"
+ParamEditorViewModel ..> TimelineEditor
+EditorView ..> ParamEditorViewModel : "implicit templates"
+
+note bottom of PropertiesViewModel
+  Selecting a clip shows its effect stack;
+  selecting an effect renders one editor per
+  ParamSchema entry. Editing a constant writes
+  SetEffectParam (coalesced); editing a keyframed
+  param writes/updates a keyframe at the playhead.
+end note
+
+note bottom of DoubleParamEditorViewModel
+  Slider + value label. Int renders a snapping
+  slider. Value changes call Write on each
+  drag, coalescing into one undo step.
+end note
+
+note bottom of EditorView
+  <DataTemplate DataType="vm:DoubleParamEditorViewModel">
+  ... </DataTemplate> etc. - the panel is built
+  from the schema, never hand-written per effect.
+end note
+
+@enduml

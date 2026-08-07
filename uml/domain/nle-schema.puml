@@ -175,7 +175,7 @@ note right of Clip
   effects is an ordered EffectInstance stack.
   transitionIn/Out are optional TransitionRef
   at clip edges (library transitions); see
-  uml/effects-transitions-schema.puml.
+  uml/media/effects-transitions-schema.puml.
   linkGroupId pairs a video clip with its audio;
   enabled=false hides it from playback, mixing,
   compositing, and transitions. Markers on a

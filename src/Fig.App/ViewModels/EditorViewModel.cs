@@ -727,6 +727,14 @@ public partial class EditorViewModel : ViewModelBase
         RunWithRippleSlide(() => Editor.RippleDeleteSelected());
     }
 
+    [RelayCommand]
+    private void LiftSelected()
+    {
+        Editor.LiftSelected();
+        Properties.Refresh();
+        Preview.RefreshFrame();
+    }
+
     /// <summary>
     /// Adds a marker at the playhead. Attaches to the selected clip (local offset), the
     /// active track, or the timeline, in that order of context. Selects the new marker.

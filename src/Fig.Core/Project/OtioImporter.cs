@@ -324,7 +324,7 @@ namespace Fig.Core.Project
                 {
                     TypeId = typeId,
                     Order = order++,
-                    Params = new Dictionary<string, double>(EffectCatalog.Find(typeId)!.DefaultParams()),
+                    Params = new Dictionary<string, ParamValue>(EffectCatalog.Find(typeId)!.DefaultParams()),
                 });
                 result.EffectsImported++;
             }

@@ -12,6 +12,9 @@ start
 note right
   Ordered EffectInstance list.
   Disabled / unknown typeId skipped.
+  Params resolved at localT: constants
+  pass through; keyframed params are
+  interpolated (linear / stepped).
 end note
 
 |Timeline|

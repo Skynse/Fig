@@ -1,0 +1,139 @@
+@startuml
+' fig Param system: typed, schema-driven effect/transition parameters with keyframes.
+
+package Timeline {
+
+  enum ParamKind {
+    Double
+    Int
+    Bool
+    Color
+    List
+  }
+
+  class ParamDef {
+    key : string
+    label : string
+    kind : ParamKind
+    default : double
+    min : double
+    max : double
+    choices : string[]
+    + DefaultValue() : ParamValue
+  }
+
+  class ParamValue <<readonly struct>> {
+    kind : ParamKind
+    number : double      ' Double / Int
+    bool : bool
+    color : uint         ' 0xAARRGGBB
+    choice : int         ' index into ParamDef.choices
+    + OfDouble / OfInt / OfBool / OfColor / OfChoice
+    + AsDouble / AsNumber / AsBool / AsColor / AsChoice
+  }
+
+  class KeyframePoint <<record struct>> {
+    timeSec : double     ' relative to clip start
+    value : ParamValue
+  }
+
+  class EffectInstance {
+    id : string
+    typeId : string
+    enabled : bool
+    order : int
+    params : map<string, ParamValue>
+    keyframes : map<string, KeyframePoint[]>
+  }
+
+  class TransitionRef {
+    typeId : string
+    durationSec : double
+    params : map<string, ParamValue>
+  }
+
+  class ParamValueJsonConverter {
+    + Read() / Write()
+    ' bare number -> Double (legacy compat); object {"kind","value"} otherwise
+  }
+
+  EffectInstance o-- ParamValue : "params"
+  EffectInstance o-- KeyframePoint : "keyframes (by param key)"
+  TransitionRef o-- ParamValue : "params"
+  ParamDef --> ParamValue : "DefaultValue()"
+  ParamDef --> ParamKind
+  ParamValue ..> ParamValueJsonConverter : "System.Text.Json"
+  KeyframePoint o-- ParamValue
+}
+
+package Media {
+
+  class EffectAttribute {
+    typeId : string
+    displayName : string
+    icon / description / kind
+  }
+
+  class EffectParamAttribute {
+    key / label
+    kind : ParamKind
+    default / min / max
+    choices : string[]
+  }
+
+  class TransitionAttribute {
+    typeId / displayName / icon / description
+    defaultDurationSec : double
+  }
+
+  class TransitionParamAttribute {
+    key / label
+    kind : ParamKind
+    default / min / max
+    choices : string[]
+  }
+
+  class EffectCatalog {
+    {static} All : EffectCatalogEntry[]
+    {static} Find(typeId) : EffectCatalogEntry?
+    {static} Resolve(typeId) : IEffectProcessor?
+    - Discover()  ' scans assembly for [Effect] implementations
+  }
+
+  class TransitionCatalog {
+    {static} All : TransitionCatalogEntry[]
+    {static} Find(typeId) : TransitionCatalogEntry?
+    {static} Resolve(typeId) : ITransitionBlender?
+    - Discover()  ' scans assembly for [Transition] implementations
+  }
+}
+
+EffectAttribute ..> EffectCatalog : "discovered by"
+EffectParamAttribute ..> EffectCatalog
+TransitionAttribute ..> TransitionCatalog
+TransitionParamAttribute ..> TransitionCatalog
+EffectCatalog --> ParamDef : "builds from attributes"
+TransitionCatalog --> ParamDef
+
+note bottom of ParamValue
+  Typed union so a param is a double, int,
+  bool, color, or list choice - validated
+  against the schema. Keyframe tracks wrap
+  the same value type.
+end note
+
+note bottom of KeyframePoint
+  Times are seconds relative to the clip
+  start (rate-agnostic, matches localT).
+  Constant params have no track; a present
+  track is evaluated at render time.
+end note
+
+note bottom of ParamValueJsonConverter
+  Old projects store {"amount": 0.15} (bare
+  number) - the converter reads that as a
+  Double ParamValue. New writes are
+  {"kind":"double","value":0.15} etc.
+end note
+
+@enduml
