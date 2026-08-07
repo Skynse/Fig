@@ -18,16 +18,19 @@ namespace Fig.Core.Media
 
             var src = t01 < 0.5 ? outgoing.Pixels : incoming.Pixels;
             var k = Math.Abs(2 * t01 - 1);   // 1 at both ends, 0 in the middle
-            var size = outgoing.Width * outgoing.Height * 4;
-            var dst = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = outgoing.Width;
+            var h = outgoing.Height;
+            var dst = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                dst[i] = (byte)Math.Round(src[i] * k);
-                dst[i + 1] = (byte)Math.Round(src[i + 1] * k);
-                dst[i + 2] = (byte)Math.Round(src[i + 2] * k);
-                dst[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = outgoing.Width, Height = outgoing.Height, Pixels = dst };
+                var row = y * w * 4;
+                for (var x = 0; x < w * 4; x++)
+                {
+                    var i = row + x;
+                    dst[i] = (byte)Math.Round(src[i] * k);
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
     }
 }

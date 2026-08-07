@@ -29,39 +29,43 @@ namespace Fig.Core.Media
             var tintB = (byte)color;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                var b = src[i];
-                var g = src[i + 1];
-                var r = src[i + 2];
-
-                var nb = (byte)Math.Round(b + (tintB - b) * strength);
-                var ng = (byte)Math.Round(g + (tintG - g) * strength);
-                var nr = (byte)Math.Round(r + (tintR - r) * strength);
-
-                if (preserveLuma)
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
                 {
-                    var lumaIn = 0.299 * r + 0.587 * g + 0.114 * b;
-                    var lumaOut = 0.299 * nr + 0.587 * ng + 0.114 * nb;
-                    if (lumaOut > 1e-6)
+                    var i = row + x * 4;
+                    var b = src[i];
+                    var g = src[i + 1];
+                    var r = src[i + 2];
+
+                    var nb = (byte)Math.Round(b + (tintB - b) * strength);
+                    var ng = (byte)Math.Round(g + (tintG - g) * strength);
+                    var nr = (byte)Math.Round(r + (tintR - r) * strength);
+
+                    if (preserveLuma)
                     {
-                        var ratio = Math.Clamp(lumaIn / lumaOut, 0, 1.15);
-                        nr = (byte)Math.Clamp((int)Math.Round(nr * ratio), 0, 255);
-                        ng = (byte)Math.Clamp((int)Math.Round(ng * ratio), 0, 255);
-                        nb = (byte)Math.Clamp((int)Math.Round(nb * ratio), 0, 255);
+                        var lumaIn = 0.299 * r + 0.587 * g + 0.114 * b;
+                        var lumaOut = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+                        if (lumaOut > 1e-6)
+                        {
+                            var ratio = Math.Clamp(lumaIn / lumaOut, 0, 1.15);
+                            nr = (byte)Math.Clamp((int)Math.Round(nr * ratio), 0, 255);
+                            ng = (byte)Math.Clamp((int)Math.Round(ng * ratio), 0, 255);
+                            nb = (byte)Math.Clamp((int)Math.Round(nb * ratio), 0, 255);
+                        }
                     }
+
+                    px[i] = nb;
+                    px[i + 1] = ng;
+                    px[i + 2] = nr;
+                    px[i + 3] = src[i + 3];
                 }
-
-                px[i] = nb;
-                px[i + 1] = ng;
-                px[i + 2] = nr;
-                px[i + 3] = src[i + 3];
-            }
-
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }
 }

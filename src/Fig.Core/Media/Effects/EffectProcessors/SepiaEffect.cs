@@ -18,22 +18,28 @@ namespace Fig.Core.Media
                 return frame;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                var b = src[i];
-                var g = src[i + 1];
-                var r = src[i + 2];
-                var sr = 0.393 * r + 0.769 * g + 0.189 * b;
-                var sg = 0.349 * r + 0.686 * g + 0.168 * b;
-                var sb = 0.272 * r + 0.534 * g + 0.131 * b;
-                px[i] = (byte)Math.Clamp((int)Math.Round(b + (sb - b) * amount), 0, 255);
-                px[i + 1] = (byte)Math.Clamp((int)Math.Round(g + (sg - g) * amount), 0, 255);
-                px[i + 2] = (byte)Math.Clamp((int)Math.Round(r + (sr - r) * amount), 0, 255);
-                px[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = row + x * 4;
+                    var b = src[i];
+                    var g = src[i + 1];
+                    var r = src[i + 2];
+                    var sr = 0.393 * r + 0.769 * g + 0.189 * b;
+                    var sg = 0.349 * r + 0.686 * g + 0.168 * b;
+                    var sb = 0.272 * r + 0.534 * g + 0.131 * b;
+                    px[i] = (byte)Math.Clamp((int)Math.Round(b + (sb - b) * amount), 0, 255);
+                    px[i + 1] = (byte)Math.Clamp((int)Math.Round(g + (sg - g) * amount), 0, 255);
+                    px[i + 2] = (byte)Math.Clamp((int)Math.Round(r + (sr - r) * amount), 0, 255);
+                    px[i + 3] = src[i + 3];
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }
 }

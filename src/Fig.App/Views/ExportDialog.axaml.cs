@@ -10,6 +10,11 @@ public partial class ExportDialog : Window
 {
     public ExportDialogViewModel Model { get; }
 
+    public ExportDialog()
+        : this(30, 1920, 1080)
+    {
+    }
+
     public ExportDialog(double fps, int defaultWidth, int defaultHeight)
     {
         Model = new ExportDialogViewModel(fps, defaultWidth, defaultHeight);

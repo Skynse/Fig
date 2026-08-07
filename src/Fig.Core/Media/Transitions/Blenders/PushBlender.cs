@@ -24,20 +24,18 @@ namespace Fig.Core.Media
             var h = outgoing.Height;
             var dst = FramePool.Rent(w * h * 4);
 
-            // how far the outgoing has been pushed (0..1 across the axis)
             var shift = (int)Math.Round(t01 * (dir is 0 or 1 ? w : h));
-            var incomingBack = (dir is 0 or 1 ? w : h) - shift;   // pixels of incoming visible behind
+            var incomingBack = (dir is 0 or 1 ? w : h) - shift;
 
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 for (var x = 0; x < w; x++)
                 {
                     var i = (y * w + x) * 4;
-                    // map this screen pixel to source coordinates
                     int ax = x, ay = y, bx = x, by = y;
                     switch (dir)
                     {
-                        case 0: ax = x + shift; bx = x + incomingBack; break; // push left: outgoing moves left, incoming comes from right
+                        case 0: ax = x + shift; bx = x + incomingBack; break; // push left
                         case 1: ax = x - shift; bx = x - incomingBack; break; // push right
                         case 2: ay = y + shift; by = y + incomingBack; break; // push up
                         default: ay = y - shift; by = y - incomingBack; break; // push down
@@ -64,7 +62,7 @@ namespace Fig.Core.Media
                         dst[i] = 0; dst[i + 1] = 0; dst[i + 2] = 0; dst[i + 3] = 255;
                     }
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
     }

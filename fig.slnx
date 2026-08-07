@@ -6,4 +6,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Fig.Core.Tests/Fig.Core.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Fig.Bench/Fig.Bench.csproj" />
+  </Folder>
 </Solution>

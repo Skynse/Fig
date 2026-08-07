@@ -72,6 +72,8 @@ public partial class EditorViewModel : ViewModelBase
     public bool HasExportJobs => Exports.Jobs.Count > 0;
     public bool ShowEmptyJobs => !HasExportJobs;
     public int ActiveExportCount => Exports.Jobs.Count(j => j.IsActive);
+    public bool HasMedia => Media.Count > 0;
+    public bool NoMedia => Media.Count == 0;
 
     /// <summary>
     /// Resolves the app's main window from the desktop lifetime. Used as a fallback owner
@@ -153,6 +155,8 @@ public partial class EditorViewModel : ViewModelBase
             OnPropertyChanged(nameof(MediaById));
             OnPropertyChanged(nameof(Media));
             OnPropertyChanged(nameof(SequenceEndSec));
+            OnPropertyChanged(nameof(HasMedia));
+            OnPropertyChanged(nameof(NoMedia));
             Preview.UpdateCanvasFromMedia();
             Properties.Refresh();
         };

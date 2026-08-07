@@ -29,18 +29,16 @@ namespace Fig.Core.Media
 
             var a = outgoing.Pixels;
             var b = incoming.Pixels;
-            var width = outgoing.Width;
-            var height = outgoing.Height;
-            var dst = FramePool.Rent(width * height * 4);
+            var w = outgoing.Width;
+            var h = outgoing.Height;
+            var dst = FramePool.Rent(w * h * 4);
 
-            // number of fully-incoming columns at this progress
-            var incomingCols = (int)Math.Round(t01 * width);
-            var edge = soft * width;
-
-            for (var y = 0; y < height; y++)
+            var incomingCols = (int)Math.Round(t01 * w);
+            var edge = soft * w;
+            PixelOps.Rows(h, y =>
             {
-                var row = y * width * 4;
-                for (var x = 0; x < width; x++)
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
                 {
                     // mix = 0 -> outgoing (a), mix = 1 -> incoming (b); soft=0 is a hard edge
                     double mix = edge <= 0.5
@@ -52,9 +50,8 @@ namespace Fig.Core.Media
                     dst[i + 2] = Lerp(a[i + 2], b[i + 2], mix);
                     dst[i + 3] = 255;
                 }
-            }
-
-            return new DecodedFrame { Width = width, Height = height, Pixels = dst };
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
 
         private static byte Lerp(byte from, byte to, double t)

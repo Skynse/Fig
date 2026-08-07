@@ -23,7 +23,6 @@ namespace Fig.Core.Media
             var w = outgoing.Width;
             var h = outgoing.Height;
             var dst = FramePool.Rent(w * h * 4);
-            // offset in source pixels of the incoming frame's top-left from full off-canvas -> 0
             // incoming edge sits off-canvas and moves to 0: left/up are negative, right/down positive
             var offX = dir == 0 ? -(int)Math.Round((1 - t01) * w)
                       : dir == 1 ? (int)Math.Round((1 - t01) * w)
@@ -32,7 +31,7 @@ namespace Fig.Core.Media
                       : dir == 3 ? (int)Math.Round((1 - t01) * h)
                       : 0;
 
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 var by = y - offY;
                 for (var x = 0; x < w; x++)
@@ -55,7 +54,7 @@ namespace Fig.Core.Media
                         dst[i + 3] = a[i + 3];
                     }
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
     }

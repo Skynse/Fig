@@ -882,19 +882,89 @@ namespace Fig.App.Views
             IconService.DrawStroked(context, "blend", rect.Inflate(-5), Brushes.White, 1.6);
         }
 
-        /// <summary>Draws a small wand badge when a clip carries effects.</summary>
-        private void DrawEffectBadge(DrawingContext context, Rect labelRect, Clip clip)
+        /// <summary>Lays out one "folder bookmark" tab per effect on a clip's label strip.</summary>
+        private static List<(Rect Rect, string EffectId, string Name)> EffectBookmarkLayout(Clip clip, Rect labelRect)
         {
+            var list = new List<(Rect, string, string)>();
             if (clip.Effects.Count == 0)
-                return;
-            var badgeRect = new Rect(labelRect.Right - 18, labelRect.Y + 1, 16, labelRect.Height - 2);
-            IconService.DrawStroked(context, "wand-sparkles", badgeRect,
-                new SolidColorBrush(Color.Parse("#eab308")), 1.5);
+                return list;
+
+            var x = labelRect.X + 4;
+            foreach (var effect in clip.Effects)
+            {
+                var name = EffectCatalog.Find(effect.TypeId)?.DisplayName ?? effect.TypeId;
+                var text = new FormattedText(name, System.Globalization.CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.White);
+                var w = Math.Min(90, text.Width + 12);
+                list.Add((new Rect(x, labelRect.Y + 1, w, labelRect.Height - 2), effect.Id, name));
+                x += w + 3;
+            }
+            return list;
+        }
+
+        /// <summary>Draws folder-bookmark tabs for a clip's effects. Returns the total width so
+        /// the clip name can be drawn to the right of them.</summary>
+        private static double DrawEffectBookmarks(DrawingContext context, Rect labelRect, Clip clip)
+        {
+            var tabs = EffectBookmarkLayout(clip, labelRect);
+            if (tabs.Count == 0)
+                return 0;
+
+            foreach (var (rect, _, name) in tabs)
+            {
+                context.DrawRectangle(new SolidColorBrush(Color.Parse("#2f3540")), null, new RoundedRect(rect, 3));
+                var text = new FormattedText(name, System.Globalization.CultureInfo.CurrentCulture,
+                    FlowDirection.LeftToRight, Typeface.Default, 10, new SolidColorBrush(Color.Parse("#8fb4ff")));
+                context.DrawText(text, new Point(rect.X + 5, rect.Y + (rect.Height - text.Height) / 2));
+            }
+            return tabs[^1].Rect.Right - labelRect.X;
+        }
+
+        /// <summary>Returns the effect bookmark tab under the pointer, or null.</summary>
+        private (string ClipId, string EffectId)? HitTestEffectBookmark(Point pos)
+        {
+            if (Editor is null || pos.X <= TrackHeaderWidth)
+                return null;
+
+            for (var i = 0; i < Editor.Document.Tracks.Count; i++)
+            {
+                var track = Editor.Document.Tracks[i];
+                var top = TimelineGeometry.TrackTop(i) + RulerHeight;
+                foreach (var clip in track.Clips)
+                {
+                    // a clip's label strip sits at its top inset; bookmarks live there
+                    var clipTop = top + 10;
+                    var labelRect = new Rect(
+                        TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + GetRippleOffsetSec(clip.Id)),
+                        clipTop, clip.DurSec * Viewport.PixelsPerSecond, TimelineGeometry.ClipLabelHeight);
+                    foreach (var (rect, effectId, _) in EffectBookmarkLayout(clip, labelRect))
+                        if (rect.Contains(pos))
+                            return (clip.Id, effectId);
+                }
+            }
+            return null;
         }
 
         /// <summary>Draws a diamond per effect keyframe, positioned on the clip body.</summary>
         private void DrawKeyframeDiamonds(DrawingContext context, Clip clip, Rect bodyRect, double px)
         {
+            // clip automation keyframes (opacity/volume/crop) run along the top edge of the body
+            if (clip.Keyframes.Count > 0)
+            {
+                var topColor = new SolidColorBrush(Color.Parse("#4da3ff"));
+                foreach (var (_, track) in clip.Keyframes)
+                {
+                    foreach (var kf in track)
+                    {
+                        var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
+                        if (x < TrackHeaderWidth || x > Bounds.Width)
+                            continue;
+                        DrawDiamond(context, x, bodyRect.Y + 6, topColor);
+                    }
+                }
+            }
+
+            // effect-parameter keyframes run along the bottom edge of the body
             foreach (var effect in clip.Effects)
             {
                 foreach (var (_, track) in effect.Keyframes)
@@ -904,20 +974,24 @@ namespace Fig.App.Views
                         var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
                         if (x < TrackHeaderWidth || x > Bounds.Width)
                             continue;
-                        var cy = bodyRect.Bottom - 6;
-                        var geo = new StreamGeometry();
-                        using (var gc = geo.Open())
-                        {
-                            gc.BeginFigure(new Point(x, cy - 4), true);
-                            gc.LineTo(new Point(x + 4, cy));
-                            gc.LineTo(new Point(x, cy + 4));
-                            gc.LineTo(new Point(x - 4, cy));
-                            gc.EndFigure(true);
-                        }
-                        context.DrawGeometry(new SolidColorBrush(Color.Parse("#eab308")), null, geo);
+                        DrawDiamond(context, x, bodyRect.Bottom - 6, new SolidColorBrush(Color.Parse("#eab308")));
                     }
                 }
             }
+        }
+
+        private static void DrawDiamond(DrawingContext context, double x, double cy, IBrush brush)
+        {
+            var geo = new StreamGeometry();
+            using (var gc = geo.Open())
+            {
+                gc.BeginFigure(new Point(x, cy - 4), true);
+                gc.LineTo(new Point(x + 4, cy));
+                gc.LineTo(new Point(x, cy + 4));
+                gc.LineTo(new Point(x - 4, cy));
+                gc.EndFigure(true);
+            }
+            context.DrawGeometry(brush, null, geo);
         }
 
         /// <summary>Returns the clip keyframe diamond under the pointer, or null.</summary>
@@ -934,15 +1008,31 @@ namespace Fig.App.Views
                 var top = TimelineGeometry.TrackTop(i) + RulerHeight;
                 if (pos.Y < top || pos.Y >= TimelineGeometry.TrackBottom(i) + RulerHeight)
                     continue;
+                // automation diamonds render along the top edge of the body, effect diamonds along the bottom
+                var bodyTop = top + 10 + TimelineGeometry.ClipLabelHeight;
+                var kfBottom = top + 10 + TimelineGeometry.ClipTotalHeight;
+                var inTopBand = pos.Y >= bodyTop - 2 && pos.Y <= bodyTop + 14;
+                var inBottomBand = pos.Y >= kfBottom - 14 && pos.Y <= kfBottom + 2;
                 foreach (var clip in track.Clips)
-                    foreach (var effect in clip.Effects)
-                        foreach (var (_, trackKf) in effect.Keyframes)
+                {
+                    if (inTopBand)
+                        foreach (var (_, trackKf) in clip.Keyframes)
                             foreach (var kf in trackKf)
                             {
                                 var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
                                 if (Math.Abs(pos.X - x) <= grabPx)
                                     return (clip, clip.StartSec + kf.TimeSec);
                             }
+                    if (inBottomBand)
+                        foreach (var effect in clip.Effects)
+                            foreach (var (_, trackKf) in effect.Keyframes)
+                                foreach (var kf in trackKf)
+                                {
+                                    var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + kf.TimeSec);
+                                    if (Math.Abs(pos.X - x) <= grabPx)
+                                        return (clip, clip.StartSec + kf.TimeSec);
+                                }
+                }
             }
             return null;
         }
@@ -957,6 +1047,11 @@ namespace Fig.App.Views
                 var track = Editor.Document.Tracks[i];
                 var top = TimelineGeometry.TrackTop(i) + RulerHeight;
                 if (pos.Y < top || pos.Y >= TimelineGeometry.TrackBottom(i) + RulerHeight)
+                    continue;
+                // the badge sits at the clip body's vertical center; only grab within that band so
+                // markers / keyframes near the cut stay clickable
+                var centerY = top + 10 + TimelineGeometry.ClipLabelHeight + TimelineGeometry.ClipHeight / 2;
+                if (pos.Y < centerY - 16 || pos.Y > centerY + 16)
                     continue;
                 foreach (var t in Editor.EnumerateTransitions(track))
                 {
@@ -1124,6 +1219,9 @@ namespace Fig.App.Views
             // keyframe diamond hit-test: seek the playhead to it
             if (HitTestKeyframe(pos) is { } keyframe)
             {
+                _selectedClipId = keyframe.Clip.Id;
+                _selectedTrackId = null;
+                Editor.Selection.SelectOnly(keyframe.Clip.Id);
                 SetPlayhead(Editor.SnapTime(Math.Max(0, keyframe.TimeSec)));
                 e.Handled = true;
                 return;
@@ -1131,6 +1229,17 @@ namespace Fig.App.Views
 
             // marker hit-test: takes priority over playhead drag (ruler) and clip drag.
             // double-click on a marker seeks the playhead to it.
+            // effect bookmark click: select the clip + its effect in the properties panel
+            if (HitTestEffectBookmark(pos) is { } bookmark)
+            {
+                _selectedClipId = bookmark.ClipId;
+                _selectedTrackId = null;
+                _editorVm?.Properties.SelectEffect(bookmark.ClipId, bookmark.EffectId);
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+
             var markerHit = HitTestMarker(pos);
             if (markerHit is not null)
             {
@@ -1613,30 +1722,44 @@ namespace Fig.App.Views
         {
             if (Editor is null || pos.X <= TrackHeaderWidth)
                 return null;
-            const double grabPx = 6;
+            const double grabPx = 8;
 
             var track = HitTestTrack(pos.Y);
             if (track is not null)
             {
-                var time = XToTime(pos.X);
-                var clip = HitTestClip(track, time, pos.X);
-                if (clip is not null && clip.Markers.Count > 0)
+                var trackIdx = Editor.Document.Tracks.IndexOf(track);
+                var top = TimelineGeometry.TrackTop(trackIdx) + RulerHeight;
+                var clipTop = top + 10;
+
+                // clip markers only grab within the tab + label strip, so the body (transition
+                // badge, keyframes, trim edges) stays clickable
+                if (pos.Y >= clipTop - 9 && pos.Y <= clipTop + TimelineGeometry.ClipLabelHeight)
                 {
-                    var px = Viewport.PixelsPerSecond;
-                    var clipLeft = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + GetRippleOffsetSec(clip.Id));
-                    foreach (var m in clip.Markers)
+                    var time = XToTime(pos.X);
+                    var clip = HitTestClip(track, time, pos.X);
+                    if (clip is not null && clip.Markers.Count > 0)
                     {
-                        if (m.StartSec < 0 || m.StartSec > clip.DurSec)
-                            continue;
-                        if (Math.Abs(pos.X - (clipLeft + m.StartSec * px)) <= grabPx)
-                            return new MarkerLocation(m, clip, track, Editor.Document);
+                        var px = Viewport.PixelsPerSecond;
+                        var clipLeft = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + GetRippleOffsetSec(clip.Id));
+                        foreach (var m in clip.Markers)
+                        {
+                            if (m.StartSec < 0 || m.StartSec > clip.DurSec)
+                                continue;
+                            if (Math.Abs(pos.X - (clipLeft + m.StartSec * px)) <= grabPx)
+                                return new MarkerLocation(m, clip, track, Editor.Document);
+                        }
                     }
                 }
 
-                foreach (var m in track.Markers)
+                // track markers are diamonds at the lane bottom edge
+                var trackBottom = top + TimelineGeometry.TrackHeight;
+                if (pos.Y >= trackBottom - 16 && pos.Y <= trackBottom)
                 {
-                    if (Math.Abs(pos.X - (TrackHeaderWidth + Viewport.TimeToX(m.StartSec))) <= grabPx)
-                        return new MarkerLocation(m, null, track, Editor.Document);
+                    foreach (var m in track.Markers)
+                    {
+                        if (Math.Abs(pos.X - (TrackHeaderWidth + Viewport.TimeToX(m.StartSec))) <= grabPx)
+                            return new MarkerLocation(m, null, track, Editor.Document);
+                    }
                 }
             }
 
@@ -1935,6 +2058,9 @@ namespace Fig.App.Views
                             : new SolidColorBrush(Color.Parse("#1c1c1e"));
                         context.DrawRectangle(labelBrush, null, new RoundedRect(labelRect, new CornerRadius(topLeft, topRight, 0, 0)));
 
+                        // effect folder-bookmarks first; the clip name draws to the right of them
+                        var bookmarkWidth = DrawEffectBookmarks(context, labelRect, clip);
+
                         var clipName = ClipName(clip);
                         if (clipName is not null)
                         {
@@ -1945,7 +2071,7 @@ namespace Fig.App.Views
                                 Typeface.Default,
                                 10,
                                 TrackHeaderTextBrush);
-                            context.DrawText(labelText, new Point(x + 4, labelRect.Y + (labelHeight - labelText.Height) / 2));
+                            context.DrawText(labelText, new Point(x + 4 + bookmarkWidth, labelRect.Y + (labelHeight - labelText.Height) / 2));
                         }
 
                         // --- clip body ---
@@ -1995,7 +2121,6 @@ namespace Fig.App.Views
                         }
 
                         DrawClipMarkers(context, x, clipTop, clip);
-                        DrawEffectBadge(context, labelRect, clip);
                         DrawKeyframeDiamonds(context, clip, rect, px);
 
                         if (!clip.Enabled)

@@ -20,18 +20,9 @@ namespace Fig.Core.Media
 
             var delta = (int)Math.Round(amount * 255);
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
-            {
-                px[i] = ClampByte(src[i] + delta);
-                px[i + 1] = ClampByte(src[i + 1] + delta);
-                px[i + 2] = ClampByte(src[i + 2] + delta);
-                px[i + 3] = src[i + 3];
-            }
+            var px = FramePool.Rent(frame.Width * frame.Height * 4);
+            PixelOps.AddSaturateRgb(px, src, delta);
             return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
         }
-
-        private static byte ClampByte(int v) => (byte)Math.Clamp(v, 0, 255);
     }
 }

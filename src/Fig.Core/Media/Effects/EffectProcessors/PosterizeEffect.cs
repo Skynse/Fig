@@ -15,17 +15,23 @@ namespace Fig.Core.Media
         {
             var levels = parameters.TryGetValue("levels", out var l) ? Math.Max(2, l.AsInt) : 4;
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
             var step = 255.0 / (levels - 1);
-            for (var i = 0; i < size; i += 4)
+            PixelOps.Rows(h, y =>
             {
-                px[i] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i] / step) * step), 0, 255);
-                px[i + 1] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i + 1] / step) * step), 0, 255);
-                px[i + 2] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i + 2] / step) * step), 0, 255);
-                px[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = row + x * 4;
+                    px[i] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i] / step) * step), 0, 255);
+                    px[i + 1] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i + 1] / step) * step), 0, 255);
+                    px[i + 2] = (byte)Math.Clamp((int)Math.Round(Math.Round(src[i + 2] / step) * step), 0, 255);
+                    px[i + 3] = src[i + 3];
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }
 }

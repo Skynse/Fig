@@ -30,19 +30,19 @@ namespace Fig.Core.Media
             var radius = t01 * maxR;
             var edge = Math.Max(0.5, soft * maxR);
 
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 for (var x = 0; x < w; x++)
                 {
                     var dist = Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-                    var mix = Math.Clamp((dist - (radius - edge)) / (2 * edge), 0, 1); // 1 inside circle -> incoming
+                    var mix = Math.Clamp((dist - (radius - edge)) / (2 * edge), 0, 1);
                     var i = (y * w + x) * 4;
                     dst[i] = (byte)Math.Round(a[i] + (b[i] - a[i]) * mix);
                     dst[i + 1] = (byte)Math.Round(a[i + 1] + (b[i + 1] - a[i + 1]) * mix);
                     dst[i + 2] = (byte)Math.Round(a[i + 2] + (b[i + 2] - a[i + 2]) * mix);
                     dst[i + 3] = 255;
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
     }

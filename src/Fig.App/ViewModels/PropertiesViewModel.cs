@@ -33,13 +33,76 @@ public partial class PropertiesViewModel : ViewModelBase
     {
         _editor = editor;
         _editor.PropertyChanged += OnEditorPropertyChanged;
+        Effects.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasEffects));
+            OnPropertyChanged(nameof(NoEffects));
+        };
+        OpacityAutomation = new AutomationButtonViewModel(this, AutomationKeys.Opacity, () => OpacityValue);
+        VolumeAutomation = new AutomationButtonViewModel(this, AutomationKeys.Volume, () => VolumeValue);
+        CropTopAutomation = new AutomationButtonViewModel(this, AutomationKeys.CropTop, () => CropTop);
+        CropBottomAutomation = new AutomationButtonViewModel(this, AutomationKeys.CropBottom, () => CropBottom);
+        CropLeftAutomation = new AutomationButtonViewModel(this, AutomationKeys.CropLeft, () => CropLeft);
+        CropRightAutomation = new AutomationButtonViewModel(this, AutomationKeys.CropRight, () => CropRight);
     }
+
+    public AutomationButtonViewModel OpacityAutomation { get; }
+    public AutomationButtonViewModel VolumeAutomation { get; }
+    public AutomationButtonViewModel CropTopAutomation { get; }
+    public AutomationButtonViewModel CropBottomAutomation { get; }
+    public AutomationButtonViewModel CropLeftAutomation { get; }
+    public AutomationButtonViewModel CropRightAutomation { get; }
 
     private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        // keyframed param values follow the playhead
-        if (e.PropertyName == nameof(EditorViewModel.PlayheadTimeSec) && ShowEffectsSection)
-            RefreshParams();
+        // keyframed param values and automation diamonds follow the playhead
+        if (e.PropertyName == nameof(EditorViewModel.PlayheadTimeSec))
+        {
+            if (ShowEffectsSection)
+                RefreshParams();
+            if (Kind == PropertiesContextKind.Clip)
+                RefreshAutomation();
+        }
+    }
+
+    /// <summary>True when the automation track has a keyframe at the current playhead.</summary>
+    public bool AutomationAtPlayhead(string key)
+    {
+        if (_clipId is null)
+            return false;
+        var clip = FindClip(_clipId);
+        if (clip is null)
+            return false;
+        var localT = Math.Clamp(_editor.PlayheadTimeSec - clip.StartSec, 0, Math.Max(0, clip.DurSec - 1e-4));
+        return ClipAutomation.HasKeyframeAt(clip, key, localT);
+    }
+
+    /// <summary>Adds a keyframe at the playhead with the given value, or removes one when present.</summary>
+    public void ToggleAutomation(string key, double value)
+    {
+        if (_clipId is null)
+            return;
+        var clip = FindClip(_clipId);
+        if (clip is null)
+            return;
+        var localT = Math.Clamp(_editor.PlayheadTimeSec - clip.StartSec, 0, Math.Max(0, clip.DurSec - 1e-4));
+        if (ClipAutomation.HasKeyframeAt(clip, key, localT))
+            _editor.Editor.RemoveClipKeyframe(_clipId, key, localT);
+        else
+            _editor.Editor.SetClipKeyframe(_clipId, key, localT, value);
+        RefreshAutomation();
+        _editor.Preview.RefreshFrame();
+    }
+
+    /// <summary>Re-reads all automation diamonds against the current playhead.</summary>
+    public void RefreshAutomation()
+    {
+        OpacityAutomation.Refresh();
+        VolumeAutomation.Refresh();
+        CropTopAutomation.Refresh();
+        CropBottomAutomation.Refresh();
+        CropLeftAutomation.Refresh();
+        CropRightAutomation.Refresh();
     }
 
     [ObservableProperty] private PropertiesContextKind _kind = PropertiesContextKind.Empty;
@@ -63,13 +126,16 @@ public partial class PropertiesViewModel : ViewModelBase
     [ObservableProperty] private bool _showVideoControls;
     [ObservableProperty] private bool _showAudioControls;
     [ObservableProperty] private bool _showFadeControls;
+    [ObservableProperty] private bool _showSpeedControls;
     [ObservableProperty] private string? _clipTimingLabel;
     [ObservableProperty] private string? _sourceRangeLabel;
+    [ObservableProperty] private int _selectedTabIndex;
 
     [ObservableProperty] private double _opacityValue = 1;
     [ObservableProperty] private double _fadeInValue;
     [ObservableProperty] private double _fadeOutValue;
     [ObservableProperty] private double _volumeValue = 1;
+    [ObservableProperty] private double _speedValue = 1;
     [ObservableProperty] private double _cropLeft;
     [ObservableProperty] private double _cropTop;
     [ObservableProperty] private double _cropRight;
@@ -100,6 +166,9 @@ public partial class PropertiesViewModel : ViewModelBase
     public ObservableCollection<EffectItemViewModel> Effects { get; } = new();
     public ObservableCollection<ParamEditorViewModel> EffectParams { get; } = new();
     public ObservableCollection<ParamEditorViewModel> TransitionParams { get; } = new();
+
+    public bool HasEffects => Effects.Count > 0;
+    public bool NoEffects => Effects.Count == 0;
 
     private string? _lastEffectsClipId;
     private string? _selectedEffectId;
@@ -192,6 +261,7 @@ public partial class PropertiesViewModel : ViewModelBase
         ShowProxySection = asset.Kind == MediaKind.Video;
         _proxyTarget = asset.Kind == MediaKind.Video ? asset : null;
         UpdateProxyAction(asset);
+        SelectedTabIndex = FirstVisibleTab();
         _suppressApply = false;
     }
 
@@ -221,6 +291,8 @@ public partial class PropertiesViewModel : ViewModelBase
         FadeInValue = clip.FadeInSec;
         FadeOutValue = clip.FadeOutSec;
         VolumeValue = clip.Volume;
+        SpeedValue = clip.Speed;
+        ShowSpeedControls = clip is VideoClip || clip is AudioClip;
 
         MediaAsset? asset = null;
         if (clip is VideoClip vc)
@@ -257,6 +329,8 @@ public partial class PropertiesViewModel : ViewModelBase
             ShowProxySection = false;
             CanGenerateProxy = false;
         }
+        SelectedTabIndex = FirstVisibleTab();
+        RefreshAutomation();
         _suppressApply = false;
     }
 
@@ -306,6 +380,7 @@ public partial class PropertiesViewModel : ViewModelBase
         _proxyTarget = null;
         ShowProxySection = false;
         CanGenerateProxy = false;
+        SelectedTabIndex = FirstVisibleTab();
         _suppressApply = false;
     }
 
@@ -348,6 +423,7 @@ public partial class PropertiesViewModel : ViewModelBase
         _proxyTarget = null;
         ShowProxySection = false;
         CanGenerateProxy = false;
+        SelectedTabIndex = FirstVisibleTab();
         _suppressApply = false;
     }
 
@@ -670,6 +746,24 @@ public partial class PropertiesViewModel : ViewModelBase
         return null;
     }
 
+    /// <summary>Selects a clip (if needed) and focuses the given effect in the stack.</summary>
+    public void SelectEffect(string clipId, string effectId)
+    {
+        var editor = _editor.Editor;
+        if (!(editor.Selection.SelectedClipIds.Count == 1 && editor.Selection.SelectedClipIds[0] == clipId))
+        {
+            editor.Selection.SelectOnly(clipId);   // Selection.Changed -> Refresh() -> BuildEffectStack
+            Refresh();
+        }
+        foreach (var item in Effects)
+            if (item.EffectId == effectId)
+            {
+                SelectedEffect = item;
+                break;
+            }
+        SelectedTabIndex = 4;   // Adjust tab (effects)
+    }
+
     private void ApplyMediaFields(MediaAsset asset)
     {
         FileName = asset.FileName;
@@ -728,6 +822,7 @@ public partial class PropertiesViewModel : ViewModelBase
         ShowVideoControls = false;
         ShowAudioControls = false;
         ShowFadeControls = false;
+        ShowSpeedControls = false;
         ShowTrackSection = false;
         ShowMarkerSection = false;
         ShowTransitionSection = false;
@@ -757,6 +852,18 @@ public partial class PropertiesViewModel : ViewModelBase
         _markerId = null;
         _transitionKey = null;
     }
+
+    /// <summary>First visible tab in the inspector (Video | Audio | Speed | Animate | Adjust | ...).</summary>
+    private int FirstVisibleTab()
+        => ShowVideoControls ? 0
+         : ShowAudioControls ? 1
+         : ShowSpeedControls ? 2
+         : ShowFadeControls ? 3
+         : ShowEffectsSection ? 4
+         : ShowTrackSection ? 5
+         : ShowMarkerSection ? 6
+         : ShowTransitionSection ? 7
+         : 8;
 
     partial void OnOpacityValueChanged(double value)
     {
@@ -802,6 +909,14 @@ public partial class PropertiesViewModel : ViewModelBase
         if (_suppressApply || _clipId is null || Kind != PropertiesContextKind.Clip)
             return;
         _editor.Editor.SetVolume(_clipId, value);
+    }
+
+    partial void OnSpeedValueChanged(double value)
+    {
+        if (_suppressApply || _clipId is null || Kind != PropertiesContextKind.Clip)
+            return;
+        _editor.Editor.SetSpeed(_clipId, value);
+        _editor.Preview.RefreshFrame();
     }
 
     partial void OnCropLeftChanged(double value) => ApplyCrop();

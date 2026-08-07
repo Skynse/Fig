@@ -59,6 +59,14 @@ namespace Fig.Core.Timeline
         /// <summary>Editorial annotations pinned to the clip (seconds relative to clip start).</summary>
         public List<Marker> Markers { get; set; } = new();
 
+        /// <summary>
+        /// Optional keyframe tracks for clip automation properties ("opacity", "volume",
+        /// "cropL", "cropT", "cropR", "cropB"), keyed by property name. When a track exists
+        /// for a key, its value is sampled at render time instead of the constant property.
+        /// Times are seconds relative to the clip start.
+        /// </summary>
+        public Dictionary<string, List<KeyframePoint>> Keyframes { get; set; } = new();
+
         /// <summary>Source-format provenance preserved across imports.</summary>
         public Dictionary<string, JsonElement> Metadata { get; set; } = new();
 

@@ -2,9 +2,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="using:Fig.App.Views"
+             xmlns:ctrls="using:Fig.App.Controls"
              xmlns:conv="using:Fig.App.Converters"
              xmlns:vm="using:Fig.App.ViewModels"
-
              xmlns:core="using:Fig.Core.Timeline"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="900"
@@ -13,87 +13,265 @@
 
     <UserControl.Resources>
         <conv:PathToBitmapConverter x:Key="PathToBitmap"/>
+
+        <!-- ============ Design tokens ============ -->
+        <!-- Surfaces -->
+        <SolidColorBrush x:Key="SurfaceBg" Color="#1a1a1b"/>
+        <SolidColorBrush x:Key="PanelBg" Color="#212223"/>
+        <SolidColorBrush x:Key="CardBg" Color="#1c1c1d"/>
+        <SolidColorBrush x:Key="CardBgAlt" Color="#252527"/>
+        <SolidColorBrush x:Key="ChipBg" Color="#2a2a2c"/>
+        <SolidColorBrush x:Key="Border" Color="#333335"/>
+        <SolidColorBrush x:Key="BorderSubtle" Color="#2a2a2c"/>
+
+        <!-- Text -->
+        <SolidColorBrush x:Key="TextPrimary" Color="#f0f0f0"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#c8c8c8"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#8a8a8a"/>
+        <SolidColorBrush x:Key="TextFaint" Color="#666668"/>
+
+        <!-- Accent -->
+        <SolidColorBrush x:Key="Accent" Color="#4d8dff"/>
+        <SolidColorBrush x:Key="AccentSoft" Color="#2a4a7a"/>
+        <SolidColorBrush x:Key="AccentSofter" Color="#1f3352"/>
+        <SolidColorBrush x:Key="AccentText" Color="#7db1ff"/>
+
+        <!-- Semantic -->
+        <SolidColorBrush x:Key="Danger" Color="#ff6b6b"/>
+        <SolidColorBrush x:Key="DangerBg" Color="#3a1f22"/>
+        <SolidColorBrush x:Key="DangerBgHover" Color="#4a2626"/>
+        <SolidColorBrush x:Key="Warn" Color="#eab308"/>
+        <SolidColorBrush x:Key="WarnBg" Color="#2a2510"/>
+
+        <!-- Interaction states -->
+        <SolidColorBrush x:Key="HoverBg" Color="#333335"/>
+        <SolidColorBrush x:Key="PressedBg" Color="#3d3d40"/>
+
+        <CornerRadius x:Key="RadiusPanel">8</CornerRadius>
+        <CornerRadius x:Key="RadiusCard">6</CornerRadius>
+        <CornerRadius x:Key="RadiusControl">4</CornerRadius>
+        <CornerRadius x:Key="RadiusChip">10</CornerRadius>
     </UserControl.Resources>
 
     <UserControl.Styles>
+
+        <!-- ============ Buttons ============ -->
         <Style Selector="Button.tool-btn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="7"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
             <Setter Property="MinWidth" Value="32"/>
             <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.08"/>
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Button.tool-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#333333"/>
+            <Setter Property="Background" Value="{StaticResource HoverBg}"/>
+        </Style>
+        <Style Selector="Button.tool-btn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PressedBg}"/>
         </Style>
         <Style Selector="Button.tool-btn:disabled /template/ ContentPresenter">
             <Setter Property="Opacity" Value="0.35"/>
         </Style>
+
         <Style Selector="ToggleButton.tool-btn">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="7"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
             <Setter Property="MinWidth" Value="32"/>
             <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.08"/>
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="ToggleButton.tool-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#333333"/>
+            <Setter Property="Background" Value="{StaticResource HoverBg}"/>
+        </Style>
+        <Style Selector="ToggleButton.tool-btn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource PressedBg}"/>
         </Style>
         <Style Selector="ToggleButton.tool-btn:checked /template/ ContentPresenter">
-            <Setter Property="Background" Value="#2a4a7a"/>
+            <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
             <Setter Property="Foreground" Value="#ffffff"/>
         </Style>
+        <Style Selector="ToggleButton.tool-btn:checked:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+        </Style>
+
         <Style Selector="Button.kf-btn">
-            <Setter Property="Background" Value="#2a2a2b"/>
+            <Setter Property="Background" Value="{StaticResource ChipBg}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="6"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Foreground" Value="#cccccc"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
             <Setter Property="MinWidth" Value="28"/>
             <Setter Property="MinHeight" Value="28"/>
         </Style>
         <Style Selector="Button.kf-btn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#3a3a3b"/>
+            <Setter Property="Background" Value="#3a3a3d"/>
+        </Style>
+        <Style Selector="Button.kf-btn:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#454548"/>
         </Style>
         <Style Selector="Button.kf-btn.danger:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#4a2020"/>
+            <Setter Property="Background" Value="{StaticResource DangerBgHover}"/>
         </Style>
+
+        <!-- Automation keyframe diamond toggle -->
+        <Style Selector="ToggleButton.kf-diamond">
+            <Setter Property="Background" Value="{StaticResource ChipBg}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="MinWidth" Value="26"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+        </Style>
+        <Style Selector="ToggleButton.kf-diamond:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#3a3a3d"/>
+        </Style>
+        <Style Selector="ToggleButton.kf-diamond:checked">
+            <Setter Property="Foreground" Value="#ffffff"/>
+        </Style>
+        <Style Selector="ToggleButton.kf-diamond:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
+        </Style>
+
+        <!-- Primary action button (Export, proxy generate, etc.) -->
+        <Style Selector="Button.btn-primary">
+            <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
+        <Style Selector="Button.btn-primary:pointerover">
+            <Setter Property="Background" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="Button.btn-primary:disabled">
+            <Setter Property="Opacity" Value="0.4"/>
+        </Style>
+
+        <!-- Ghost / secondary button -->
+        <Style Selector="Button.btn-ghost">
+            <Setter Property="Background" Value="{StaticResource ChipBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="Button.btn-ghost:pointerover">
+            <Setter Property="Background" Value="{StaticResource HoverBg}"/>
+        </Style>
+
+        <!-- Danger button -->
+        <Style Selector="Button.btn-danger">
+            <Setter Property="Background" Value="{StaticResource DangerBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Danger}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="Button.btn-danger:pointerover">
+            <Setter Property="Background" Value="{StaticResource DangerBgHover}"/>
+        </Style>
+
+        <!-- ============ Typography ============ -->
         <Style Selector="TextBlock.inspector-section">
-            <Setter Property="Foreground" Value="#8a8a8a"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
             <Setter Property="FontSize" Value="10"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="LetterSpacing" Value="0.8"/>
+            <Setter Property="LetterSpacing" Value="1.0"/>
         </Style>
+        <Style Selector="TextBlock.field-label">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="TextBlock.field-value">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.empty-state">
+            <Setter Property="Foreground" Value="{StaticResource TextFaint}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+        </Style>
+
+        <!-- ============ Cards ============ -->
         <Style Selector="Border.inspector-card">
-            <Setter Property="Background" Value="#1e1e1e"/>
-            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="Background" Value="{StaticResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="6"/>
-            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}"/>
+            <Setter Property="Padding" Value="12,10"/>
         </Style>
+
+        <!-- Section header row used inside inspector cards: accent tick + caps label -->
+        <Style Selector="StackPanel.section-header">
+            <Setter Property="Orientation" Value="Horizontal"/>
+            <Setter Property="Spacing" Value="6"/>
+        </Style>
+
+        <!-- Inspector tabs (Video | Audio | Speed | Animate | Adjust | ...) -->
+        <Style Selector="TabControl.inspector-tabs">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style Selector="TabControl.inspector-tabs TabItem">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="TabControl.inspector-tabs TabItem:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        </Style>
+        <Style Selector="TabControl.inspector-tabs TabItem:selected">
+            <Setter Property="Foreground" Value="#ffffff"/>
+        </Style>
+        <Style Selector="TabControl.inspector-tabs TabItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource CardBgAlt}"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+
     </UserControl.Styles>
 
     <UserControl.DataTemplates>
 
         <!-- schema-driven parameter editors (implicit by VM type) -->
         <DataTemplate DataType="vm:DoubleParamEditorViewModel">
-            <StackPanel Spacing="4" Margin="0,6,0,0">
+            <StackPanel Spacing="4" Margin="0,8,0,0">
                 <DockPanel>
                     <TextBlock Text="{Binding Value, StringFormat={}{0:0.##}}" DockPanel.Dock="Right"
-                               Foreground="#dddddd" FontSize="11"/>
-                    <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+                               Classes="field-value" FontSize="11"/>
+                    <TextBlock Text="{Binding Label}" Classes="field-value"/>
                 </DockPanel>
-                <Slider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Value}"
-                        TickFrequency="0.01" IsSnapToTickEnabled="False"/>
+                <ctrls:FigSlider Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Value}"/>
                 <StackPanel Orientation="Horizontal" Spacing="4" IsVisible="{Binding ShowKeyframes}">
-                    <Border Background="#2a2510" CornerRadius="4" Padding="6,4" VerticalAlignment="Center">
+                    <Border Background="{StaticResource WarnBg}" CornerRadius="{StaticResource RadiusControl}"
+                            Padding="6,4" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="#eab308"/>
-                            <TextBlock Text="{Binding KeyframeCount}" Foreground="#eab308" FontSize="11" FontWeight="SemiBold"/>
+                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="{StaticResource Warn}"/>
+                            <TextBlock Text="{Binding KeyframeCount}" Foreground="{StaticResource Warn}"
+                                       FontSize="11" FontWeight="SemiBold"/>
                         </StackPanel>
                     </Border>
                     <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
@@ -109,43 +287,45 @@
                     </Button>
                     <Button Classes="kf-btn danger" Command="{Binding ClearKeyframesCommand}"
                             ToolTip.Tip="Clear keyframes">
-                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="{StaticResource Danger}"/>
                     </Button>
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
 
         <DataTemplate DataType="vm:BoolParamEditorViewModel">
-            <Grid Margin="0,6,0,0" ColumnDefinitions="*,Auto">
+            <Grid Margin="0,8,0,0" ColumnDefinitions="*,Auto">
                 <CheckBox Grid.Column="0" IsChecked="{Binding Value}" Content="{Binding Label}"
-                          Foreground="#bbbbbb" FontSize="12"/>
+                          Foreground="{StaticResource TextSecondary}" FontSize="12"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" IsVisible="{Binding ShowKeyframes}">
-                    <Border Background="#2a2510" CornerRadius="4" Padding="6,4" VerticalAlignment="Center">
+                    <Border Background="{StaticResource WarnBg}" CornerRadius="{StaticResource RadiusControl}"
+                            Padding="6,4" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="#eab308"/>
-                            <TextBlock Text="{Binding KeyframeCount}" Foreground="#eab308" FontSize="11"/>
+                            <local:StrokeIcon Icon="diamond" Width="12" Height="12" IconBrush="{StaticResource Warn}"/>
+                            <TextBlock Text="{Binding KeyframeCount}" Foreground="{StaticResource Warn}" FontSize="11"/>
                         </StackPanel>
                     </Border>
                     <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
                         <local:StrokeIcon Icon="plus" Width="14" Height="14"/>
                     </Button>
                     <Button Classes="kf-btn danger" Command="{Binding ClearKeyframesCommand}" ToolTip.Tip="Clear keyframes">
-                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
+                        <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="{StaticResource Danger}"/>
                     </Button>
                 </StackPanel>
             </Grid>
         </DataTemplate>
 
         <DataTemplate DataType="vm:ColorParamEditorViewModel">
-            <StackPanel Spacing="4" Margin="0,6,0,0">
-                <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+            <StackPanel Spacing="4" Margin="0,8,0,0">
+                <TextBlock Text="{Binding Label}" Classes="field-value"/>
                 <Grid ColumnDefinitions="Auto,*,Auto">
-                    <Border Grid.Column="0" Width="32" Height="32" CornerRadius="4" Margin="0,0,8,0"
-                            BorderBrush="#555555" BorderThickness="1"
+                    <Border Grid.Column="0" Width="32" Height="32" CornerRadius="{StaticResource RadiusControl}"
+                            Margin="0,0,8,0" BorderBrush="{StaticResource Border}" BorderThickness="1"
                             Background="{Binding SwatchBrush}"/>
                     <TextBox Grid.Column="1" Text="{Binding Hex}" FontSize="11"
-                             Foreground="#dddddd" Background="#252526" BorderBrush="#333333"
-                             Padding="8,6" CornerRadius="4" VerticalAlignment="Center"/>
+                             Foreground="{StaticResource TextSecondary}" Background="{StaticResource CardBgAlt}"
+                             BorderBrush="{StaticResource Border}" Padding="8,6"
+                             CornerRadius="{StaticResource RadiusControl}" VerticalAlignment="Center"/>
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0"
                                 IsVisible="{Binding ShowKeyframes}" VerticalAlignment="Center">
                         <Button Classes="kf-btn" Command="{Binding AddKeyframeCommand}" ToolTip.Tip="Keyframe at playhead">
@@ -157,8 +337,8 @@
         </DataTemplate>
 
         <DataTemplate DataType="vm:ChoiceParamEditorViewModel">
-            <StackPanel Spacing="4" Margin="0,6,0,0">
-                <TextBlock Text="{Binding Label}" Foreground="#bbbbbb" FontSize="12"/>
+            <StackPanel Spacing="4" Margin="0,8,0,0">
+                <TextBlock Text="{Binding Label}" Classes="field-value"/>
                 <ComboBox ItemsSource="{Binding Choices}" SelectedIndex="{Binding Index}"
                           FontSize="11" HorizontalAlignment="Stretch"/>
             </StackPanel>
@@ -166,7 +346,7 @@
 
     </UserControl.DataTemplates>
 
-    <DockPanel Margin="8" Background="#1e1e1e"
+    <DockPanel Margin="8" Background="{StaticResource SurfaceBg}"
                DragDrop.AllowDrop="True"
                DragDrop.DragOver="OnFileDragOver"
                DragDrop.Drop="OnFileDrop">
@@ -220,60 +400,66 @@
             </MenuItem>
         </Menu>
 
-        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
-                Background="#252526" CornerRadius="6">
+        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="10,7"
+                Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusPanel}"
+                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
+            <Border.Effect>
+                <DropShadowEffect Color="#000000" Opacity="0.25" BlurRadius="10" OffsetX="0" OffsetY="2"/>
+            </Border.Effect>
             <DockPanel>
                 <TextBlock Text="{Binding Project.Name}"
                            VerticalAlignment="Center"
-                           Foreground="#cccccc" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimary}" FontWeight="SemiBold" FontSize="13"
                            Margin="4,0,12,0"/>
-                <Button DockPanel.Dock="Right" Content="Import"
+                <Button DockPanel.Dock="Right" Content="Import" Classes="btn-ghost"
                         Command="{Binding ImportCommand}"
                         CommandParameter="{Binding $parent[Window]}"/>
-                <Button DockPanel.Dock="Right" Content="Export"
+                <Button DockPanel.Dock="Right" Content="Export" Classes="btn-primary"
                         Command="{Binding ExportCommand}"
                         CommandParameter="{Binding $parent[Window]}"
-                        Margin="0,0,8,0"/>
-                <Button x:Name="JobsButton" DockPanel.Dock="Right"
+                        Margin="8,0,0,0"/>
+                <Button x:Name="JobsButton" DockPanel.Dock="Right" Classes="tool-btn"
                         Command="{Binding ToggleJobsCommand}"
                         ToolTip.Tip="Export jobs"
-                        Margin="0,0,8,0" Padding="8,4"
-                        Background="Transparent" BorderThickness="0">
+                        Margin="0,0,8,0">
                     <StackPanel Orientation="Horizontal" Spacing="5">
-                        <local:StrokeIcon Icon="download" Width="14" Height="14" IconBrush="#cccccc"/>
-                        <TextBlock Text="{Binding ActiveExportCount}" Foreground="#cccccc"
+                        <local:StrokeIcon Icon="download" Width="16" Height="16" IconBrush="{StaticResource TextSecondary}"/>
+                        <TextBlock Text="{Binding ActiveExportCount}" Foreground="{StaticResource TextSecondary}"
                                    FontSize="11" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
                 <Popup IsOpen="{Binding IsJobsOpen}"
                        PlacementTarget="{Binding #JobsButton}"
-                       Placement="Bottom">
-                    <Border Background="#252526" CornerRadius="6"
-                            BorderBrush="#333333" BorderThickness="1"
+                       Placement="Bottom"
+                       VerticalOffset="6">
+                    <Border Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusCard}"
+                            BorderBrush="{StaticResource Border}" BorderThickness="1"
                             Padding="10" MinWidth="300" MaxWidth="360" MaxHeight="380">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#000000" Opacity="0.4" BlurRadius="16" OffsetX="0" OffsetY="4"/>
+                        </Border.Effect>
                         <StackPanel Spacing="6">
-                            <TextBlock Text="EXPORT JOBS" Foreground="#8a8a8a"
-                                       FontSize="10" FontWeight="SemiBold"/>
+                            <TextBlock Text="EXPORT JOBS" Classes="inspector-section"/>
                             <ItemsControl ItemsSource="{Binding Exports.Jobs}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ExportJob">
-                                        <Border Background="#1e1e1e" CornerRadius="4"
+                                        <Border Background="{StaticResource CardBg}" CornerRadius="{StaticResource RadiusControl}"
                                                 Padding="8" Margin="0,0,0,6">
-                                            <StackPanel Spacing="3">
+                                            <StackPanel Spacing="4">
                                                 <DockPanel>
                                                     <TextBlock DockPanel.Dock="Right" Text="{Binding StatusLabel}"
-                                                               Foreground="#8a8a8a" FontSize="11"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding FileName}"
-                                                               Foreground="#dddddd" FontSize="12"
+                                                               Classes="field-label" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding FileName}" Classes="field-value"
                                                                TextTrimming="CharacterEllipsis"/>
                                                 </DockPanel>
                                                 <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}"
-                                                             Height="5" Foreground="#4d8dff" Background="#333333"/>
+                                                             Height="5" CornerRadius="3"
+                                                             Foreground="{StaticResource Accent}"
+                                                             Background="{StaticResource ChipBg}"/>
                                                 <DockPanel>
                                                     <TextBlock DockPanel.Dock="Right" Text="{Binding SizeLabel}"
-                                                               Foreground="#6a6a6a" FontSize="10"/>
-                                                    <TextBlock Text="{Binding Error}" Foreground="#ff6b6b"
+                                                               Foreground="{StaticResource TextFaint}" FontSize="10"/>
+                                                    <TextBlock Text="{Binding Error}" Foreground="{StaticResource Danger}"
                                                                FontSize="10" TextTrimming="CharacterEllipsis"/>
                                                 </DockPanel>
                                             </StackPanel>
@@ -281,44 +467,45 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Text="No export jobs yet." Foreground="#6a6a6a"
-                                       FontSize="11" IsVisible="{Binding ShowEmptyJobs}"/>
+                            <TextBlock Text="No export jobs yet." Classes="empty-state" Margin="0,8"
+                                       IsVisible="{Binding ShowEmptyJobs}"/>
                         </StackPanel>
                     </Border>
                 </Popup>
             </DockPanel>
         </Border>
 
-        <Grid RowDefinitions="*,4,520" ColumnDefinitions="2*,4,3*">
+        <Grid RowDefinitions="*,4,520" ColumnDefinitions="2*,4,4*,4,3*">
 
-            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,0,0"
-                    Padding="0" Background="#252526" CornerRadius="6"
+            <Border Grid.Row="0" Grid.Column="0"
+                    Padding="0" Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusPanel}"
+                    BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1"
                     ClipToBounds="True">
                 <DockPanel>
                     <!-- Vertical icon tabs: Media / Transitions / Effects -->
-                    <Border DockPanel.Dock="Left" Width="44" Background="#1e1e1e"
-                            BorderBrush="#333333" BorderThickness="0,0,1,0">
+                    <Border DockPanel.Dock="Left" Width="44" Background="{StaticResource SurfaceBg}"
+                            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,1,0">
                         <ListBox ItemsSource="{Binding LibraryTabs}"
                                  SelectedItem="{Binding SelectedLibraryTab}"
                                  Background="Transparent"
                                  BorderThickness="0"
-                                 Padding="4,6">
+                                 Padding="4,8">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem">
                                     <Setter Property="Padding" Value="0"/>
                                     <Setter Property="Margin" Value="0,0,0,4"/>
                                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                     <Setter Property="Background" Value="Transparent"/>
-                                    <Setter Property="CornerRadius" Value="6"/>
+                                    <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}"/>
                                 </Style>
                                 <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#333333"/>
+                                    <Setter Property="Background" Value="{StaticResource HoverBg}"/>
                                 </Style>
                                 <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#2a4a7a"/>
+                                    <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
                                 </Style>
                                 <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#2a4a7a"/>
+                                    <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
                                 </Style>
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
@@ -328,91 +515,100 @@
                                                           Width="18" Height="18"
                                                           HorizontalAlignment="Center"
                                                           VerticalAlignment="Center"
-                                                          IconBrush="#dddddd"/>
+                                                          IconBrush="{StaticResource TextSecondary}"/>
                                     </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </Border>
 
-                    <DockPanel Margin="10,8,8,8">
+                    <DockPanel Margin="12,10,10,10">
                         <TextBlock DockPanel.Dock="Top" Text="{Binding LibraryPanelTitle}"
-                                   Foreground="#cccccc"
+                                   Foreground="{StaticResource TextPrimary}"
                                    FontSize="14" FontWeight="SemiBold"
-                                   Margin="0,0,0,8"/>
+                                   Margin="0,0,0,10"/>
 
                         <!-- Media browser -->
-                        <ListBox x:Name="MediaBox" IsVisible="{Binding IsLibraryMedia}" DragDrop.AllowDrop="True"
-                                 ItemsSource="{Binding Media}"
-                                 SelectedItem="{Binding SelectedMedia}"
-                                 Background="Transparent"
-                                 DragDrop.Drop="OnFileDrop"
-                                 DragDrop.DragOver="OnFileDragOver"
-                                 BorderThickness="0">
-                            <ListBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal"/>
-                                </ItemsPanelTemplate>
-                            </ListBox.ItemsPanel>
-                            <ListBox.ItemContainerTheme>
-                                <ControlTheme TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0"/>
-                                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
-                                </ControlTheme>
-                            </ListBox.ItemContainerTheme>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Width="160" Margin="4" Padding="0"
-                                            Background="#1e1e1e" CornerRadius="6"
-                                            BorderBrush="#333333" BorderThickness="1"
-                                            ClipToBounds="True"
-                                            Tag="{Binding}"
-                                            PointerPressed="MediaCard_PointerPressed"
-                                            PointerMoved="MediaCard_PointerMoved"
-                                            PointerReleased="MediaCard_PointerReleased">
-                                        <Border.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Generate Proxy"
-                                                          Command="{Binding #MediaBox.DataContext.GenerateProxyCommand}"
-                                                          CommandParameter="{Binding}"/>
-                                                <MenuItem Header="Remove"
-                                                          Command="{Binding #MediaBox.DataContext.RemoveMediaCommand}"
-                                                          CommandParameter="{Binding}"/>
-                                            </ContextMenu>
-                                        </Border.ContextMenu>
-                                        <StackPanel>
-                                            <Grid Height="90">
-                                                <Border Background="#111111">
-                                                    <Image Source="{Binding Thumbnail, Converter={StaticResource PathToBitmap}}"
-                                                           Stretch="UniformToFill"/>
-                                                </Border>
-                                                <Border HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                        Margin="4" Padding="4,1"
-                                                        Background="#000000a0" CornerRadius="3">
-                                                    <TextBlock Text="{Binding DurationSec, Converter={x:Static conv:SecondsToTimeConverter.Instance}}"
-                                                               Foreground="#ffffff" FontSize="11"/>
-                                                </Border>
-                                                <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                                                        Margin="4" Padding="5,1"
-                                                        Background="#2a4a7a" CornerRadius="3"
-                                                        IsVisible="{Binding HasProxy}"
-                                                        ToolTip.Tip="Playback proxy ready">
-                                                    <TextBlock Text="Proxy"
-                                                               Foreground="#ffffff" FontSize="10" FontWeight="SemiBold"/>
-                                                </Border>
-                                            </Grid>
-                                            <TextBlock Text="{Binding FileName}"
-                                                       Foreground="#dddddd"
-                                                       FontSize="12"
-                                                       Margin="6,4"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding FileName}"/>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <Panel IsVisible="{Binding IsLibraryMedia}">
+                            <ListBox x:Name="MediaBox" DragDrop.AllowDrop="True"
+                                     ItemsSource="{Binding Media}"
+                                     SelectedItem="{Binding SelectedMedia}"
+                                     Background="Transparent"
+                                     DragDrop.Drop="OnFileDrop"
+                                     DragDrop.DragOver="OnFileDragOver"
+                                     BorderThickness="0"
+                                     IsVisible="{Binding HasMedia}">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemContainerTheme>
+                                    <ControlTheme TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                                    </ControlTheme>
+                                </ListBox.ItemContainerTheme>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Width="160" Margin="4" Padding="0"
+                                                Background="{StaticResource CardBg}" CornerRadius="{StaticResource RadiusCard}"
+                                                BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                                ClipToBounds="True"
+                                                Tag="{Binding}"
+                                                PointerPressed="MediaCard_PointerPressed"
+                                                PointerMoved="MediaCard_PointerMoved"
+                                                PointerReleased="MediaCard_PointerReleased">
+                                            <Border.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Generate Proxy"
+                                                              Command="{Binding #MediaBox.DataContext.GenerateProxyCommand}"
+                                                              CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="Remove"
+                                                              Command="{Binding #MediaBox.DataContext.RemoveMediaCommand}"
+                                                              CommandParameter="{Binding}"/>
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
+                                            <StackPanel>
+                                                <Grid Height="90">
+                                                    <Border Background="#0f0f10">
+                                                        <Image Source="{Binding Thumbnail, Converter={StaticResource PathToBitmap}}"
+                                                               Stretch="UniformToFill"/>
+                                                    </Border>
+                                                    <Border HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                            Margin="4" Padding="4,1"
+                                                            Background="#000000a0" CornerRadius="3">
+                                                        <TextBlock Text="{Binding DurationSec, Converter={x:Static conv:SecondsToTimeConverter.Instance}}"
+                                                                   Foreground="#ffffff" FontSize="11"/>
+                                                    </Border>
+                                                    <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                                            Margin="4" Padding="5,1"
+                                                            Background="{StaticResource AccentSoft}" CornerRadius="3"
+                                                            IsVisible="{Binding HasProxy}"
+                                                            ToolTip.Tip="Playback proxy ready">
+                                                        <TextBlock Text="Proxy"
+                                                                   Foreground="#ffffff" FontSize="10" FontWeight="SemiBold"/>
+                                                    </Border>
+                                                </Grid>
+                                                <TextBlock Text="{Binding FileName}"
+                                                           Classes="field-value"
+                                                           Margin="6,4"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip.Tip="{Binding FileName}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <StackPanel IsVisible="{Binding NoMedia}" VerticalAlignment="Center"
+                                        HorizontalAlignment="Center" Spacing="8" Margin="0,40,0,0">
+                                <local:StrokeIcon Icon="film" Width="28" Height="28"
+                                                  IconBrush="{StaticResource TextFaint}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="Drop media here or use Import" Classes="empty-state"/>
+                            </StackPanel>
+                        </Panel>
 
                         <!-- Effects catalog -->
                         <ScrollViewer IsVisible="{Binding IsLibraryEffects}"
@@ -426,22 +622,25 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="core:EffectCatalogEntry">
-                                        <Border Width="128" Margin="4" Padding="8"
-                                                Background="#1e1e1e" CornerRadius="6"
-                                                BorderBrush="#333333" BorderThickness="1"
+                                        <Border Width="128" Margin="4" Padding="10"
+                                                Background="{StaticResource CardBg}" CornerRadius="{StaticResource RadiusCard}"
+                                                BorderBrush="{StaticResource Border}" BorderThickness="1"
                                                 Cursor="Hand"
                                                 ToolTip.Tip="Drag onto a video clip"
                                                 PointerPressed="CatalogCard_PointerPressed"
                                                 PointerMoved="CatalogCard_PointerMoved"
                                                 PointerReleased="CatalogCard_PointerReleased">
                                             <StackPanel Spacing="6">
-                                                <local:StrokeIcon Icon="{Binding Icon}" Width="22" Height="22"
-                                                                  HorizontalAlignment="Center"
-                                                                  IconBrush="#dddddd"/>
-                                                <TextBlock Text="{Binding DisplayName}" Foreground="#dddddd"
-                                                           FontSize="12" HorizontalAlignment="Center"
+                                                <Border Width="36" Height="36" CornerRadius="{StaticResource RadiusControl}"
+                                                        Background="{StaticResource AccentSofter}" HorizontalAlignment="Center">
+                                                    <local:StrokeIcon Icon="{Binding Icon}" Width="18" Height="18"
+                                                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                      IconBrush="{StaticResource AccentText}"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource TextPrimary}"
+                                                           FontSize="12" FontWeight="Medium" HorizontalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Description}" Foreground="#777777"
+                                                <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextFaint}"
                                                            FontSize="10" TextWrapping="Wrap"
                                                            MaxHeight="36" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
@@ -463,22 +662,25 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="core:TransitionCatalogEntry">
-                                        <Border Width="128" Margin="4" Padding="8"
-                                                Background="#1e1e1e" CornerRadius="6"
-                                                BorderBrush="#333333" BorderThickness="1"
+                                        <Border Width="128" Margin="4" Padding="10"
+                                                Background="{StaticResource CardBg}" CornerRadius="{StaticResource RadiusCard}"
+                                                BorderBrush="{StaticResource Border}" BorderThickness="1"
                                                 Cursor="Hand"
                                                 ToolTip.Tip="Drag onto a cut between clips"
                                                 PointerPressed="CatalogCard_PointerPressed"
                                                 PointerMoved="CatalogCard_PointerMoved"
                                                 PointerReleased="CatalogCard_PointerReleased">
                                             <StackPanel Spacing="6">
-                                                <local:StrokeIcon Icon="{Binding Icon}" Width="22" Height="22"
-                                                                  HorizontalAlignment="Center"
-                                                                  IconBrush="#dddddd"/>
-                                                <TextBlock Text="{Binding DisplayName}" Foreground="#dddddd"
-                                                           FontSize="12" HorizontalAlignment="Center"
+                                                <Border Width="36" Height="36" CornerRadius="{StaticResource RadiusControl}"
+                                                        Background="{StaticResource AccentSofter}" HorizontalAlignment="Center">
+                                                    <local:StrokeIcon Icon="{Binding Icon}" Width="18" Height="18"
+                                                                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                      IconBrush="{StaticResource AccentText}"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource TextPrimary}"
+                                                           FontSize="12" FontWeight="Medium" HorizontalAlignment="Center"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding Description}" Foreground="#777777"
+                                                <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextFaint}"
                                                            FontSize="10" TextWrapping="Wrap"
                                                            MaxHeight="36" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
@@ -492,40 +694,445 @@
             </Border>
 
             <GridSplitter Grid.Row="0" Grid.Column="1"
-                          Width="4" Margin="0,0,0,0"
-                          Background="Transparent"
-                          ShowsPreview="True"/>
+                          Width="4" Background="Transparent" ShowsPreview="True"/>
 
-            <Border Grid.Row="0" Grid.Column="2" Margin="0,0,0,0"
-                    Padding="8" Background="#252526" CornerRadius="6">
+            <Border Grid.Row="0" Grid.Column="2"
+                    Padding="10" Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusPanel}"
+                    BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
                 <local:PreviewView x:Name="PreviewHost"
                                    DataContext="{Binding Preview}"/>
             </Border>
 
-            <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
-                          Height="4" Margin="0,0,0,0"
-                          Background="Transparent"
-                          HorizontalAlignment="Stretch"
-                          ShowsPreview="True"/>
+            <GridSplitter Grid.Row="0" Grid.Column="3"
+                          Width="4" Background="Transparent" ShowsPreview="True"/>
+
+<Border Grid.Column="4"
+                        Padding="10" Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusPanel}"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
+                    <DockPanel DataContext="{Binding Properties}">
+                        <Border DockPanel.Dock="Top" Classes="inspector-card" Margin="0,0,0,10">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#000000" Opacity="0.2" BlurRadius="8" OffsetX="0" OffsetY="2"/>
+                            </Border.Effect>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="{Binding Title}"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding Subtitle}"
+                                           Foreground="{StaticResource TextMuted}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TabControl SelectedIndex="{Binding SelectedTabIndex}" Classes="inspector-tabs">
+
+                            <!-- VIDEO: transform + crop + timing -->
+                            <TabItem Header="Video" IsVisible="{Binding ShowVideoControls}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="6">
+                                            <StackPanel Classes="section-header">
+                                                <Rectangle Width="2" Height="10" Fill="{StaticResource Accent}" Opacity="0.7" RadiusX="1" RadiusY="1"/>
+                                                <TextBlock Classes="inspector-section" Text="TIMING"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="Timeline" Classes="field-label"/>
+                                                <TextBlock Text="{Binding ClipTimingLabel}" Classes="field-value" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="4" IsVisible="{Binding SourceRangeLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <TextBlock Text="Source" Classes="field-label"/>
+                                                <TextBlock Text="{Binding SourceRangeLabel}" Classes="field-value"/>
+                                            </StackPanel>
+                                        </StackPanel>
+
+                                        <StackPanel Spacing="6">
+                                            <StackPanel Classes="section-header">
+                                                <Rectangle Width="2" Height="10" Fill="{StaticResource Accent}" Opacity="0.7" RadiusX="1" RadiusY="1"/>
+                                                <TextBlock Classes="inspector-section" Text="TRANSFORM"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="4">
+                                                <DockPanel>
+                                                    <TextBlock Text="{Binding OpacityValue, StringFormat={}{0:P0}}"
+                                                               DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                    <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding OpacityAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding OpacityAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Opacity" Classes="field-label"/>
+                                                </DockPanel>
+                                                <ctrls:FigSlider Minimum="0" Maximum="1" Value="{Binding OpacityValue}"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="4">
+                                                <DockPanel>
+                                                    <Button DockPanel.Dock="Right" Content="Reset" Classes="btn-ghost"
+                                                            Command="{Binding ResetCropCommand}"/>
+                                                    <TextBlock Text="Crop" Classes="field-label"/>
+                                                </DockPanel>
+                                                <StackPanel Spacing="4">
+                                                    <DockPanel>
+                                                        <TextBlock Text="{Binding CropTop, StringFormat={}{0:P0}}"
+                                                                   DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                        <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding CropTopAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding CropTopAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Top" Classes="field-label"/>
+                                                    </DockPanel>
+                                                    <ctrls:FigSlider Minimum="0" Maximum="0.45" Value="{Binding CropTop}"/>
+                                                </StackPanel>
+                                                <StackPanel Spacing="4">
+                                                    <DockPanel>
+                                                        <TextBlock Text="{Binding CropBottom, StringFormat={}{0:P0}}"
+                                                                   DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                        <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding CropBottomAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding CropBottomAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Bottom" Classes="field-label"/>
+                                                    </DockPanel>
+                                                    <ctrls:FigSlider Minimum="0" Maximum="0.45" Value="{Binding CropBottom}"/>
+                                                </StackPanel>
+                                                <StackPanel Spacing="4">
+                                                    <DockPanel>
+                                                        <TextBlock Text="{Binding CropLeft, StringFormat={}{0:P0}}"
+                                                                   DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                        <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding CropLeftAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding CropLeftAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Left" Classes="field-label"/>
+                                                    </DockPanel>
+                                                    <ctrls:FigSlider Minimum="0" Maximum="0.45" Value="{Binding CropLeft}"/>
+                                                </StackPanel>
+                                                <StackPanel Spacing="4">
+                                                    <DockPanel>
+                                                        <TextBlock Text="{Binding CropRight, StringFormat={}{0:P0}}"
+                                                                   DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                        <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding CropRightAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding CropRightAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Right" Classes="field-label"/>
+                                                    </DockPanel>
+                                                    <ctrls:FigSlider Minimum="0" Maximum="0.45" Value="{Binding CropRight}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- AUDIO: volume -->
+                            <TabItem Header="Audio" IsVisible="{Binding ShowAudioControls}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding VolumeValue, StringFormat={}{0:P0}}"
+                                                           DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                <ToggleButton DockPanel.Dock="Right" Classes="kf-diamond" Margin="0,0,8,0"
+                  IsChecked="{Binding VolumeAutomation.IsKeyframed, Mode=OneWay}"
+                  Command="{Binding VolumeAutomation.ToggleCommand}"
+                  ToolTip.Tip="Toggle keyframe at playhead">
+                    <local:StrokeIcon Icon="diamond" Width="12" Height="12"/>
+                </ToggleButton>
+                <TextBlock Text="Volume" Classes="field-label"/>
+                                            </DockPanel>
+                                            <ctrls:FigSlider Minimum="0" Maximum="1" Value="{Binding VolumeValue}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- SPEED -->
+                            <TabItem Header="Speed" IsVisible="{Binding ShowSpeedControls}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding SpeedValue, StringFormat={}{0:0.00}x}"
+                                                           DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                <TextBlock Text="Speed" Classes="field-label"/>
+                                            </DockPanel>
+                                            <ctrls:FigSlider Minimum="0.25" Maximum="4" Value="{Binding SpeedValue}"/>
+                                            <TextBlock Text="Timeline duration follows source length ÷ speed." Classes="field-label" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- ANIMATE: fades -->
+                            <TabItem Header="Animate" IsVisible="{Binding ShowFadeControls}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding FadeInValue, StringFormat={}{0:0.00}s}"
+                                                           DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                <TextBlock Text="Fade In" Classes="field-label"/>
+                                            </DockPanel>
+                                            <ctrls:FigSlider Minimum="0" Maximum="5" Value="{Binding FadeInValue}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding FadeOutValue, StringFormat={}{0:0.00}s}"
+                                                           DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                <TextBlock Text="Fade Out" Classes="field-label"/>
+                                            </DockPanel>
+                                            <ctrls:FigSlider Minimum="0" Maximum="5" Value="{Binding FadeOutValue}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- ADJUST: effect stack -->
+                            <TabItem Header="Adjust" IsVisible="{Binding ShowEffectsSection}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel IsVisible="{Binding NoEffects}" Spacing="4"
+                                                    HorizontalAlignment="Center" Margin="0,4">
+                                            <local:StrokeIcon Icon="wand-sparkles" Width="20" Height="20"
+                                                              IconBrush="{StaticResource TextFaint}" HorizontalAlignment="Center"/>
+                                            <TextBlock Text="No effects on this clip yet" Classes="empty-state"/>
+                                        </StackPanel>
+
+                                        <ListBox ItemsSource="{Binding Effects}" SelectedItem="{Binding SelectedEffect}"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 IsVisible="{Binding HasEffects}">
+                                            <ListBox.Styles>
+                                                <Style Selector="ListBoxItem">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0,0,0,4"/>
+                                                    <Setter Property="Background" Value="Transparent"/>
+                                                </Style>
+                                                <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                                                    <Setter Property="Background" Value="Transparent"/>
+                                                </Style>
+                                            </ListBox.Styles>
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:EffectItemViewModel">
+                                                    <Border Padding="10,8" CornerRadius="{StaticResource RadiusControl}"
+                                                            Background="{StaticResource CardBgAlt}"
+                                                            BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                                            Opacity="{Binding IsEnabled, Converter={x:Static conv:BoolToOpacityConverter.Instance}}">
+                                                        <DockPanel>
+                                                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                                                                <ToggleButton IsChecked="{Binding IsEnabled}"
+                                                                              Command="{Binding ToggleCommand}"
+                                                                              ToolTip.Tip="Enable / disable"
+                                                                              Classes="tool-btn" Padding="5">
+                                                                    <local:StrokeIcon Icon="power" Width="14" Height="14"/>
+                                                                </ToggleButton>
+                                                                <Button Command="{Binding RemoveCommand}"
+                                                                        ToolTip.Tip="Remove effect"
+                                                                        Classes="tool-btn" Padding="5">
+                                                                    <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="{StaticResource Danger}"/>
+                                                                </Button>
+                                                            </StackPanel>
+                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <local:StrokeIcon Icon="{Binding Icon}" Width="16" Height="16"
+                                                                                  IconBrush="{StaticResource AccentText}" VerticalAlignment="Center"/>
+                                                                <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource TextPrimary}"
+                                                                           FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </DockPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+
+                                        <Border Background="{StaticResource CardBgAlt}" CornerRadius="{StaticResource RadiusControl}"
+                                                Padding="10,8" BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                                IsVisible="{Binding SelectedEffect, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <StackPanel Spacing="6">
+                                                <TextBlock Text="{Binding SelectedEffect.DisplayName}"
+                                                           Foreground="{StaticResource AccentText}" FontSize="12" FontWeight="SemiBold"/>
+                                                <ItemsControl ItemsSource="{Binding EffectParams}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- TRACK -->
+                            <TabItem Header="Track" IsVisible="{Binding ShowTrackSection}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Name" Classes="field-label"/>
+                                            <TextBlock Text="{Binding TrackNameLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Type" Classes="field-label"/>
+                                            <TextBlock Text="{Binding KindLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4" IsVisible="{Binding TrackFlagsLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                            <TextBlock Text="State" Classes="field-label"/>
+                                            <TextBlock Text="{Binding TrackFlagsLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- MARKER -->
+                            <TabItem Header="Marker" IsVisible="{Binding ShowMarkerSection}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Name" Classes="field-label"/>
+                                            <TextBox Text="{Binding MarkerName}"
+                                                     Foreground="{StaticResource TextSecondary}" Background="{StaticResource SurfaceBg}"
+                                                     BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                                     CornerRadius="{StaticResource RadiusControl}" Padding="8,6"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Time" Classes="field-label"/>
+                                            <TextBlock Text="{Binding MarkerTimeLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Duration" Classes="field-label"/>
+                                            <TextBlock Text="{Binding MarkerDurationLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Color" Classes="field-label"/>
+                                            <ItemsControl ItemsSource="{Binding MarkerPalette}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <WrapPanel/>
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Width="22" Height="22" Margin="0,0,6,6"
+                                                                CornerRadius="11" BorderThickness="0"
+                                                                Background="{Binding}"
+                                                                Command="{Binding $parent[ItemsControl].DataContext.SetMarkerColorCommand}"
+                                                                CommandParameter="{Binding}"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- TRANSITION -->
+                            <TabItem Header="Transition" IsVisible="{Binding ShowTransitionSection}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Type" Classes="field-label"/>
+                                            <TextBlock Text="{Binding TransitionTypeLabel}" Classes="field-value"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="4">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding TransitionDurationValue, StringFormat={}{0:0.00}s}"
+                                                           DockPanel.Dock="Right" Classes="field-value" FontSize="11"/>
+                                                <TextBlock Text="Duration" Classes="field-label"/>
+                                            </DockPanel>
+                                            <ctrls:FigSlider Minimum="0.05" Maximum="{Binding TransitionMaxDuration}"
+                                                    Value="{Binding TransitionDurationValue}"/>
+                                            <TextBlock Text="{Binding TransitionSpanLabel}" Classes="field-label"/>
+                                        </StackPanel>
+                                        <Button Command="{Binding RemoveTransitionCommand}" Classes="btn-danger"
+                                                HorizontalAlignment="Stretch">
+                                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                                <local:StrokeIcon Icon="trash" Width="14" Height="14" IconBrush="{StaticResource Danger}"/>
+                                                <TextBlock Text="Remove transition" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <ItemsControl ItemsSource="{Binding TransitionParams}"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                            <!-- SOURCE: file info + proxy -->
+                            <TabItem Header="Source" IsVisible="{Binding FileName, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="12">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="File" Classes="field-label"/>
+                                            <TextBlock Text="{Binding FileName}" Classes="field-value"
+                                                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding FileName}"/>
+                                        </StackPanel>
+                                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
+                                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2" Margin="0,0,8,8"
+                                                        IsVisible="{Binding KindLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <TextBlock Text="Kind" Classes="field-label"/>
+                                                <TextBlock Text="{Binding KindLabel}" Classes="field-value"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2" Margin="0,0,0,8"
+                                                        IsVisible="{Binding ResolutionLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <TextBlock Text="Resolution" Classes="field-label"/>
+                                                <TextBlock Text="{Binding ResolutionLabel}" Classes="field-value"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2"
+                                                        IsVisible="{Binding DurationLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <TextBlock Text="Duration" Classes="field-label"/>
+                                                <TextBlock Text="{Binding DurationLabel}" Classes="field-value"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <StackPanel Spacing="6" IsVisible="{Binding ShowProxySection}">
+                                            <StackPanel Classes="section-header">
+                                                <Rectangle Width="2" Height="10" Fill="{StaticResource Accent}" Opacity="0.7" RadiusX="1" RadiusY="1"/>
+                                                <TextBlock Classes="inspector-section" Text="PROXY"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="4">
+                                                <TextBlock Text="Status" Classes="field-label"/>
+                                                <TextBlock Text="{Binding ProxyStatusLabel}" Classes="field-value"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding ProxyDetail}"
+                                                       Foreground="{StaticResource TextMuted}" FontSize="11"
+                                                       TextWrapping="Wrap"/>
+                                            <Button Content="{Binding ProxyActionLabel}" Classes="btn-primary"
+                                                    Command="{Binding GenerateProxyCommand}"
+                                                    IsEnabled="{Binding CanGenerateProxy}"
+                                                    HorizontalAlignment="Stretch"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+
+                        </TabControl>
+                    </DockPanel>
+                </Border>
+            <GridSplitter Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5"
+                          Height="4" Background="Transparent"
+                          HorizontalAlignment="Stretch" ShowsPreview="True"/>
 
             <!-- Timeline row: tracks on the left, contextual properties on the right -->
-            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
-                  ColumnDefinitions="*,4,300">
+            <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="5"
+                  ColumnDefinitions="*">
 
                 <Border Grid.Column="0"
-                        Padding="8" Background="#252526" CornerRadius="6">
+                        Padding="10" Background="{StaticResource PanelBg}" CornerRadius="{StaticResource RadiusPanel}"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
                     <DockPanel>
-                        <Border DockPanel.Dock="Top" Margin="0,0,0,6" Padding="2,2"
-                                Background="#1e1e1e" CornerRadius="4" BorderBrush="#333333" BorderThickness="1">
+                        <Border DockPanel.Dock="Top" Margin="0,0,0,8" Padding="3"
+                                Background="{StaticResource SurfaceBg}" CornerRadius="{StaticResource RadiusControl}"
+                                BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                <StackPanel Orientation="Horizontal" Spacing="0">
+                                <StackPanel Orientation="Horizontal" Spacing="1">
                                     <Button Classes="tool-btn" Command="{Binding UndoCommand}" ToolTip.Tip="Undo (Ctrl+Z)">
                                         <local:StrokeIcon Icon="undo" Width="18" Height="18"/>
                                     </Button>
                                     <Button Classes="tool-btn" Command="{Binding RedoCommand}" ToolTip.Tip="Redo (Ctrl+Y)">
                                         <local:StrokeIcon Icon="redo" Width="18" Height="18"/>
                                     </Button>
-                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Rectangle Width="1" Height="22" Fill="{StaticResource BorderSubtle}" Margin="5,4"/>
                                     <Button Classes="tool-btn" Command="{Binding SplitAtPlayheadCommand}"
                                             ToolTip.Tip="Split at playhead (Ctrl+K)">
                                         <local:StrokeIcon Icon="split" Width="18" Height="18"/>
@@ -538,7 +1145,7 @@
                                             ToolTip.Tip="Ripple delete">
                                         <local:StrokeIcon Icon="ripple" Width="18" Height="18"/>
                                     </Button>
-                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Rectangle Width="1" Height="22" Fill="{StaticResource BorderSubtle}" Margin="5,4"/>
                                     <Button Classes="tool-btn" Command="{Binding AddMarkerAtPlayheadCommand}"
                                             ToolTip.Tip="Add marker (M)">
                                         <local:StrokeIcon Icon="marker" Width="18" Height="18"/>
@@ -551,12 +1158,12 @@
                                             ToolTip.Tip="Enable / disable clip (Ctrl+E)">
                                         <local:StrokeIcon Icon="eye-off" Width="18" Height="18"/>
                                     </Button>
-                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Rectangle Width="1" Height="22" Fill="{StaticResource BorderSubtle}" Margin="5,4"/>
                                     <ToggleButton Classes="tool-btn" IsChecked="{Binding MagneticSnap}"
                                                   ToolTip.Tip="Magnetic snap">
                                         <local:StrokeIcon Icon="magnet" Width="18" Height="18"/>
                                     </ToggleButton>
-                                    <Rectangle Width="1" Height="22" Fill="#3a3a3a" Margin="4,4"/>
+                                    <Rectangle Width="1" Height="22" Fill="{StaticResource BorderSubtle}" Margin="5,4"/>
                                     <Button Classes="tool-btn" Click="TimelineZoomOut_Click" ToolTip.Tip="Zoom out">
                                         <local:StrokeIcon Icon="zoom-out" Width="18" Height="18"/>
                                     </Button>
@@ -578,331 +1185,7 @@
                     </DockPanel>
                 </Border>
 
-                <GridSplitter Grid.Column="1"
-                              Width="4"
-                              Background="Transparent"
-                              ShowsPreview="True"/>
-
-                <Border Grid.Column="2"
-                        Padding="10,8" Background="#252526" CornerRadius="6">
-                    <DockPanel DataContext="{Binding Properties}">
-                        <Border DockPanel.Dock="Top" Classes="inspector-card" Margin="0,0,0,10">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="{Binding Title}"
-                                           Foreground="#eeeeee"
-                                           FontSize="15" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding Subtitle}"
-                                           Foreground="#8a8a8a"
-                                           FontSize="12"
-                                           TextWrapping="Wrap"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
-                        </Border>
-
-                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto">
-                            <StackPanel Spacing="10">
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowClipSection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="CLIP"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Timeline" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding ClipTimingLabel}" Foreground="#dddddd" FontSize="12" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4" IsVisible="{Binding SourceRangeLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                        <TextBlock Text="Source" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding SourceRangeLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4" Margin="0,6,0,0" IsVisible="{Binding ShowVideoControls}">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding OpacityValue, StringFormat={}{0:P0}}"
-                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                            <TextBlock Text="Opacity" Foreground="#8a8a8a" FontSize="11"/>
-                                        </DockPanel>
-                                        <Slider Minimum="0" Maximum="1" Value="{Binding OpacityValue}"
-                                                TickFrequency="0.01" IsSnapToTickEnabled="False"/>
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowFadeControls}">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding FadeInValue, StringFormat={}{0:0.00}s}"
-                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                            <TextBlock Text="Fade In" Foreground="#8a8a8a" FontSize="11"/>
-                                        </DockPanel>
-                                        <Slider Minimum="0" Maximum="5" Value="{Binding FadeInValue}"
-                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowFadeControls}">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding FadeOutValue, StringFormat={}{0:0.00}s}"
-                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                            <TextBlock Text="Fade Out" Foreground="#8a8a8a" FontSize="11"/>
-                                        </DockPanel>
-                                        <Slider Minimum="0" Maximum="5" Value="{Binding FadeOutValue}"
-                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="4" Margin="0,4,0,0" IsVisible="{Binding ShowAudioControls}">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding VolumeValue, StringFormat={}{0:P0}}"
-                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                            <TextBlock Text="Volume" Foreground="#8a8a8a" FontSize="11"/>
-                                        </DockPanel>
-                                        <Slider Minimum="0" Maximum="1" Value="{Binding VolumeValue}"
-                                                TickFrequency="0.01" IsSnapToTickEnabled="False"/>
-                                    </StackPanel>
-
-                                    <StackPanel Spacing="6" Margin="0,8,0,0" IsVisible="{Binding ShowVideoControls}">
-                                        <DockPanel>
-                                            <Button DockPanel.Dock="Right" Content="Reset"
-                                                    Command="{Binding ResetCropCommand}"
-                                                    Padding="8,2" FontSize="11"
-                                                    Background="#333333" Foreground="#cccccc"
-                                                    BorderThickness="0" CornerRadius="3"/>
-                                            <TextBlock Text="CROP" Foreground="#8a8a8a" FontSize="10" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"/>
-                                        </DockPanel>
-                                        <StackPanel Spacing="2">
-                                            <DockPanel>
-                                                <TextBlock Text="{Binding CropTop, StringFormat={}{0:P0}}"
-                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                                <TextBlock Text="Top" Foreground="#8a8a8a" FontSize="11"/>
-                                            </DockPanel>
-                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropTop}"/>
-                                        </StackPanel>
-                                        <StackPanel Spacing="2">
-                                            <DockPanel>
-                                                <TextBlock Text="{Binding CropBottom, StringFormat={}{0:P0}}"
-                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                                <TextBlock Text="Bottom" Foreground="#8a8a8a" FontSize="11"/>
-                                            </DockPanel>
-                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropBottom}"/>
-                                        </StackPanel>
-                                        <StackPanel Spacing="2">
-                                            <DockPanel>
-                                                <TextBlock Text="{Binding CropLeft, StringFormat={}{0:P0}}"
-                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                                <TextBlock Text="Left" Foreground="#8a8a8a" FontSize="11"/>
-                                            </DockPanel>
-                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropLeft}"/>
-                                        </StackPanel>
-                                        <StackPanel Spacing="2">
-                                            <DockPanel>
-                                                <TextBlock Text="{Binding CropRight, StringFormat={}{0:P0}}"
-                                                           DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                                <TextBlock Text="Right" Foreground="#8a8a8a" FontSize="11"/>
-                                            </DockPanel>
-                                            <Slider Minimum="0" Maximum="0.45" Value="{Binding CropRight}"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowEffectsSection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="EFFECTS"/>
-                                    <ListBox ItemsSource="{Binding Effects}" SelectedItem="{Binding SelectedEffect}"
-                                             Background="Transparent" BorderThickness="0">
-                                        <ListBox.Styles>
-                                            <Style Selector="ListBoxItem">
-                                                <Setter Property="Padding" Value="0"/>
-                                                <Setter Property="Margin" Value="0,0,0,4"/>
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                                <Setter Property="Background" Value="Transparent"/>
-                                            </Style>
-                                        </ListBox.Styles>
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:EffectItemViewModel">
-                                                <Border Padding="8,6" CornerRadius="4"
-                                                        Background="#252526" BorderBrush="#333333" BorderThickness="1">
-                                                    <DockPanel>
-                                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
-                                                            <ToggleButton IsChecked="{Binding IsEnabled}"
-                                                                          Command="{Binding ToggleCommand}"
-                                                                          ToolTip.Tip="Enable / disable"
-                                                                          Classes="tool-btn" Padding="5">
-                                                                <local:StrokeIcon Icon="power" Width="14" Height="14"/>
-                                                            </ToggleButton>
-                                                            <Button Command="{Binding RemoveCommand}"
-                                                                    ToolTip.Tip="Remove effect"
-                                                                    Classes="tool-btn" Padding="5">
-                                                                <local:StrokeIcon Icon="x" Width="14" Height="14" IconBrush="#ff6b6b"/>
-                                                            </Button>
-                                                        </StackPanel>
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <local:StrokeIcon Icon="{Binding Icon}" Width="16" Height="16"
-                                                                              IconBrush="#4da3ff" VerticalAlignment="Center"/>
-                                                            <TextBlock Text="{Binding DisplayName}" Foreground="#eeeeee"
-                                                                       FontSize="12" FontWeight="Medium" VerticalAlignment="Center"/>
-                                                        </StackPanel>
-                                                    </DockPanel>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                    <Border Background="#252526" CornerRadius="4" Padding="10,8"
-                                            BorderBrush="#3a3a3a" BorderThickness="1"
-                                            IsVisible="{Binding SelectedEffect, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                        <StackPanel Spacing="6">
-                                            <TextBlock Text="{Binding SelectedEffect.DisplayName}"
-                                                       Foreground="#4da3ff" FontSize="12" FontWeight="SemiBold"/>
-                                            <ItemsControl ItemsSource="{Binding EffectParams}"/>
-                                        </StackPanel>
-                                    </Border>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowTrackSection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="TRACK"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding TrackNameLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Type" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding KindLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4" IsVisible="{Binding TrackFlagsLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                        <TextBlock Text="State" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding TrackFlagsLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowMarkerSection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="MARKER"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Name" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBox Text="{Binding MarkerName}"
-                                                 Foreground="#dddddd" Background="#1e1e1e"
-                                                 BorderBrush="#333333" BorderThickness="1"
-                                                 CornerRadius="3" Padding="6,4"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Time" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding MarkerTimeLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding MarkerDurationLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4" Margin="0,6,0,0">
-                                        <TextBlock Text="Color" Foreground="#8a8a8a" FontSize="11"/>
-                                        <ItemsControl ItemsSource="{Binding MarkerPalette}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <WrapPanel/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Button Width="20" Height="20" Margin="0,0,6,6"
-                                                            CornerRadius="10" BorderThickness="0"
-                                                            Background="{Binding}"
-                                                            Command="{Binding $parent[ItemsControl].DataContext.SetMarkerColorCommand}"
-                                                            CommandParameter="{Binding}"/>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowTransitionSection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="TRANSITION"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Type" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding TransitionTypeLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <StackPanel Spacing="4" Margin="0,4,0,0">
-                                        <DockPanel>
-                                            <TextBlock Text="{Binding TransitionDurationValue, StringFormat={}{0:0.00}s}"
-                                                       DockPanel.Dock="Right" Foreground="#dddddd" FontSize="11"/>
-                                            <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
-                                        </DockPanel>
-                                        <Slider Minimum="0.05" Maximum="{Binding TransitionMaxDuration}"
-                                                Value="{Binding TransitionDurationValue}"
-                                                TickFrequency="0.05" IsSnapToTickEnabled="False"/>
-                                        <TextBlock Text="{Binding TransitionSpanLabel}" Foreground="#8a8a8a" FontSize="11"/>
-                                    </StackPanel>
-                                    <Button Command="{Binding RemoveTransitionCommand}"
-                                            Margin="0,6,0,0" Padding="10,6" FontSize="11"
-                                            Background="#3a1f22" Foreground="#ff6b6b"
-                                            BorderThickness="0" CornerRadius="4"
-                                            HorizontalAlignment="Stretch">
-                                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                                            <local:StrokeIcon Icon="trash" Width="14" Height="14" IconBrush="#ff6b6b"/>
-                                            <TextBlock Text="Remove transition" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <ItemsControl ItemsSource="{Binding TransitionParams}"/>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card"
-                                        IsVisible="{Binding FileName, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="SOURCE"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="File" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding FileName}" Foreground="#dddddd" FontSize="12"
-                                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding FileName}"/>
-                                    </StackPanel>
-                                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto">
-                                        <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2" Margin="0,0,8,8"
-                                                    IsVisible="{Binding KindLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                            <TextBlock Text="Kind" Foreground="#8a8a8a" FontSize="11"/>
-                                            <TextBlock Text="{Binding KindLabel}" Foreground="#dddddd" FontSize="12"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Row="0" Grid.Column="1" Spacing="2" Margin="0,0,0,8"
-                                                    IsVisible="{Binding ResolutionLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                            <TextBlock Text="Resolution" Foreground="#8a8a8a" FontSize="11"/>
-                                            <TextBlock Text="{Binding ResolutionLabel}" Foreground="#dddddd" FontSize="12"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Row="1" Grid.Column="0" Spacing="2"
-                                                    IsVisible="{Binding DurationLabel, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                            <TextBlock Text="Duration" Foreground="#8a8a8a" FontSize="11"/>
-                                            <TextBlock Text="{Binding DurationLabel}" Foreground="#dddddd" FontSize="12"/>
-                                        </StackPanel>
-                                    </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Classes="inspector-card" IsVisible="{Binding ShowProxySection}">
-                                    <StackPanel Spacing="8">
-                                    <TextBlock Classes="inspector-section" Text="PROXY"/>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Status" Foreground="#8a8a8a" FontSize="11"/>
-                                        <TextBlock Text="{Binding ProxyStatusLabel}" Foreground="#dddddd" FontSize="12"/>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding ProxyDetail}"
-                                               Foreground="#8a8a8a" FontSize="11"
-                                               TextWrapping="Wrap"/>
-                                    <Button Content="{Binding ProxyActionLabel}"
-                                            Command="{Binding GenerateProxyCommand}"
-                                            IsEnabled="{Binding CanGenerateProxy}"
-                                            HorizontalAlignment="Stretch"
-                                            Padding="10,8"
-                                            Background="#2a4a7a"
-                                            Foreground="#ffffff"
-                                            BorderThickness="0"
-                                            CornerRadius="4"/>
-                                    </StackPanel>
-                                </Border>
-
-                            </StackPanel>
-                        </ScrollViewer>
-                    </DockPanel>
-                </Border>
+                
             </Grid>
         </Grid>
     </DockPanel>

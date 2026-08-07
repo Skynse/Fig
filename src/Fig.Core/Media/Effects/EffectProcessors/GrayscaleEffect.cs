@@ -18,30 +18,36 @@ namespace Fig.Core.Media
                 return frame;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                // Rec. 601 luma from BGRA
-                var b = src[i];
-                var g = src[i + 1];
-                var r = src[i + 2];
-                var y = (byte)Math.Clamp((int)(0.299 * r + 0.587 * g + 0.114 * b), 0, 255);
-                if (amount >= 1)
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
                 {
-                    px[i] = y;
-                    px[i + 1] = y;
-                    px[i + 2] = y;
+                    var i = row + x * 4;
+                    // Rec. 601 luma from BGRA
+                    var b = src[i];
+                    var g = src[i + 1];
+                    var r = src[i + 2];
+                    var yy = (byte)Math.Clamp((int)(0.299 * r + 0.587 * g + 0.114 * b), 0, 255);
+                    if (amount >= 1)
+                    {
+                        px[i] = yy;
+                        px[i + 1] = yy;
+                        px[i + 2] = yy;
+                    }
+                    else
+                    {
+                        px[i] = Lerp(b, yy, amount);
+                        px[i + 1] = Lerp(g, yy, amount);
+                        px[i + 2] = Lerp(r, yy, amount);
+                    }
+                    px[i + 3] = src[i + 3];
                 }
-                else
-                {
-                    px[i] = Lerp(b, y, amount);
-                    px[i + 1] = Lerp(g, y, amount);
-                    px[i + 2] = Lerp(r, y, amount);
-                }
-                px[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
 
         private static byte Lerp(byte from, byte to, double t)

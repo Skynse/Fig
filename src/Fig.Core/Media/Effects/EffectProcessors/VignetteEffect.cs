@@ -30,21 +30,21 @@ namespace Fig.Core.Media
 
             var src = frame.Pixels;
             var px = FramePool.Rent(w * h * 4);
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 var dy = (y - cy) / maxDist;
                 for (var x = 0; x < w; x++)
                 {
                     var dx = (x - cx) / maxDist;
-                    var t = Math.Min(1, dx * dx + dy * dy);          // 0 center, 1 corner
-                    var k = t * t * strength;                        // squared falloff
+                    var t = Math.Min(1, dx * dx + dy * dy);
+                    var k = t * t * strength;
                     var i = (y * w + x) * 4;
                     px[i] = (byte)Math.Round(src[i] + (vb - src[i]) * k);
                     px[i + 1] = (byte)Math.Round(src[i + 1] + (vg - src[i + 1]) * k);
                     px[i + 2] = (byte)Math.Round(src[i + 2] + (vr - src[i + 2]) * k);
                     px[i + 3] = src[i + 3];
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }

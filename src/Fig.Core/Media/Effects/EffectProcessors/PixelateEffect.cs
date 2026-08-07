@@ -21,7 +21,7 @@ namespace Fig.Core.Media
             var h = frame.Height;
             var src = frame.Pixels;
             var px = FramePool.Rent(w * h * 4);
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 var sy = (y / block) * block;
                 for (var x = 0; x < w; x++)
@@ -34,7 +34,7 @@ namespace Fig.Core.Media
                     px[i + 2] = src[s + 2];
                     px[i + 3] = src[s + 3];
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }

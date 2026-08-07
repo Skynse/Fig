@@ -21,7 +21,6 @@ namespace Fig.Core.Media
             var rad = degrees * Math.PI / 180.0;
             var cos = Math.Cos(rad);
             var sin = Math.Sin(rad);
-            // standard hue-rotation matrix in RGB
             var a00 = 0.213 + cos * 0.787 - sin * 0.213;
             var a01 = 0.715 - cos * 0.715 - sin * 0.715;
             var a02 = 0.072 - cos * 0.072 + sin * 0.928;
@@ -33,19 +32,25 @@ namespace Fig.Core.Media
             var a22 = 0.072 + cos * 0.928 + sin * 0.072;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                var b = src[i];
-                var g = src[i + 1];
-                var r = src[i + 2];
-                px[i] = (byte)Math.Clamp((int)Math.Round(a20 * r + a21 * g + a22 * b), 0, 255);
-                px[i + 1] = (byte)Math.Clamp((int)Math.Round(a10 * r + a11 * g + a12 * b), 0, 255);
-                px[i + 2] = (byte)Math.Clamp((int)Math.Round(a00 * r + a01 * g + a02 * b), 0, 255);
-                px[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = row + x * 4;
+                    var b = src[i];
+                    var g = src[i + 1];
+                    var r = src[i + 2];
+                    px[i] = (byte)Math.Clamp((int)Math.Round(a20 * r + a21 * g + a22 * b), 0, 255);
+                    px[i + 1] = (byte)Math.Clamp((int)Math.Round(a10 * r + a11 * g + a12 * b), 0, 255);
+                    px[i + 2] = (byte)Math.Clamp((int)Math.Round(a00 * r + a01 * g + a02 * b), 0, 255);
+                    px[i + 3] = src[i + 3];
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }
 }

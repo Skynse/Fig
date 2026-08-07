@@ -29,15 +29,15 @@ namespace Fig.Core.Media
             var panelW = w / (double)panels;
             var edge = Math.Max(0.5, soft * panelW);
 
-            for (var y = 0; y < h; y++)
+            PixelOps.Rows(h, y =>
             {
                 for (var x = 0; x < w; x++)
                 {
                     var panel = (int)(x / panelW);
                     var local = x - panel * panelW;
                     var center = panelW / 2;
-                    var sweep = panel % 2 == 0 ? -1 : 1;   // panels alternate direction
-                    var boundary = center + sweep * (panelW / 2) * (2 * t01 - 1); // sweeps across the panel
+                    var sweep = panel % 2 == 0 ? -1 : 1;
+                    var boundary = center + sweep * (panelW / 2) * (2 * t01 - 1);
                     var mix = Math.Clamp((sweep * (local - boundary)) / (2 * edge) + 0.5, 0, 1);
                     var i = (y * w + x) * 4;
                     dst[i] = (byte)Math.Round(a[i] + (b[i] - a[i]) * mix);
@@ -45,7 +45,7 @@ namespace Fig.Core.Media
                     dst[i + 2] = (byte)Math.Round(a[i + 2] + (b[i + 2] - a[i + 2]) * mix);
                     dst[i + 3] = 255;
                 }
-            }
+            });
             return new DecodedFrame { Width = w, Height = h, Pixels = dst };
         }
     }

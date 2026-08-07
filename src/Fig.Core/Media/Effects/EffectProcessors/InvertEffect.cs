@@ -18,17 +18,29 @@ namespace Fig.Core.Media
                 return frame;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            if (amount >= 0.9999)
             {
-                // lerp(src, 255 - src, amount)
-                px[i] = (byte)Math.Clamp((int)Math.Round(src[i] + (255 - 2 * src[i]) * amount), 0, 255);
-                px[i + 1] = (byte)Math.Clamp((int)Math.Round(src[i + 1] + (255 - 2 * src[i + 1]) * amount), 0, 255);
-                px[i + 2] = (byte)Math.Clamp((int)Math.Round(src[i + 2] + (255 - 2 * src[i + 2]) * amount), 0, 255);
-                px[i + 3] = src[i + 3];
+                PixelOps.InvertRgbFull(px, src);
+                return new DecodedFrame { Width = w, Height = h, Pixels = px };
             }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+
+            PixelOps.Rows(h, y =>
+            {
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = row + x * 4;
+                    // lerp(src, 255 - src, amount)
+                    px[i] = (byte)Math.Clamp((int)Math.Round(src[i] + (255 - 2 * src[i]) * amount), 0, 255);
+                    px[i + 1] = (byte)Math.Clamp((int)Math.Round(src[i + 1] + (255 - 2 * src[i + 1]) * amount), 0, 255);
+                    px[i + 2] = (byte)Math.Clamp((int)Math.Round(src[i + 2] + (255 - 2 * src[i + 2]) * amount), 0, 255);
+                    px[i + 3] = src[i + 3];
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
     }
 }

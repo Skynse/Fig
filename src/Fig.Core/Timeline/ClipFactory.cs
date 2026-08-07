@@ -62,6 +62,7 @@ namespace Fig.Core.Timeline
             clone.TransitionIn = source.TransitionIn?.Clone();
             clone.TransitionOut = source.TransitionOut?.Clone();
             clone.Markers = CloneMarkers(source.Markers);
+            clone.Keyframes = CloneKeyframes(source.Keyframes);
             clone.Metadata = source.Metadata.Count == 0
                 ? new Dictionary<string, System.Text.Json.JsonElement>()
                 : new Dictionary<string, System.Text.Json.JsonElement>(source.Metadata);
@@ -74,6 +75,15 @@ namespace Fig.Core.Timeline
             foreach (var m in source)
                 list.Add(m.Clone());
             return list;
+        }
+
+        private static Dictionary<string, List<KeyframePoint>> CloneKeyframes(
+            Dictionary<string, List<KeyframePoint>> source)
+        {
+            var map = new Dictionary<string, List<KeyframePoint>>(source.Count);
+            foreach (var (key, track) in source)
+                map[key] = new List<KeyframePoint>(track);
+            return map;
         }
 
         private static List<EffectInstance> CloneEffects(List<EffectInstance> source)

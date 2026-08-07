@@ -382,4 +382,95 @@ namespace Fig.Core.Timeline
             return (l, t, r, b);
         }
     }
+
+    /// <summary>
+    /// Sets playback speed on a clip (and its link group). The source span stays fixed, so the
+    /// clip's timeline duration recomputes to <c>sourceSpan / speed</c> — a 2x clip becomes half
+    /// as long on the timeline. Undo restores both speed and duration.
+    /// </summary>
+    public sealed class SetSpeedCommand : ICoalescingEditCommand
+    {
+        private readonly TimelineEditor _editor;
+        private readonly string _clipId;
+        private readonly Dictionary<string, (double Speed, double DurSec)> _old = new();
+        private double _newValue;
+
+        public string Description => "Set speed";
+
+        public SetSpeedCommand(TimelineEditor editor, string clipId, double newValue)
+        {
+            _editor = editor;
+            _clipId = clipId;
+            _newValue = Math.Clamp(newValue, 0.1, 8.0);
+        }
+
+        public void Execute()
+        {
+            _old.Clear();
+            foreach (var clip in Targets())
+            {
+                _old[clip.Id] = (clip.Speed, clip.DurSec);
+                ApplySpeed(clip);
+            }
+            if (_old.Count == 0)
+                throw new InvalidOperationException($"Clip '{_clipId}' not found");
+        }
+
+        public void Undo()
+        {
+            foreach (var (id, value) in _old)
+            {
+                var clip = _editor.FindClip(id);
+                if (clip is not null)
+                {
+                    clip.Speed = value.Speed;
+                    clip.DurSec = value.DurSec;
+                }
+            }
+        }
+
+        public void Redo()
+        {
+            foreach (var id in _old.Keys)
+            {
+                var clip = _editor.FindClip(id);
+                if (clip is not null)
+                    ApplySpeed(clip);
+            }
+        }
+
+        public bool CanCoalesceWith(IEditCommand other)
+            => other is SetSpeedCommand o && o._clipId == _clipId;
+
+        public void CoalesceFrom(IEditCommand other)
+        {
+            if (other is SetSpeedCommand o)
+            {
+                _newValue = o._newValue;
+                Redo();
+            }
+        }
+
+        private void ApplySpeed(Clip clip)
+        {
+            var oldSpeed = clip.Speed;
+            clip.Speed = _newValue;
+            double span = 0;
+            if (clip is VideoClip vc)
+                span = (vc.SrcOutSec > 0 ? vc.SrcOutSec : vc.SrcInSec + clip.DurSec * oldSpeed) - vc.SrcInSec;
+            else if (clip is AudioClip ac)
+                span = (ac.SrcOutSec > 0 ? ac.SrcOutSec : ac.SrcInSec + clip.DurSec * oldSpeed) - ac.SrcInSec;
+            if (span > 1e-9)
+                clip.DurSec = span / _newValue;
+        }
+
+        private IEnumerable<Clip> Targets()
+        {
+            foreach (var clip in _editor.LinkGroup(_clipId))
+            {
+                if (clip is VideoClip || clip is AudioClip)
+                    yield return clip;
+            }
+        }
+    }
 }

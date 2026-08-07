@@ -18,16 +18,22 @@ namespace Fig.Core.Media
                 return frame;
 
             var src = frame.Pixels;
-            var size = frame.Width * frame.Height * 4;
-            var px = FramePool.Rent(size);
-            for (var i = 0; i < size; i += 4)
+            var w = frame.Width;
+            var h = frame.Height;
+            var px = FramePool.Rent(w * h * 4);
+            PixelOps.Rows(h, y =>
             {
-                px[i] = Clamp((src[i] - 128) * amount + 128);
-                px[i + 1] = Clamp((src[i + 1] - 128) * amount + 128);
-                px[i + 2] = Clamp((src[i + 2] - 128) * amount + 128);
-                px[i + 3] = src[i + 3];
-            }
-            return new DecodedFrame { Width = frame.Width, Height = frame.Height, Pixels = px };
+                var row = y * w * 4;
+                for (var x = 0; x < w; x++)
+                {
+                    var i = row + x * 4;
+                    px[i] = Clamp((src[i] - 128) * amount + 128);
+                    px[i + 1] = Clamp((src[i + 1] - 128) * amount + 128);
+                    px[i + 2] = Clamp((src[i + 2] - 128) * amount + 128);
+                    px[i + 3] = src[i + 3];
+                }
+            });
+            return new DecodedFrame { Width = w, Height = h, Pixels = px };
         }
 
         private static byte Clamp(double v) => (byte)Math.Clamp((int)Math.Round(v), 0, 255);

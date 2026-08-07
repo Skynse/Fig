@@ -110,7 +110,7 @@ namespace Fig.Core.Media
             var cw = Math.Clamp(crop.Width, 1, width - cx);
             var ch = Math.Clamp(crop.Height, 1, height - cy);
 
-            for (var y = 0; y < height; y++)
+            PixelOps.Rows(height, y =>
             {
                 var srcY = cy + y * ch / height;
                 // bottom-up: row 0 is the bottom of the image
@@ -126,7 +126,7 @@ namespace Fig.Core.Media
                     dst[di + 2] = src[si + 2];
                     dst[di + 3] = src[si + 3];
                 }
-            }
+            });
         }
 
         private static unsafe void BlendOpaque(byte[] dst, byte[] src, int width, int height)
@@ -151,43 +151,44 @@ namespace Fig.Core.Media
 
         private static unsafe void BlendAlpha(byte[] dst, byte[] src, int width, int height, byte alpha)
         {
-            var total = width * height * 4;
+            var total = width * height * 4; // total number of pixels for 4 channels (RGBA)
             if (Avx2.IsSupported)
             {
-                var inv = (byte)(255 - alpha);
-                var alphaV = Vector256.Create((ushort)alpha);
-                var invV = Vector256.Create((ushort)inv);
+                var inv = (byte)(255 - alpha); // inverse alpha
+                var alphaV = Vector256.Create((ushort)alpha); // alpha value as a vector
+                var invV = Vector256.Create((ushort)inv); // inverse alpha value as a vector
                 var magicV = Vector256.Create((ushort)257);   // (x * 257) >> 16 ≈ x / 255
-                var zeroV = Vector256<ushort>.Zero;
 
-                fixed (byte* d = dst)
+                fixed (byte* d = dst) // ptr to dst and source bufs
                 fixed (byte* s = src)
                 {
                     var i = 0;
                     for (; i + 32 <= total; i += 32)
                     {
-                        var dVec = Avx.LoadDquVector256(d + i);
-                        var sVec = Avx.LoadDquVector256(s + i);
+                        var dVec = Avx.LoadDquVector256(d + i); // load 32 bytes from dst as a vector
+                        var sVec = Avx.LoadDquVector256(s + i); // load 32 bytes from src as a vector
 
-                        // widen each 16-byte half to 16-bit lanes (0..255 -> ushort)
+                        // unpack the vectors into low and high 16-bit halves
                         var dLo = Avx2.UnpackLow(dVec, Vector256<byte>.Zero).AsUInt16();
                         var dHi = Avx2.UnpackHigh(dVec, Vector256<byte>.Zero).AsUInt16();
                         var sLo = Avx2.UnpackLow(sVec, Vector256<byte>.Zero).AsUInt16();
                         var sHi = Avx2.UnpackHigh(sVec, Vector256<byte>.Zero).AsUInt16();
 
-                        // (dst*inv + src*alpha) <= 255*255 = 65025, fits ushort
+                        // SIMD multiply and add to compute the blended sum
                         var sumLo = Avx2.Add(Avx2.MultiplyLow(dLo, invV), Avx2.MultiplyLow(sLo, alphaV));
                         var sumHi = Avx2.Add(Avx2.MultiplyLow(dHi, invV), Avx2.MultiplyLow(sHi, alphaV));
 
                         var outLo = Avx2.MultiplyHigh(sumLo, magicV);   // /255
                         var outHi = Avx2.MultiplyHigh(sumHi, magicV);
 
-                        // pack two 16-lane ushort vectors into 32 bytes; AVX2 packs per-128-bit
-                        // lane, so reorder lanes to restore the original byte order
                         var packed = Avx2.PackUnsignedSaturate(outLo.AsInt16(), outHi.AsInt16());
                         var reordered = Avx2.Permute4x64(packed.AsUInt64(), 0b11_01_10_00).AsByte();
+
+                        // store the blended sum back to the destination
                         Avx.Store(d + i, reordered);
                     }
+
+                    // for each remaining element, fall back to scalar multiplication if no SIMD support
                     for (; i < total; i++)
                         d[i] = (byte)((d[i] * inv + s[i] * alpha) / 255);
                 }

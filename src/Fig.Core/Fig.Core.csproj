@@ -12,4 +12,9 @@
   <ItemGroup>
     <PackageReference Include="FFmpeg.AutoGen" Version="8.1.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Fig.Core.Tests" />
+    <InternalsVisibleTo Include="Fig.Bench" />
+  </ItemGroup>
 </Project>

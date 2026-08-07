@@ -43,13 +43,19 @@ namespace Fig.Core.Timeline
         public static double Envelope(Clip clip, double localT)
             => Envelope(localT, clip.DurSec, clip.FadeInSec, clip.FadeOutSec);
 
-        /// <summary>Opacity × fade envelope (video / compositing).</summary>
+        /// <summary>Opacity × fade envelope (video / compositing). Opacity may be keyframed.</summary>
         public static double EffectiveOpacity(Clip clip, double localT)
-            => clip.Opacity * Envelope(clip, localT);
+        {
+            var opacity = ClipAutomation.Evaluate(clip, AutomationKeys.Opacity, localT, clip.Opacity);
+            return Math.Clamp(opacity, 0, 1) * Envelope(clip, localT);
+        }
 
-        /// <summary>Volume × fade envelope (audio mixing).</summary>
+        /// <summary>Volume × fade envelope (audio mixing). Volume may be keyframed.</summary>
         public static double EffectiveVolume(Clip clip, double localT)
-            => clip.Volume * Envelope(clip, localT);
+        {
+            var volume = ClipAutomation.Evaluate(clip, AutomationKeys.Volume, localT, clip.Volume);
+            return Math.Clamp(volume, 0, 1) * Envelope(clip, localT);
+        }
 
         /// <summary>Writes clamped fade durations onto the clip.</summary>
         public static void Apply(Clip clip, double fadeInSec, double fadeOutSec)

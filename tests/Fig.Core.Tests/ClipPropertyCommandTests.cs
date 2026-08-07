@@ -81,4 +81,83 @@ public class ClipPropertyCommandTests
         Assert.Equal(0.3, a.Clips[0].Volume, 3);
         Assert.Equal(0.3, v.Clips[0].Volume, 3);
     }
+
+    private static TimelineEditor EditorWithSpeedClip(double speed = 1.0)
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var track = new Track { Kind = TrackKind.Video, Index = 0, Name = "V1" };
+        track.Clips.Add(new VideoClip
+        {
+            Id = "v1",
+            SourceId = "media",
+            StartSec = 0,
+            DurSec = 5,
+            Speed = speed,
+            SrcInSec = 0,
+            SrcOutSec = 5,
+        });
+        timeline.Tracks.Add(track);
+        return new TimelineEditor(timeline);
+    }
+
+    [Fact]
+    public void SetSpeed_RecomputesDuration_AndUndoRestores()
+    {
+        var editor = EditorWithSpeedClip();
+        editor.SetSpeed("v1", 2.0);
+        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
+        Assert.Equal(2.0, clip.Speed, 3);
+        Assert.Equal(2.5, clip.DurSec, 3);   // 5s source at 2x = 2.5s
+
+        Assert.True(editor.Undo());
+        Assert.Equal(1.0, clip.Speed, 3);
+        Assert.Equal(5.0, clip.DurSec, 3);
+    }
+
+    [Fact]
+    public void SetSpeed_Slower_ExtendsDuration()
+    {
+        var editor = EditorWithSpeedClip();
+        editor.SetSpeed("v1", 0.5);
+        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
+        Assert.Equal(0.5, clip.Speed, 3);
+        Assert.Equal(10.0, clip.DurSec, 3);  // 5s source at 0.5x = 10s
+    }
+
+    [Fact]
+    public void SetSpeed_Scrub_CoalescesToSingleUndo()
+    {
+        var editor = EditorWithSpeedClip();
+        editor.SetSpeed("v1", 1.5);
+        editor.SetSpeed("v1", 2.0);
+        editor.SetSpeed("v1", 2.5);
+        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
+        Assert.Equal(2.5, clip.Speed, 3);
+        Assert.Equal(2.0, clip.DurSec, 3);
+
+        Assert.True(editor.Undo());
+        Assert.Equal(1.0, clip.Speed, 3);
+        Assert.Equal(5.0, clip.DurSec, 3);
+        Assert.False(editor.Undo());
+    }
+
+    [Fact]
+    public void SetSpeed_UpdatesLinkedPeers()
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var v = new Track { Kind = TrackKind.Video, Index = 0 };
+        var a = new Track { Kind = TrackKind.Audio, Index = 0 };
+        const string group = "g2";
+        v.Clips.Add(new VideoClip { Id = "v1", SourceId = "m", LinkGroupId = group, DurSec = 4, Speed = 1, SrcInSec = 0, SrcOutSec = 4 });
+        a.Clips.Add(new AudioClip { Id = "a1", SourceId = "m", LinkGroupId = group, DurSec = 4, Speed = 1, SrcInSec = 0, SrcOutSec = 4 });
+        timeline.Tracks.Add(v);
+        timeline.Tracks.Add(a);
+        var editor = new TimelineEditor(timeline);
+
+        editor.SetSpeed("v1", 2.0);
+        Assert.Equal(2.0, v.Clips[0].Speed, 3);
+        Assert.Equal(2.0, a.Clips[0].Speed, 3);
+        Assert.Equal(2.0, v.Clips[0].DurSec, 3);
+        Assert.Equal(2.0, a.Clips[0].DurSec, 3);
+    }
 }

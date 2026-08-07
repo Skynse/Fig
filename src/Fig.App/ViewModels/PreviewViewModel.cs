@@ -145,7 +145,7 @@ public partial class PreviewViewModel : ViewModelBase
         if (e.PropertyName is nameof(EditorViewModel.IsPlaying))
         {
             OnPropertyChanged(nameof(PlaybackIconKey));
-            if (!_editor.IsPlaying)
+            if (_editor is not { IsPlaying: true })
                 ClearPresentQueue();
         }
     }
@@ -535,7 +535,7 @@ public partial class PreviewViewModel : ViewModelBase
                     {
                         Frame = frame,
                         Opacity = layer.Opacity,
-                        Crop = ToPixelCrop(layer.Clip, _targetWidth, _targetHeight),
+                        Crop = ToPixelCrop(layer.Clip, target - layer.Clip.StartSec, _targetWidth, _targetHeight),
                     });
                 }
 
@@ -674,14 +674,15 @@ public partial class PreviewViewModel : ViewModelBase
     /// <summary>Re-decode the current playhead (e.g. after opacity/crop changes).</summary>
     public void RefreshFrame() => RequestFrame();
 
-    private static RectI? ToPixelCrop(Fig.Core.Timeline.VideoClip clip, int width, int height)
+    private static RectI? ToPixelCrop(Fig.Core.Timeline.VideoClip clip, double localT, int width, int height)
     {
-        if (!clip.HasCrop || width <= 0 || height <= 0)
+        var (l, t, r, b) = ClipAutomation.SampleCrop(clip, Math.Clamp(localT, 0, Math.Max(0, clip.DurSec - 1e-4)));
+        if ((l <= 1e-6 && t <= 1e-6 && r <= 1e-6 && b <= 1e-6) || width <= 0 || height <= 0)
             return null;
-        var x = (int)Math.Round(clip.CropL * width);
-        var y = (int)Math.Round(clip.CropT * height);
-        var w = (int)Math.Round((1 - clip.CropL - clip.CropR) * width);
-        var h = (int)Math.Round((1 - clip.CropT - clip.CropB) * height);
+        var x = (int)Math.Round(l * width);
+        var y = (int)Math.Round(t * height);
+        var w = (int)Math.Round((1 - l - r) * width);
+        var h = (int)Math.Round((1 - t - b) * height);
         if (w < 1 || h < 1)
             return null;
         return new RectI(x, y, w, h);

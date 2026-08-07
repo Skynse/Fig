@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Fig.App.Controls"
         xmlns:vm="using:Fig.App.ViewModels"
         x:Class="Fig.App.Views.ExportDialog"
         x:DataType="vm:ExportDialogViewModel"
@@ -52,8 +53,7 @@
                 </TextBlock>
                 <TextBlock Text="Quality" Foreground="#8a8a8a" FontSize="11"/>
             </DockPanel>
-            <Slider Minimum="18" Maximum="28" Value="{Binding Quality}"
-                    TickFrequency="1" IsSnapToTickEnabled="True"/>
+            <local:FigSlider Minimum="18" Maximum="28" Value="{Binding Quality}"/>
         </StackPanel>
 
         <StackPanel Spacing="4">

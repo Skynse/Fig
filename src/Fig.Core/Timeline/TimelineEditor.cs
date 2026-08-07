@@ -783,6 +783,32 @@ namespace Fig.Core.Timeline
             RaiseChanged();
         }
 
+        // ---- clip automation keyframes ----
+
+        public void SetClipKeyframe(string clipId, string key, double timeSec, double value)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new SetClipKeyframeCommand(this, clipId, key, timeSec, ParamValue.OfDouble(value)));
+            RaiseChanged();
+        }
+
+        public void RemoveClipKeyframe(string clipId, string key, double timeSec)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new RemoveClipKeyframeCommand(this, clipId, key, timeSec));
+            RaiseChanged();
+        }
+
+        public void ClearClipKeyframes(string clipId, string key)
+        {
+            if (FindClip(clipId) is null)
+                return;
+            History.Execute(new ClearClipKeyframesCommand(this, clipId, key));
+            RaiseChanged();
+        }
+
         public void SetTransitionIn(string clipId, TransitionRef? transition)
         {
             if (FindClip(clipId) is null)
@@ -932,6 +958,16 @@ namespace Fig.Core.Timeline
             if (clip is null || Math.Abs(clip.Volume - volume) < 1e-6)
                 return;
             History.ExecuteCoalescing(new SetVolumeCommand(this, clipId, volume));
+            RaiseChanged();
+        }
+
+        public void SetSpeed(string clipId, double speed)
+        {
+            speed = Math.Clamp(speed, 0.1, 8.0);
+            var clip = FindClip(clipId);
+            if (clip is null || Math.Abs(clip.Speed - speed) < 1e-6)
+                return;
+            History.ExecuteCoalescing(new SetSpeedCommand(this, clipId, speed));
             RaiseChanged();
         }
 
