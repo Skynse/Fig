@@ -178,6 +178,7 @@ namespace Fig.Core.Timeline
     public static class TransitionCatalog
     {
         public const string CrossDissolve = "cross-dissolve";
+        public const string Wipe = "wipe";
 
         public static IReadOnlyList<TransitionCatalogEntry> All { get; } =
         [
@@ -188,6 +189,18 @@ namespace Fig.Core.Timeline
                 Icon = "blend",
                 Description = "Blend outgoing and incoming clips over the cut.",
                 DefaultDurationSec = 0.5,
+            },
+            new TransitionCatalogEntry
+            {
+                TypeId = Wipe,
+                DisplayName = "Wipe",
+                Icon = "arrow-right-left",
+                Description = "Sweep the incoming clip in from the left.",
+                DefaultDurationSec = 0.5,
+                ParamSchema =
+                [
+                    new ParamDef { Key = "soft", Label = "Soft edge", Default = 0.1, Min = 0, Max = 0.5 },
+                ],
             },
         ];
 

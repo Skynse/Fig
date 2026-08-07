@@ -23,6 +23,45 @@ public class EffectTransitionTests
     }
 
     [Fact]
+    public void TransitionCatalog_HasWipe()
+    {
+        Assert.Contains(TransitionCatalog.All, e => e.TypeId == TransitionCatalog.Wipe);
+        Assert.NotNull(TransitionRegistry.Resolve(TransitionCatalog.Wipe));
+        Assert.Equal("arrow-right-left", TransitionCatalog.Find(TransitionCatalog.Wipe)!.Icon);
+    }
+
+    [Fact]
+    public void Wipe_Midpoint_ShowsIncomingLeft_OutgoingRight()
+    {
+        var a = MakeFrame(64, 1, 0, 0, 0);      // outgoing: black
+        var b = MakeFrame(64, 1, 200, 200, 200); // incoming: light gray
+        var blender = TransitionRegistry.Resolve(TransitionCatalog.Wipe)!;
+
+        var mid = blender.Blend(a, b, 0.5, new Dictionary<string, double> { ["soft"] = 0 });
+
+        // leftmost column is fully incoming; rightmost column fully outgoing
+        Assert.Equal(200, mid.Pixels[2]);     // x=0, R channel
+        Assert.Equal(0, mid.Pixels[(63 * 4) + 2]); // x=63, R channel
+    }
+
+    [Fact]
+    public void Wipe_Start_IsAllOutgoing_End_IsAllIncoming()
+    {
+        var a = MakeFrame(64, 1, 0, 0, 0);
+        var b = MakeFrame(64, 1, 200, 200, 200);
+        var blender = TransitionRegistry.Resolve(TransitionCatalog.Wipe)!;
+
+        var hard = new Dictionary<string, double> { ["soft"] = 0 };
+        var start = blender.Blend(a, b, 0.0, hard);
+        Assert.Equal(0, start.Pixels[2]);
+        Assert.Equal(0, start.Pixels[(63 * 4) + 2]);
+
+        var end = blender.Blend(a, b, 1.0, hard);
+        Assert.Equal(200, end.Pixels[2]);
+        Assert.Equal(200, end.Pixels[(63 * 4) + 2]);
+    }
+
+    [Fact]
     public void BrightnessEffect_LightensPixels()
     {
         var frame = MakeFrame(2, 2, 100, 100, 100);

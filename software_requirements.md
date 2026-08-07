@@ -176,10 +176,10 @@ The primary user is a solo creator (hobbyist to semi-professional) who edits sho
 ### 3.7 Effects and transitions
 | ID | Requirement | Priority | Status |
 | --- | --- | --- | --- |
-| FR-080 | The application SHALL ship a catalog of clip effects (brightness, grayscale) applied as an ordered, toggleable stack. | P0 | X |
+| FR-080 | The application SHALL ship a catalog of clip effects (brightness, grayscale) applied as an ordered, toggleable stack. | P0 | O |
 | FR-081 | Effects SHALL be applicable to and removable from a selected clip. | P0 | X |
 | FR-082 | Video preview and export SHALL run each clip's enabled effect stack before compositing. | P0 | X |
-| FR-083 | The application SHALL ship a transition catalog (cross-dissolve) applied across abutting cuts. | P0 | X |
+| FR-083 | The application SHALL ship a transition catalog (cross-dissolve) applied across abutting cuts. | P0 | O |
 | FR-084 | A transition SHALL be applicable by dragging a catalog entry onto a cut. | P0 | X |
 | FR-085 | Transitions SHALL be selectable, resizable (drag or slider), and removable, all undoable. | P0 | X |
 | FR-086 | The transition catalog SHALL grow beyond cross-dissolve (wipes, irises, etc.). | P1 | O |
@@ -198,9 +198,8 @@ The primary user is a solo creator (hobbyist to semi-professional) who edits sho
 | --- | --- | --- | --- |
 | FR-100 | The application SHALL import OpenTimelineIO `.otio` projects into the native project model. | P0 | X |
 | FR-101 | OTIO import SHALL preserve markers, per-object metadata, global start time, media available ranges, and clip enable state. | P0 | X |
-| FR-102 | The application SHALL export to OTIO. | P2 | - |
-| FR-103 | The application SHALL import/export FCPXML. | P2 | - |
-| FR-104 | The application SHALL import/export EDL (CMX 3600). | P2 | - |
+
+> **Note:** OTIO is used as a test/interchange vehicle — export small kdenlive projects to OTIO and open them in Fig to exercise capabilities. FCPXML/EDL and OTIO export are not requirements.
 
 ### 3.10 Export
 | ID | Requirement | Priority | Status |
@@ -249,7 +248,6 @@ These requirements are captured for extensibility but are not yet implemented.
 | FR-113 | Encoder threading + Fast/Medium/Best presets. | P1 | O |
 | FR-114 | Hardware-accelerated export (NVENC/VAAPI/QSV/VideoToolbox). | P1 | - |
 | FR-115 | Stream-copy fast export for simple timelines. | P2 | - |
-| FR-102/103/104 | OTIO / FCPXML / EDL export and import. | P2 | - |
 | FR-130 | Clip transform (scale, position, rotation) and richer color-grading effects. | P1 | - |
 | FR-131 | Audio pan/balance and per-track audio effects. | P2 | - |
 | FR-132 | Timeline project resolution settings (explicit canvas size) instead of media-derived. | P1 | - |
