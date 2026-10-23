@@ -121,28 +121,29 @@ public static class IconService
         const double k = 0.55191502449;
         var kx = r * k;
         var ky = r * k;
-        return $"M{cx - r},{cy}"
-            + $"C{cx - r},{cy - ky},{cx - kx},{cy - r},{cx},{cy - r}"
-            + $"C{cx + kx},{cy - r},{cx + r},{cy - ky},{cx + r},{cy}"
-            + $"C{cx + r},{cy + ky},{cx + kx},{cy + r},{cx},{cy + r}"
-            + $"C{cx - kx},{cy + r},{cx - r},{cy + ky},{cx - r},{cy}Z";
+        return FormattableString.Invariant($"M{cx - r},{cy}")
+               + FormattableString.Invariant($"C{cx - r},{cy - ky},{cx - kx},{cy - r},{cx},{cy - r}")
+               + FormattableString.Invariant($"C{cx + kx},{cy - r},{cx + r},{cy - ky},{cx + r},{cy}")
+               + FormattableString.Invariant($"C{cx + r},{cy + ky},{cx + kx},{cy + r},{cx},{cy + r}")
+               + FormattableString.Invariant($"C{cx - kx},{cy + r},{cx - r},{cy + ky},{cx - r},{cy}Z");
+
     }
 
     private static string RectPath(double x, double y, double w, double h, double rx)
     {
         if (rx <= 0)
-            return $"M{x},{y}h{w}v{h}h-{w}Z";
+            return FormattableString.Invariant($"M{x},{y}h{w}v{h}h-{w}Z");
         rx = Math.Min(rx, w / 2);
-        return $"M{x + rx},{y}h{w - 2 * rx}a{rx},{rx} 0 0 1 {rx},{rx}v{h - 2 * rx}"
-            + $"a{rx},{rx} 0 0 1 {-rx},{rx}h-{w - 2 * rx}a{rx},{rx} 0 0 1 {-rx},-{rx}v-{h - 2 * rx}"
-            + $"a{rx},{rx} 0 0 1 {rx},-{rx}Z";
+        return FormattableString.Invariant($"M{x + rx},{y}h{w - 2 * rx}a{rx},{rx} 0 0 1 {rx},{rx}v{h - 2 * rx}")
+               + FormattableString.Invariant($"a{rx},{rx} 0 0 1 {-rx},{rx}h-{w - 2 * rx}a{rx},{rx} 0 0 1 {-rx},-{rx}v-{h - 2 * rx}")
+               + FormattableString.Invariant($"a{rx},{rx} 0 0 1 {rx},-{rx}Z");
     }
 
     private static string PolylinePath(double[] pts, bool isClosed)
     {
         var sb = new System.Text.StringBuilder($"M{pts[0]},{pts[1]}");
         for (var i = 2; i + 1 < pts.Length; i += 2)
-            sb.Append($"L{pts[i]},{pts[i + 1]}");
+            sb.Append(System.Globalization.CultureInfo.InvariantCulture, $"L{pts[i]},{pts[i + 1]}");
         if (isClosed)
             sb.Append("Z");
         return sb.ToString();
