@@ -22,6 +22,7 @@ public static class ShortcutsDialog
             ("Ctrl+A", "Select everything in the focused panel"),
             ("Ctrl+Wheel", "Zoom in or out"),
             ("Wheel / Shift+Wheel", "Scroll sideways"),
+            ("Alt+Wheel", "Make tracks taller or shorter"),
             ("Middle-drag", "Pan the timeline"),
         ]),
     ];

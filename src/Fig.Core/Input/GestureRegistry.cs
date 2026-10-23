@@ -97,6 +97,8 @@ namespace Fig.Core.Input
             Bind(GesturePatternParser.Parse("Ctrl+WheelDown"), TimelineGesture.ZoomOut);
             Bind(GesturePatternParser.Parse("Shift+WheelUp"), TimelineGesture.ScrollHorizontal);
             Bind(GesturePatternParser.Parse("Shift+WheelDown"), TimelineGesture.ScrollHorizontal);
+            Bind(GesturePatternParser.Parse("Alt+WheelUp"), TimelineGesture.TallerTracks);
+            Bind(GesturePatternParser.Parse("Alt+WheelDown"), TimelineGesture.ShorterTracks);
             // Plain wheel → vertical track scroll (ScrollViewer). Middle-drag → pan time.
             Bind(GesturePatternParser.Parse("WheelUp"), TimelineGesture.ScrollVertical);
             Bind(GesturePatternParser.Parse("WheelDown"), TimelineGesture.ScrollVertical);

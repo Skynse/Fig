@@ -82,7 +82,7 @@ namespace Fig.App.Views
                 return;
 
             var px = Viewport.PixelsPerSecond;
-            var bodyBottom = clipTop + TimelineGeometry.ClipTotal(track);
+            var bodyBottom = clipTop + ClipTotal(track);
             foreach (var marker in clip.Markers)
             {
                 if (marker.StartSec < 0 || marker.StartSec > clip.DurSec)
@@ -297,7 +297,7 @@ namespace Fig.App.Views
                 var clipTop = top + TimelineGeometry.ClipInset;
 
                 // clip markers: a generous head target plus a thin pole, so the clip body stays clickable
-                var clipTotal = TimelineGeometry.ClipTotal(track);
+                var clipTotal = ClipTotal(track);
                 if (pos.Y >= clipTop - 7 && pos.Y <= clipTop + clipTotal)
                 {
                     foreach (var candidate in track.Clips)

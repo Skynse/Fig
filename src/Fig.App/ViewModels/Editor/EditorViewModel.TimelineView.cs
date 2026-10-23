@@ -2,12 +2,15 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace Fig.App.ViewModels;
 
-/// <summary>How the timeline's visible range changes. The menu asks; the timeline view does it.</summary>
+/// <summary>How the timeline's visible range or track height changes. The menu asks; the timeline view does it.</summary>
 public enum TimelineZoom
 {
     In,
     Out,
     FitSequence,
+    TallerTracks,
+    ShorterTracks,
+    FitTracks,
 }
 
 public partial class EditorViewModel
@@ -23,4 +26,13 @@ public partial class EditorViewModel
 
     [RelayCommand]
     private void ZoomTimelineToFit() => TimelineZoomRequested?.Invoke(TimelineZoom.FitSequence);
+
+    [RelayCommand]
+    private void TallerTracks() => TimelineZoomRequested?.Invoke(TimelineZoom.TallerTracks);
+
+    [RelayCommand]
+    private void ShorterTracks() => TimelineZoomRequested?.Invoke(TimelineZoom.ShorterTracks);
+
+    [RelayCommand]
+    private void FitTracks() => TimelineZoomRequested?.Invoke(TimelineZoom.FitTracks);
 }

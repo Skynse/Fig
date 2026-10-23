@@ -178,7 +178,16 @@ namespace Fig.App.Views
         private double TrackHeight(Track track) =>
             track.Clips.Count == 0 && track.Markers.Count == 0 && track.Effects.Count == 0
                 ? EmptyTrackHeight
-                : TimelineGeometry.LaneHeight(track) + TrackRackHeight(track);
+                : TimelineGeometry.LaneHeight(track, TrackScale) + TrackRackHeight(track);
+
+        /// <summary>How tall pictures and waveforms are drawn (1 = standard); Alt+wheel and the toolbar change it.</summary>
+        public double TrackScale { get; private set; } = 1;
+
+        private double ClipTotal(Track track) => TimelineGeometry.ClipTotal(track, TrackScale);
+
+        private double BodyHeight(Track track) => TimelineGeometry.BodyHeight(track, TrackScale);
+
+        private double SoundStrip => TimelineGeometry.AudioStripAt(TrackScale);
 
         private double TrackTop(int index)
         {

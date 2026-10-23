@@ -41,19 +41,30 @@ namespace Fig.Core.Timeline
         public static bool IsTextOnly(Track track) =>
             track.Kind != TrackKind.Audio && track.Clips.Count > 0 && track.Clips.All(c => c is TextClip);
 
+        /// <summary>Smallest and largest track height scale (1 = the standard lane heights above).</summary>
+        public const double MinTrackScale = 0.4;
+        public const double MaxTrackScale = 2.0;
+
+        /// <summary>A text bar never gets shorter than this, so its words still fit when tracks are scaled down.</summary>
+        public const double MinTextClipHeight = 18.0;
+
         /// <summary>Height of the name strip above the clips' bodies in a track (none on a text-only track).</summary>
         public static double LabelHeight(Track track) => IsTextOnly(track) ? 0 : ClipLabelHeight;
 
         /// <summary>True when a video clip in the track plays its own sound, so the lane has room for the strip.</summary>
         public static bool HasAudioStrip(Track track) => track.Clips.Any(c => c is VideoClip { PlaysAudio: true });
 
-        public static double BodyHeight(Track track) => track.Kind == TrackKind.Audio ? AudioClipHeight
-            : IsTextOnly(track) ? TextClipHeight
-            : ClipHeight + (HasAudioStrip(track) ? AudioStripHeight : 0);
+        /// <summary>Height of the sound strip under a video clip's picture at a track height scale.</summary>
+        public static double AudioStripAt(double scale = 1) => AudioStripHeight * scale;
 
-        public static double ClipTotal(Track track) => LabelHeight(track) + BodyHeight(track);
+        /// <summary>Height of the clips' bodies in a track; <paramref name="scale"/> grows or shrinks pictures and waveforms.</summary>
+        public static double BodyHeight(Track track, double scale = 1) => track.Kind == TrackKind.Audio ? AudioClipHeight * scale
+            : IsTextOnly(track) ? Math.Max(MinTextClipHeight, TextClipHeight * scale)
+            : (ClipHeight + (HasAudioStrip(track) ? AudioStripHeight : 0)) * scale;
 
-        public static double LaneHeight(Track track) => ClipInset + ClipTotal(track) + LaneBottomPadding;
+        public static double ClipTotal(Track track, double scale = 1) => LabelHeight(track) + BodyHeight(track, scale);
+
+        public static double LaneHeight(Track track, double scale = 1) => ClipInset + ClipTotal(track, scale) + LaneBottomPadding;
 
         public static double TimeToX(double seconds, double pxPerSec = DefaultPixelsPerSecond)
         {

@@ -476,6 +476,9 @@ public partial class EditorView : UserControl
         {
             case TimelineZoom.In: Timeline.ZoomInAtPlayhead(); break;
             case TimelineZoom.Out: Timeline.ZoomOutAtPlayhead(); break;
+            case TimelineZoom.TallerTracks: Timeline.TallerTracks(); break;
+            case TimelineZoom.ShorterTracks: Timeline.ShorterTracks(); break;
+            case TimelineZoom.FitTracks: Timeline.FitTracks(); break;
             default: Timeline.ZoomToFitSequence(_boundVm?.SequenceEndSec ?? 60); break;
         }
     }
@@ -485,4 +488,10 @@ public partial class EditorView : UserControl
     private void TimelineZoomOut_Click(object? sender, RoutedEventArgs e) => OnTimelineZoomRequested(TimelineZoom.Out);
 
     private void TimelineZoomFit_Click(object? sender, RoutedEventArgs e) => OnTimelineZoomRequested(TimelineZoom.FitSequence);
+
+    private void TallerTracks_Click(object? sender, RoutedEventArgs e) => OnTimelineZoomRequested(TimelineZoom.TallerTracks);
+
+    private void ShorterTracks_Click(object? sender, RoutedEventArgs e) => OnTimelineZoomRequested(TimelineZoom.ShorterTracks);
+
+    private void FitTracks_Click(object? sender, RoutedEventArgs e) => OnTimelineZoomRequested(TimelineZoom.FitTracks);
 }

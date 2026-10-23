@@ -10,6 +10,8 @@ namespace Fig.Core.Input
         None,
         ZoomIn,
         ZoomOut,
+        TallerTracks,
+        ShorterTracks,
         ScrollHorizontal,
         ScrollVertical,
         Pan,

@@ -136,6 +136,10 @@
                     <MenuItem Header="Zoom to _fit sequence" Command="{Binding Editor.ZoomTimelineToFitCommand}"/>
                     <MenuItem Header="Zoom i_n" Command="{Binding Editor.ZoomTimelineInCommand}"/>
                     <MenuItem Header="Zoom _out" Command="{Binding Editor.ZoomTimelineOutCommand}"/>
+                    <Separator/>
+                    <MenuItem Header="Fit _tracks" Command="{Binding Editor.FitTracksCommand}"/>
+                    <MenuItem Header="T_aller tracks" Command="{Binding Editor.TallerTracksCommand}"/>
+                    <MenuItem Header="S_horter tracks" Command="{Binding Editor.ShorterTracksCommand}"/>
                 </MenuItem>
                 <MenuItem Header="_Help">
                     <MenuItem Header="_Keyboard shortcuts" Click="Shortcuts_Click"/>

@@ -37,7 +37,7 @@ namespace Fig.App.Views
                 return null;
             var index = Editor.Document.Tracks.IndexOf(track);
             var top = TrackTop(index) + TimelineGeometry.ClipInset + TimelineGeometry.LabelHeight(track);
-            var height = TimelineGeometry.BodyHeight(track) - SoundStripHeight(clip);
+            var height = BodyHeight(track) - SoundStripHeight(clip);
             var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
             return SpeedBand(new Rect(x, top, clip.DurSec * Viewport.PixelsPerSecond, height));
         }

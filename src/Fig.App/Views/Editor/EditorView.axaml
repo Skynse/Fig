@@ -1740,6 +1740,18 @@
                                         AutomationProperties.Name="Zoom in">
                                     <local:StrokeIcon Icon="plus" Width="12" Height="12" HorizontalAlignment="Center"/>
                                 </Button>
+                                <Button Classes="fig compact icon" Width="30" Click="ShorterTracks_Click"
+                                        ToolTip.Tip="Shorter tracks (Alt+wheel)" AutomationProperties.Name="Shorter tracks">
+                                    <local:StrokeIcon Icon="fold-vertical" Width="13" Height="13" HorizontalAlignment="Center"/>
+                                </Button>
+                                <Button Classes="fig compact icon" Width="30" Click="FitTracks_Click"
+                                        ToolTip.Tip="Fit every track in view" AutomationProperties.Name="Fit tracks">
+                                    <local:StrokeIcon Icon="rows-3" Width="13" Height="13" HorizontalAlignment="Center"/>
+                                </Button>
+                                <Button Classes="fig compact icon" Width="30" Click="TallerTracks_Click"
+                                        ToolTip.Tip="Taller tracks (Alt+wheel)" AutomationProperties.Name="Taller tracks">
+                                    <local:StrokeIcon Icon="unfold-vertical" Width="13" Height="13" HorizontalAlignment="Center"/>
+                                </Button>
                                 <Button Classes="fig compact" Content="{Binding Beats.ButtonLabel}"
                                         ToolTip.Tip="Preview beat or kick markers, then apply them">
                                     <Button.Flyout>

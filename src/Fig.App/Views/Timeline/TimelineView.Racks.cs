@@ -32,6 +32,8 @@ namespace Fig.App.Views
         // racks start open so the effects on a clip are always visible; folding is per track (one toggle in
         // the track header), never per clip
         private readonly HashSet<string> _collapsedTrackRacks = new();
+        // tracks opened by hand while short tracks fold every rack on their own
+        private readonly HashSet<string> _openedTrackRacks = new();
 
         private static readonly Color EffectFill = Color.Parse("#6f5526");
         private static readonly Color EffectEdge = Color.Parse("#c79a3d");
@@ -130,14 +132,22 @@ namespace Fig.App.Views
         /// <summary>Shows or hides the labelled effect rows for every clip on a track.</summary>
         public void SetTrackRackExpanded(string trackId, bool expanded)
         {
-            if (expanded ? _collapsedTrackRacks.Remove(trackId) : _collapsedTrackRacks.Add(trackId))
+            var changed = RacksFoldByDefault
+                ? expanded ? _openedTrackRacks.Add(trackId) : _openedTrackRacks.Remove(trackId)
+                : expanded ? _collapsedTrackRacks.Remove(trackId) : _collapsedTrackRacks.Add(trackId);
+            if (changed)
             {
                 InvalidateMeasure();
                 InvalidateVisual();
             }
         }
 
-        private bool IsTrackRackExpanded(Track track) => !_collapsedTrackRacks.Contains(track.Id);
+        /// <summary>Once tracks are shrunk past <see cref="RackFoldScale"/>, racks fold unless a track is opened by hand.</summary>
+        private bool RacksFoldByDefault => TrackScale < RackFoldScale;
+
+        private bool IsTrackRackExpanded(Track track) => RacksFoldByDefault
+            ? _openedTrackRacks.Contains(track.Id)
+            : !_collapsedTrackRacks.Contains(track.Id);
 
         /// <summary>True when any clip on the track has effect bars (so the fold toggle is worth showing).</summary>
         private bool TrackHasRack(Track track) => track.Effects.Count > 0 || track.Clips.Any(c => BuildRack(c).Count > 0);
@@ -185,7 +195,7 @@ namespace Fig.App.Views
         private Rect RackItemRect(IEffectOwner clip, RackItem item, int index, double clipX, double clipTop, Track track)
         {
             var px = Viewport.PixelsPerSecond;
-            var top = clipTop + TimelineGeometry.ClipTotal(track) + (clip is Track ? TrackOf(clip)!.Clips.Select(c => RackHeight(c)).DefaultIfEmpty(0).Max() : 0) + RackPad + item.Row * (RackBar(clip) + RackGap(clip));
+            var top = clipTop + ClipTotal(track) + (clip is Track ? TrackOf(clip)!.Clips.Select(c => RackHeight(c)).DefaultIfEmpty(0).Max() : 0) + RackPad + item.Row * (RackBar(clip) + RackGap(clip));
             return new Rect(clipX + item.StartSec * px, top, Math.Max(MinRackBarWidth, item.DurSec * px), RackBar(clip));
         }
 
@@ -540,7 +550,7 @@ namespace Fig.App.Views
             {
                 var track = Editor.Document.Tracks[t];
                 var top = TrackTop(t);
-                var rackTop = top + TimelineGeometry.ClipInset + TimelineGeometry.ClipTotal(track);
+                var rackTop = top + TimelineGeometry.ClipInset + ClipTotal(track);
                 if (pos.Y >= rackTop && pos.Y < top + TrackHeight(track))
                     return true;
             }

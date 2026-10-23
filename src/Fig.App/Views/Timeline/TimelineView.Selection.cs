@@ -168,7 +168,7 @@ namespace Fig.App.Views
             {
                 var track = Editor.Document.Tracks[t];
                 var top = TrackTop(t) + TimelineGeometry.ClipInset;
-                var bottom = top + TimelineGeometry.ClipTotal(track);
+                var bottom = top + ClipTotal(track);
                 if (box.Bottom < top || box.Top > bottom)
                     continue;
                 foreach (var clip in track.Clips)
@@ -199,7 +199,7 @@ namespace Fig.App.Views
                 var track = Editor.Document.Tracks[index];
                 var rect = new Rect(TrackHeaderWidth + Viewport.TimeToX(clip.StartSec),
                     TrackTop(index) + TimelineGeometry.ClipInset,
-                    clip.DurSec * Viewport.PixelsPerSecond, TimelineGeometry.ClipTotal(track));
+                    clip.DurSec * Viewport.PixelsPerSecond, ClipTotal(track));
                 context.DrawRectangle(null, outline, rect.Intersect(new Rect(TrackHeaderWidth, 0, Bounds.Width, Bounds.Height)));
             }
             context.DrawRectangle(MarqueeFill, MarqueePen, box);

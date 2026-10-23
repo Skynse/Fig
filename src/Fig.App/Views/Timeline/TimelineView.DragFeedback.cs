@@ -56,7 +56,7 @@ namespace Fig.App.Views
                 return null;
             var track = Editor.Document.Tracks[index];
             return new Rect(TrackHeaderWidth + Viewport.TimeToX(start), TrackTop(index) + TimelineGeometry.ClipInset,
-                Math.Max(3, dur * Viewport.PixelsPerSecond), TimelineGeometry.ClipTotal(track));
+                Math.Max(3, dur * Viewport.PixelsPerSecond), ClipTotal(track));
         }
 
         /// <summary>Draws the outline where moved clips came from, and the blocked ghost.</summary>

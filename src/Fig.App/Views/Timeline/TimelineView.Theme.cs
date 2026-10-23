@@ -68,6 +68,9 @@ namespace Fig.App.Views
         private const double SplitGap = 1;
         internal const double TrackHeaderWidth = 140;
         private const double ZoomFactor = 1.25;
+        private const double TrackScaleStep = 1.2;
+        /// <summary>Below this track height scale the effect racks fold to thin bars on their own.</summary>
+        private const double RackFoldScale = 0.75;
         private const double HeaderButtonSize = 22;
         private const double HeaderButtonGap = 4;
         private const double HeaderPaddingLeft = 7;

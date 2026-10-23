@@ -69,7 +69,7 @@ namespace Fig.App.Views
                     continue;
                 // the badge sits at the clip body's vertical center; only grab within that band so
                 // markers / keyframes near the cut stay clickable
-                var centerY = top + TimelineGeometry.ClipInset + TimelineGeometry.LabelHeight(track) + TimelineGeometry.BodyHeight(track) / 2;
+                var centerY = top + TimelineGeometry.ClipInset + TimelineGeometry.LabelHeight(track) + BodyHeight(track) / 2;
                 if (pos.Y < centerY - 16 || pos.Y > centerY + 16)
                     continue;
                 foreach (var t in Editor.EnumerateTransitions(track))
@@ -101,10 +101,10 @@ namespace Fig.App.Views
                 return EdgeKind.Right;
 
             var top = TrackTop(Editor!.Document.Tracks.IndexOf(track)) + TimelineGeometry.ClipInset;
-            var bottom = top + TimelineGeometry.ClipTotal(track);
-            if (clip is VideoClip { PlaysAudio: true } && pos.Y >= bottom - TimelineGeometry.AudioStripHeight)
+            var bottom = top + ClipTotal(track);
+            if (clip is VideoClip { PlaysAudio: true } && pos.Y >= bottom - SoundStrip)
                 of = FadeOf.Sound;
-            else if (pos.Y > top + (TimelineGeometry.ClipTotal(track) - SoundStripHeight(clip)) / 2)
+            else if (pos.Y > top + (ClipTotal(track) - SoundStripHeight(clip)) / 2)
                 return EdgeKind.None;
             var (fadeIn, fadeOut) = ClipFade.Get(clip, of);
 
@@ -125,8 +125,8 @@ namespace Fig.App.Views
         }
 
         /// <summary>Height of the sound strip at the bottom of a clip (0 when it has none).</summary>
-        private static double SoundStripHeight(Clip clip)
-            => clip is VideoClip { PlaysAudio: true } ? TimelineGeometry.AudioStripHeight : 0;
+        private double SoundStripHeight(Clip clip)
+            => clip is VideoClip { PlaysAudio: true } ? SoundStrip : 0;
 
         private Track? HitTestTrack(double y)
         {
@@ -161,7 +161,7 @@ namespace Fig.App.Views
             if (clip is null)
                 return null;
             var top = TrackTop(Editor.Document.Tracks.IndexOf(track)) + TimelineGeometry.ClipInset;
-            return pos.Y >= top && pos.Y <= top + TimelineGeometry.ClipTotal(track) ? clip : null;
+            return pos.Y >= top && pos.Y <= top + ClipTotal(track) ? clip : null;
         }
 
         private enum RangeGrab { None, Start, End, Body }

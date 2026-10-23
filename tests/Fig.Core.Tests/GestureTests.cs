@@ -57,6 +57,8 @@ public class GestureRegistryTests
         Assert.Equal(TimelineGesture.ScrollVertical, registry.Resolve(GesturePatternParser.Parse("WheelUp")));
         Assert.Equal(TimelineGesture.ScrollVertical, registry.Resolve(GesturePatternParser.Parse("WheelDown")));
         Assert.Equal(TimelineGesture.ScrollHorizontal, registry.Resolve(GesturePatternParser.Parse("Shift+WheelUp")));
+        Assert.Equal(TimelineGesture.TallerTracks, registry.Resolve(GesturePatternParser.Parse("Alt+WheelUp")));
+        Assert.Equal(TimelineGesture.ShorterTracks, registry.Resolve(GesturePatternParser.Parse("Alt+WheelDown")));
         Assert.Equal(TimelineGesture.Pan, registry.Resolve(GesturePatternParser.Parse("Middle+Move")));
         Assert.Equal(TimelineGesture.Pan, registry.Resolve(GesturePatternParser.Parse("Middle")));
         Assert.Equal(TimelineGesture.MoveClip, registry.Resolve(GesturePatternParser.Parse("Left+Move")));

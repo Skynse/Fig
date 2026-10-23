@@ -104,7 +104,7 @@ namespace Fig.App.Views
                         // clip widget = label strip (name) on top + body (filmstrip/waveform).
                         // top inset leaves room for marker tabs inside the lane.
                         var clipTop = top + TimelineGeometry.ClipInset;
-                        var totalHeight = TimelineGeometry.ClipTotal(track);
+                        var totalHeight = ClipTotal(track);
                         // a text clip has no name strip: its words are written inside the bar instead
                         var labelHeight = clip is TextClip ? 0 : TimelineGeometry.LabelHeight(track);
                         var bodyHeight = totalHeight - labelHeight;
@@ -168,7 +168,7 @@ namespace Fig.App.Views
                             : corner);
 
                         // a video playing its own sound shows it as a strip under the picture
-                        var soundHeight = clip is VideoClip { PlaysAudio: true } ? TimelineGeometry.AudioStripHeight : 0;
+                        var soundHeight = clip is VideoClip { PlaysAudio: true } ? SoundStrip : 0;
 
                         // draw filmstrip as video clip background
                         if (clip is VideoClip vc && MediaById is not null
@@ -307,7 +307,7 @@ namespace Fig.App.Views
 
                 var ghostX = TrackHeaderWidth + Viewport.TimeToX(_dropPreviewTime);
                 var ghostW = _dropPreviewAsset.DurationSec * px;
-                var ghostHeight = Math.Min(TimelineGeometry.ClipTotal(_dropPreviewTrack), trackHeight - 8);
+                var ghostHeight = Math.Min(ClipTotal(_dropPreviewTrack), trackHeight - 8);
                 var ghostRect = new Rect(ghostX, trackTop + TimelineGeometry.ClipInset, ghostW, ghostHeight);
                 context.DrawRectangle(new SolidColorBrush(Color.Parse("#88ffffff")), null,
                     new RoundedRect(ghostRect, ClipCornerRadius));
@@ -325,8 +325,8 @@ namespace Fig.App.Views
                 var ghostW = Math.Max(4, _dropEffectDuration * px);
                 var ghost = _dropLayer
                     ? new Rect(ghostX, trackTop + TimelineGeometry.ClipInset, ghostW,
-                        Math.Min(TimelineGeometry.ClipTotal(_dropPreviewTrack), height - 8))
-                    : new Rect(ghostX, trackTop + TimelineGeometry.ClipInset + TimelineGeometry.ClipTotal(_dropPreviewTrack) + 4,
+                        Math.Min(ClipTotal(_dropPreviewTrack), height - 8))
+                    : new Rect(ghostX, trackTop + TimelineGeometry.ClipInset + ClipTotal(_dropPreviewTrack) + 4,
                         ghostW, 24);
                 context.DrawRectangle(_dropLayer ? TextClipBrush : new SolidColorBrush(Color.FromArgb(140, 199, 154, 61)),
                     new Pen(Brushes.White, 1), ghost, 3, 3);
@@ -348,7 +348,7 @@ namespace Fig.App.Views
                     var trackTop = TrackTop(listIndex);
                     var x = TrackHeaderWidth + Viewport.TimeToX(_dropTransitionCutSec);
                     var marker = new SolidColorBrush(Color.FromArgb(230, 0xea, 0xb3, 0x08));
-                    var cutTotal = TimelineGeometry.ClipTotal(_dropTransitionTrack);
+                    var cutTotal = ClipTotal(_dropTransitionTrack);
                     context.DrawLine(new Pen(marker, 3), new Point(x, trackTop + TimelineGeometry.ClipInset),
                         new Point(x, trackTop + TimelineGeometry.ClipInset + cutTotal));
                     var midY = trackTop + TimelineGeometry.ClipInset + cutTotal / 2;
