@@ -184,7 +184,7 @@ dotnet test
 
 AI-assisted code if you:
 
-1. **Hand-wrote the code**
+1. **Hand-wrote the code or used AI in bits and pieces (no massive commits anymore)**
 
 You can use AI to write tutorials for you if you want to implement something. It's a good way to learn. But as of now, commits have to be handwritten.
 
