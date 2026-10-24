@@ -17,6 +17,32 @@ namespace Fig.Core.Project
 
         public string RootDirectory { get; }
 
+        /// <summary>
+        /// A full copy of a timeline, saved and loaded the way a project is, with fresh ids for it, its tracks and its
+        /// clips so nothing that caches by id mixes the two up. Clips stay linked to their copied partners.
+        /// </summary>
+        public static Timeline.Timeline CopyTimeline(Timeline.Timeline source)
+        {
+            var copy = JsonSerializer.Deserialize<Timeline.Timeline>(JsonSerializer.Serialize(source, Options), Options)!;
+            copy.Id = Guid.NewGuid().ToString();
+            var groups = new Dictionary<string, string>();
+            foreach (var track in copy.Tracks)
+            {
+                track.Id = Guid.NewGuid().ToString();
+                foreach (var clip in track.Clips)
+                {
+                    clip.Id = Guid.NewGuid().ToString();
+                    if (clip.LinkGroupId is { Length: > 0 } group)
+                    {
+                        if (!groups.TryGetValue(group, out var fresh))
+                            groups[group] = fresh = Guid.NewGuid().ToString("N");
+                        clip.LinkGroupId = fresh;
+                    }
+                }
+            }
+            return copy;
+        }
+
         public ProjectStore(string rootDirectory)
         {
             RootDirectory = rootDirectory;

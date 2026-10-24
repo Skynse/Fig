@@ -125,6 +125,9 @@ namespace Fig.Core.Timeline
     public class Timeline
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
+
+        /// <summary>What the timeline's tab says; null shows "Timeline 1", "Timeline 2"… by its place in the project.</summary>
+        public string? Name { get; set; }
         /// <summary>
         /// The project frame rate: the frame grid (snapping, timecode, frame steps) and the export rate.
         /// Clips play in real time whatever it is.
