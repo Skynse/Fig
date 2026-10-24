@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Fig.Core.Media;
 using Fig.Core.Timeline;
@@ -32,7 +33,7 @@ namespace Fig.Core.Timeline
         /// True for clips a transition can join: video, still images and titles, in any mix. A drawn layer (a still
         /// or a title) holds its picture for as long as the transition needs, so only the clips' lengths limit it.
         /// </summary>
-        public static bool CanTransition(Clip? clip) => clip is VideoClip or ILayerClip;
+        public static bool CanTransition([NotNullWhen(true)] Clip? clip) => clip is VideoClip or ILayerClip;
 
         /// <summary>
         /// Applies a catalog transition to the cut between two abutting clips

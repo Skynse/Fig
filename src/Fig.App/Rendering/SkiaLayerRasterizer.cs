@@ -109,7 +109,7 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
 
         var (w, h) = clip switch
         {
-            TextClip text => string.IsNullOrEmpty(text.Text) ? (0f, 0f) : MeasureText(text, textStyle, height),
+            TextClip text => string.IsNullOrEmpty(text.Text) ? (0f, 0f) : MeasureText(text, textStyle!, height),
             ImageClip image => LoadImage(_findMedia(image.SourceId)!.Url) is { } source ? Fit(source[0], width, height) : (0f, 0f),
             _ => (0f, 0f),
         };

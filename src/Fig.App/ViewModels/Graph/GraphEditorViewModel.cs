@@ -250,8 +250,8 @@ public sealed partial class GraphEditorViewModel : ViewModelBase
         Graph.Edges = snapshot.Edges.Select(e => e.Clone()).ToList();
         Graph.Promoted = snapshot.Promoted.Select(p => p.Clone()).ToList();
         Graph.Name = snapshot.Name;
-        _name = snapshot.Name;
-        OnPropertyChanged(nameof(Name));
+        // the graph already holds the name, so OnNameChanged sees no change and takes no checkpoint
+        Name = snapshot.Name;
         SelectedNodeIds.RemoveWhere(id => Graph.FindNode(id) is null);
         SelectedEdge = null;
     }

@@ -958,7 +958,7 @@ namespace Fig.App.Views
                 _dragSrcIns[c.Id] = c.SourceIn;
                 _dragSrcOuts[c.Id] = c.SourceOut;
             }
-            _dragBefore = _dragMembers.Select(Editor.CaptureGeometry).ToList();
+            _dragBefore = _dragMembers.Select(Editor!.CaptureGeometry).ToList();
             RememberDragOrigins();
             _draggingClip = true;
             if (_dragMode == DragMode.Move)

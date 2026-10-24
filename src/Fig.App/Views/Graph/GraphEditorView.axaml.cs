@@ -15,7 +15,7 @@ namespace Fig.App.Views;
 public partial class GraphEditorView : UserControl
 {
     private readonly Popup _search = new() { IsLightDismissEnabled = true, Placement = PlacementMode.Pointer };
-    private readonly TextBox _query = new() { Watermark = "Search nodes…", MinWidth = 260 };
+    private readonly TextBox _query = new() { PlaceholderText = "Search nodes…", MinWidth = 260 };
     private readonly ListBox _results = new() { MaxHeight = 320, MinWidth = 260 };
     private Point _searchWorld;
     private PendingWire? _searchWire;

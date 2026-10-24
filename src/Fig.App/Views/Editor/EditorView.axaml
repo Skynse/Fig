@@ -802,7 +802,7 @@
                                             <StackPanel Spacing="6">
                                                 <TextBlock Text="Output name" Classes="field-label"/>
                                                 <TextBox Text="{Binding MarkerOutputName, UpdateSourceTrigger=LostFocus}"
-                                                         KeyDown="CommitOnEnter_KeyDown" Watermark="Chosen automatically from the name"
+                                                         KeyDown="CommitOnEnter_KeyDown" PlaceholderText="Chosen automatically from the name"
                                                          AutomationProperties.Name="Output file name"/>
                                             </StackPanel>
                                             <Grid ColumnDefinitions="*,8,*">

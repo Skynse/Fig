@@ -174,7 +174,7 @@
             <TextBlock IsVisible="{Binding IsSingle}" Classes="section" Text="Output file"/>
             <TextBlock IsVisible="{Binding ChapterMode}" Classes="label" Text="Destination folder"/>
             <Grid ColumnDefinitions="*,8,Auto">
-                <TextBox Text="{Binding OutputPath}" Watermark="Choose where to save" AutomationProperties.Name="Destination"/>
+                <TextBox Text="{Binding OutputPath}" PlaceholderText="Choose where to save" AutomationProperties.Name="Destination"/>
                 <Button Grid.Column="2" Classes="fig" Width="110" Content="Browse…" Click="Browse_Click"/>
             </Grid>
             <TextBlock IsVisible="{Binding ChapterMode}" Classes="label" Text="Existing filenames are reviewed before export."/>

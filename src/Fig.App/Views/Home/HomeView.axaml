@@ -98,7 +98,7 @@
                 <TextBlock Classes="meta" Text="{Binding CountText}"/>
             </StackPanel>
             <TextBox x:Name="SearchBox" Grid.Column="1" Width="260" Margin="0,0,16,0"
-                     Watermark="Search projects" Text="{Binding SearchText}"
+                     PlaceholderText="Search projects" Text="{Binding SearchText}"
                      AutomationProperties.Name="Search projects"/>
             <ComboBox Grid.Column="2" Width="140" Margin="0,0,16,0"
                       ItemsSource="{x:Static vm:HomeViewModel.SortOptions}"

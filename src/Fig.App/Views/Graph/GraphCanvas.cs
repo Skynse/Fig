@@ -221,7 +221,7 @@ public sealed class GraphCanvas : Control
 
     private void DrawWorld(DrawingContext context)
     {
-        var boxes = Editor.Graph.Nodes.Select(Layout).ToDictionary(b => b.Node.Id);
+        var boxes = Editor!.Graph.Nodes.Select(Layout).ToDictionary(b => b.Node.Id);
 
         // wires first, so nodes sit on top of them
         foreach (var edge in Editor.Graph.Edges)

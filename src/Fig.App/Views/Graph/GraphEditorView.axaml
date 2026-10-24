@@ -21,7 +21,7 @@
                 </Button>
 
                 <TextBox Grid.Column="1" Width="210" Height="28" MinHeight="28" Margin="8,0" VerticalAlignment="Center"
-                         Text="{Binding Name, Mode=TwoWay}" Watermark="Effect name"
+                         Text="{Binding Name, Mode=TwoWay}" PlaceholderText="Effect name"
                          AutomationProperties.Name="Effect name"/>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
