@@ -50,11 +50,24 @@ public partial class TimelineEditor
                 }
                 destinations[originalTrack.Id] = destination;
             }
-            if (WouldOverlap(destination.Id, start, source.DurSec)
+            // the magnetic main track makes room instead (below)
+            if (!IsMagnetic(destination) && (WouldOverlap(destination.Id, start, source.DurSec)
                 || placements.Any(p => p.Target.Id == destination.Id
-                    && p.Start < start + source.DurSec && start < p.Start + p.Source.DurSec))
+                    && p.Start < start + source.DurSec && start < p.Start + p.Source.DurSec)))
                 return Array.Empty<Clip>();
             placements.Add((source, destination, start));
+        }
+
+        // copies for the magnetic main track go in at the nearest cut; everything copied with them shifts to match
+        var main = MainTrack;
+        var intoMain = placements.Where(p => IsMagnetic(p.Target)).ToList();
+        if (intoMain.Count > 0)
+        {
+            var first = intoMain.Min(p => p.Start);
+            var order = InTimeOrder(main!);
+            var index = InsertIndex(order, first);
+            var cut = index == 0 ? 0 : order[index - 1].StartSec + order[index - 1].DurSec;
+            placements = placements.Select(p => (p.Source, p.Target, Math.Max(0, p.Start + cut - first))).ToList();
         }
 
         var commands = new List<IEditCommand>();
@@ -62,6 +75,7 @@ public partial class TimelineEditor
             commands.Add(new SetTrackListCommand(this, "Add copied audio tracks", Document.Tracks.ToList(), tracks));
         var groups = new Dictionary<string, string>();
         var copies = new List<Clip>();
+        var mainCopies = new List<Clip>();
         foreach (var placement in placements)
         {
             var copy = ClipFactory.Clone(placement.Source);
@@ -73,13 +87,33 @@ public partial class TimelineEditor
                     groups[copy.LinkGroupId] = group = Guid.NewGuid().ToString("N");
                 copy.LinkGroupId = group;
             }
-            commands.Add(new OverwriteInsertCommand(this, placement.Target.Id, copy, placement.Start));
+            copy.StartSec = placement.Start;
+            if (IsMagnetic(placement.Target))
+                mainCopies.Add(copy);
+            else
+                commands.Add(new OverwriteInsertCommand(this, placement.Target.Id, copy, placement.Start));
             copies.Add(copy);
         }
         foreach (var copy in copies.Where(c => c.LinkGroupId is not null).GroupBy(c => c.LinkGroupId)
             .Where(group => group.Count() == 1).SelectMany(group => group))
             copy.LinkGroupId = null;
-        History.Execute(new CompositeCommand(commands.ToArray()));
+        using (History.Group())
+        {
+            // the main track makes room first, so the copies beside it land in the room it made
+            if (mainCopies.Count > 0)
+                EditLayout("Copy clips", () =>
+                {
+                    var order = InTimeOrder(main!);
+                    var index = InsertIndex(order, mainCopies.Min(c => c.StartSec) + 1e-6);
+                    foreach (var copy in mainCopies)
+                        InsertClip(main!, copy);
+                    order.InsertRange(index, mainCopies.OrderBy(c => c.StartSec));
+                    PackTrack(main!, order);
+                    return true;
+                });
+            if (commands.Count > 0)
+                History.Execute(new CompositeCommand(commands.ToArray()));
+        }
         Selection.SelectClips(copies.Select(c => c.Id));
         RaiseChanged();
         return copies;

@@ -129,6 +129,9 @@ namespace Fig.App.Views
                     : Item("Add speed curve", () => { ed.AddSpeedCurve(clip.Id); InvalidateVisual(); },
                         hint: "Ramp the speed through the clip (a velocity edit): drag the line's points up and down"));
 
+            if (clip is VideoClip)
+                menu.Items.Add(Item("Freeze frame at playhead", () => vm.FreezeFrameCommand.Execute(null), playheadInside,
+                    "Hold the picture under the playhead for 3 s; the rest of the clip plays after it"));
             menu.Items.Add(Item("Reverse", () => _ = vm.ReverseClipsAsync(selected),
                 hint: clip is VideoClip or AudioClip ? "Play it backwards (the first time, a reversed copy is made)" : "Run its animation backwards"));
 
@@ -241,6 +244,12 @@ namespace Fig.App.Views
             var vm = _editorVm!;
             var at = Math.Max(0, ed.SnapTime(timeSec));
 
+            if (track is not null && ed.GapAt(track.Id, timeSec) is { } gap)
+            {
+                menu.Items.Add(Item("Delete this gap", () => vm.CloseGap(track.Id, (gap.Start + gap.End) / 2),
+                    hint: "Move the clips after it back to close it up"));
+                menu.Items.Add(new Separator());
+            }
             menu.Items.Add(Item("Move playhead here", () => SetPlayhead(at)));
             menu.Items.Add(Item("Paste here", () =>
             {

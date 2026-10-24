@@ -54,7 +54,7 @@ namespace Fig.App.Services
             await _gate.WaitAsync();
             try
             {
-                if (_disposed)
+                if (_disposed || job.Cancellation.IsCancellationRequested)
                     return;
                 job.Status = ExportJobStatus.Running;
                 try
@@ -64,9 +64,15 @@ namespace Fig.App.Services
                     await Task.Run(() => _media.RenderTimeline(
                         project, timeline, job.OutputPath, width, height, crf,
                         p => Dispatcher.UIThread.Post(() => job.Progress = p), startSec, endSec, renderer, _layers,
-                        encoder, name => Dispatcher.UIThread.Post(() => job.EncoderName = name), turn));
+                        encoder, name => Dispatcher.UIThread.Post(() => job.EncoderName = name), turn, job.Cancellation.Token));
                     job.Status = ExportJobStatus.Done;
                     job.Progress = 1;
+                }
+                catch (OperationCanceledException)
+                {
+                    job.Status = ExportJobStatus.Cancelled;
+                    job.IsCancelling = false;
+                    TryDeleteOutput(job.OutputPath);
                 }
                 catch (Exception ex)
                 {

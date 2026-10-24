@@ -37,11 +37,33 @@ namespace Fig.App.Views
             InvalidateVisual();
         }
 
-        /// <summary>Playback-driven: moves the playhead visually without re-triggering a seek.</summary>
+        /// <summary>
+        /// Playback-driven (or a jump from a key or a button): moves the playhead without re-triggering a seek, and turns
+        /// the page when it runs off the visible part of the timeline, so it stays in view while playing.
+        /// </summary>
         public void SetPlayheadFromPlayback(double sec)
         {
             PlayheadTimeSec = sec;
+            if (!_draggingPlayhead && !DragInProgress)
+                KeepPlayheadInView();
             InvalidateVisual();
+        }
+
+        /// <summary>How far in from the edge a page turn puts the playhead, as a share of the visible width.</summary>
+        private const double PageTurnLead = 0.1;
+
+        private void KeepPlayheadInView()
+        {
+            var width = Bounds.Width - TrackHeaderWidth;
+            if (width <= 1)
+                return;
+            var x = Viewport.TimeToX(PlayheadTimeSec);
+            var visibleSec = width / Math.Max(1e-6, Viewport.PixelsPerSecond);
+            // off the right: the next page starts just before the playhead; off the left (playing backwards): the page ends just after it
+            if (x > width)
+                Viewport.SetScrollTime(Math.Max(0, PlayheadTimeSec - visibleSec * PageTurnLead));
+            else if (x < 0)
+                Viewport.SetScrollTime(Math.Max(0, PlayheadTimeSec - visibleSec * (1 - PageTurnLead)));
         }
 
         public void ZoomInAtPlayhead()
@@ -53,6 +75,10 @@ namespace Fig.App.Views
         {
             ZoomAtTimelineX(PlayheadTimeSecToX(), 1.0 / ZoomFactor);
         }
+
+        /// <summary>Zooms to <paramref name="pixelsPerSecond"/>, keeping the playhead where it is on screen.</summary>
+        public void ZoomToPixelsPerSecond(double pixelsPerSecond)
+            => ZoomAtTimelineX(PlayheadTimeSecToX(), pixelsPerSecond / Math.Max(1e-9, Viewport.PixelsPerSecond));
 
         public void ZoomToFitSequence(double endTimeSec)
         {

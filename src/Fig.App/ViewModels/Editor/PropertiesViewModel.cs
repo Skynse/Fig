@@ -281,6 +281,7 @@ public partial class PropertiesViewModel : ViewModelBase
             FadeOutValue = clip.FadeOutSec;
             SpeedValue = clip.Speed;
             HasSpeedCurve = ClipTime.HasCurve(clip);
+            LoadTempo();
             CanHaveSpeedCurve = _editor.Editor.CanHaveSpeedCurve(clip.Id);
             ClipDurationSec = Math.Max(0.01, clip.DurSec);
             RetimedDurationLabel = FormatTime(clip.DurSec);

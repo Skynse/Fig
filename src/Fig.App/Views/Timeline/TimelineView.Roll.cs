@@ -52,6 +52,9 @@ namespace Fig.App.Views
             {
                 if (Editor.Document.Tracks.FirstOrDefault(t => t.Clips.Contains(member)) is not { } track)
                     continue;
+                // on the magnetic main track the clips after a trimmed one make room, so nothing there is a wall
+                if (!roll && Editor.IsMagnetic(track))
+                    continue;
                 var others = track.Clips.Where(c => !members.Contains(c.Id)).ToList();
                 var edge = atEnd ? member.StartSec + member.DurSec : member.StartSec;
                 var touching = roll

@@ -63,13 +63,7 @@ namespace Fig.App.Views
                 DrawTrackGrid(context, top, height);
 
                 var trackLabel = track.Name ?? track.Kind.ToString();
-                var trackText = new FormattedText(
-                    trackLabel,
-                    System.Globalization.CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    Typeface.Default,
-                    11,
-                    TrackHeaderTextBrush);
+                var trackText = TextOf(trackLabel, 11, TrackHeaderTextBrush);
                 context.DrawText(trackText, new Point(HeaderLabelX(), top + (height - trackText.Height) / 2));
 
                 DrawHeaderToggle(context, track, HeaderButtonRect(track, HeaderToggleColumn));
@@ -159,13 +153,7 @@ namespace Fig.App.Views
                                 var clipName = ClipName(clip);
                                 if (clipName is not null && w >= MinLabelWidth)
                                 {
-                                    var labelText = new FormattedText(
-                                        clipName,
-                                        System.Globalization.CultureInfo.CurrentCulture,
-                                        FlowDirection.LeftToRight,
-                                        Typeface.Default,
-                                        10,
-                                        Brushes.White);
+                                    var labelText = TextOf(clipName, 10, Brushes.White);
                                     context.DrawText(labelText, new Point(x + 4 + (w >= 54 && BuildRack(clip).Count > 0 ? 26 : 0),
                                         labelRect.Y + (labelHeight - labelText.Height) / 2));
                                 }
@@ -394,6 +382,9 @@ namespace Fig.App.Views
             DrawCopyPreview(context);
             DrawDiamondCopyPreview(context);
             DrawMoveGhost(context);
+            DrawInsertMark(context);
+            DrawSelectedGap(context);
+            DrawBlade(context);
             DrawTrackDrop(context);
 
             var playheadX = TrackHeaderWidth + Viewport.TimeToX(PlayheadTimeSec);

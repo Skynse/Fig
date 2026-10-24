@@ -92,6 +92,37 @@ namespace Fig.App.Views
             => brush is ISolidColorBrush solid
                 ? PenOf(Color.FromArgb((byte)Math.Round(solid.Color.A * solid.Opacity), solid.Color.R, solid.Color.G, solid.Color.B), thickness)
                 : new Pen(brush, thickness);
+        // laying out text (shaping, font fallback) was most of a frame, and panning or playing redraws the same words
+        // in new places, so each label is laid out once and reused while its text, size, colour and room stay the same
+        private const int TextCacheLimit = 4096;
+        private readonly record struct TextKey(string Text, double Size, IBrush Brush, double MaxWidth, double MaxHeight, int MaxLines, bool Ellipsis);
+        private readonly Dictionary<TextKey, FormattedText> _texts = new();
+
+        /// <summary>
+        /// A label, laid out once and kept. <paramref name="maxWidth"/> (rounded to half a pixel) trims it with an
+        /// ellipsis when <paramref name="ellipsis"/>; 0 means no limit.
+        /// </summary>
+        private FormattedText TextOf(string text, double size, IBrush brush, double maxWidth = 0, double maxHeight = 0,
+            int maxLines = 0, bool ellipsis = false)
+        {
+            var key = new TextKey(text, size, brush, Math.Round(maxWidth * 2) / 2, Math.Round(maxHeight * 2) / 2, maxLines, ellipsis);
+            if (_texts.TryGetValue(key, out var cached))
+                return cached;
+            if (_texts.Count >= TextCacheLimit)
+                _texts.Clear();   // zooming makes new widths; start over rather than keep every one
+            var made = new FormattedText(text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+                Typeface.Default, size, brush);
+            if (key.MaxWidth > 0)
+                made.MaxTextWidth = key.MaxWidth;
+            if (key.MaxHeight > 0)
+                made.MaxTextHeight = key.MaxHeight;
+            if (maxLines > 0)
+                made.MaxLineCount = maxLines;
+            if (ellipsis)
+                made.Trimming = TextTrimming.CharacterEllipsis;
+            return _texts[key] = made;
+        }
+
         /// <summary>Narrower clips skip their name: it couldn't be read, and laying out text for thousands of slivers is slow.</summary>
         private const double MinLabelWidth = 24;
         /// <summary>Clips and effect bars narrower than this are drawn as plain colour, without their details.</summary>

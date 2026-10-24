@@ -114,9 +114,20 @@
                     <MenuItem Header="_Duplicate" Command="{Binding Editor.DuplicateSelectedCommand}" InputGesture="{Binding Shortcuts[edit.duplicate]}"/>
                     <Separator/>
                     <MenuItem Header="S_plit at playhead" Command="{Binding Editor.SplitAtPlayheadCommand}" InputGesture="{Binding Shortcuts[edit.split]}"/>
+                    <MenuItem Header="Split every trac_k" Command="{Binding Editor.SplitAllAtPlayheadCommand}" InputGesture="{Binding Shortcuts[edit.splitAll]}"/>
+                    <MenuItem Header="Delete _before the playhead" Command="{Binding Editor.TrimStartToPlayheadCommand}" InputGesture="{Binding Shortcuts[edit.trimStart]}"/>
+                    <MenuItem Header="Delete _after the playhead" Command="{Binding Editor.TrimEndToPlayheadCommand}" InputGesture="{Binding Shortcuts[edit.trimEnd]}"/>
+                    <MenuItem Header="_Freeze frame" Command="{Binding Editor.FreezeFrameCommand}" InputGesture="{Binding Shortcuts[edit.freeze]}"/>
                     <MenuItem Header="R_ipple delete" Command="{Binding Editor.RippleDeleteSelectedCommand}"/>
                     <MenuItem Header="_Lift delete" Command="{Binding Editor.LiftSelectedCommand}"/>
                     <MenuItem Header="E_nable / disable" Command="{Binding Editor.ToggleClipEnabledSelectedCommand}" InputGesture="Ctrl+E"/>
+                    <MenuItem Header="_Group clips" Command="{Binding Editor.GroupSelectedCommand}" InputGesture="{Binding Shortcuts[edit.group]}"/>
+                    <MenuItem Header="U_ngroup clips" Command="{Binding Editor.UngroupSelectedCommand}" InputGesture="{Binding Shortcuts[edit.ungroup]}"/>
+                    <Separator/>
+                    <MenuItem Header="Main track ma_gnet" Command="{Binding Editor.ToggleMainTrackMagnetCommand}" ToggleType="CheckBox"
+                              IsChecked="{Binding Editor.MainTrackMagnet, Mode=OneWay}" InputGesture="{Binding Shortcuts[edit.magnet]}"/>
+                    <MenuItem Header="Blade _tool" Command="{Binding Editor.ToggleBladeToolCommand}" ToggleType="CheckBox"
+                              IsChecked="{Binding Editor.BladeTool, Mode=OneWay}" InputGesture="{Binding Shortcuts[tool.blade]}"/>
                     <Separator/>
                     <MenuItem Header="Add _marker at playhead" Command="{Binding Editor.AddMarkerAtPlayheadCommand}" InputGesture="M"/>
                     <MenuItem Header="Create ranges from _bookmarks…" Command="{Binding Editor.CreateRangesFromBookmarksCommand}"
@@ -133,9 +144,9 @@
                     <MenuItem Header="_Audio scrubbing" Command="{Binding Editor.ToggleAudioScrubCommand}" ToggleType="CheckBox"
                               IsChecked="{Binding Editor.AudioScrub, Mode=OneWay}" InputGesture="{Binding Shortcuts[play.audioScrub]}"/>
                     <Separator/>
-                    <MenuItem Header="Zoom to _fit sequence" Command="{Binding Editor.ZoomTimelineToFitCommand}"/>
-                    <MenuItem Header="Zoom i_n" Command="{Binding Editor.ZoomTimelineInCommand}"/>
-                    <MenuItem Header="Zoom _out" Command="{Binding Editor.ZoomTimelineOutCommand}"/>
+                    <MenuItem Header="Zoom to _fit sequence" Command="{Binding Editor.ZoomTimelineToFitCommand}" InputGesture="{Binding Shortcuts[view.zoomFit]}"/>
+                    <MenuItem Header="Zoom i_n" Command="{Binding Editor.ZoomTimelineInCommand}" InputGesture="{Binding Shortcuts[view.zoomIn]}"/>
+                    <MenuItem Header="Zoom _out" Command="{Binding Editor.ZoomTimelineOutCommand}" InputGesture="{Binding Shortcuts[view.zoomOut]}"/>
                     <Separator/>
                     <MenuItem Header="Fit _tracks" Command="{Binding Editor.FitTracksCommand}"/>
                     <MenuItem Header="T_aller tracks" Command="{Binding Editor.TallerTracksCommand}"/>

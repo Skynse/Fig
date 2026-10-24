@@ -180,7 +180,7 @@ namespace Fig.Core.Timeline
         {
             _editor = editor;
             _clipId = clipId;
-            _newValue = Math.Clamp(newValue, 0.1, 8.0);
+            _newValue = Math.Clamp(newValue, TimelineEditor.MinSpeed, TimelineEditor.MaxSpeed);
         }
 
         public void Execute()

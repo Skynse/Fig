@@ -24,6 +24,13 @@ public static class ShortcutsDialog
             ("Wheel / Shift+Wheel", "Scroll sideways"),
             ("Alt+Wheel", "Make tracks taller or shorter"),
             ("Middle-drag", "Pan the timeline"),
+            ("Ctrl+drag a clip", "Copy it"),
+            ("Ctrl+drag a clip edge", "Roll the cut: the neighbour gives or takes the difference"),
+            ("Alt+drag", "Move without snapping"),
+            ("Shift+drag", "Select with a box"),
+            ("Click a gap, Delete", "Close the gap"),
+            ("Blade: click", "Cut the clip there (Shift: every track)"),
+            ("Escape", "Put the blade away, or clear the selection"),
         ]),
     ];
 

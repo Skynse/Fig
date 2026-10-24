@@ -233,20 +233,67 @@ namespace Fig.App.Views
             if (peaks is null || peaks.Length == 0 || asset.DurationSec <= 0)
                 return;
 
-            var halfH = rect.Height / 2 - 3;
             var srcIn = Math.Max(0, clip.SourceIn);
-            var srcSpan = Math.Max(0.0001, clip.SourceOut - srcIn);
-            var samplesPerSec = peaks.Length / asset.DurationSec;
             var curve = ClipTime.HasCurve(clip);
 
             var (visLeft, visRight) = VisibleXRange(rect);
             if (visRight <= visLeft)
                 return;
 
-            var first = Math.Floor(visLeft);
-            var columns = (int)Math.Ceiling(visRight - first) + 1;
-            if (columns < 2)
+            // a clip that fits in a few screens is shaped once, in its own coordinates, and only moved while panning
+            if (rect.Width <= MaxCachedWaveWidth)
+            {
+                var key = new WaveKey(peaks, srcIn, clip.SourceOut, clip.DurSec, Math.Round(rect.Width * 4) / 4,
+                    Math.Round(rect.Height * 4) / 4, curve ? CurveFingerprint(clip) : 0);
+                if (!_waves.TryGetValue(clip, out var cached) || cached.Key != key)
+                {
+                    cached = new CachedWave(key, ShapeWave(clip, asset, 0, rect.Width, rect.Width, rect.Height));
+                    _waves.AddOrUpdate(clip, cached);
+                }
+                using (context.PushClip(rect))
+                using (context.PushTransform(Matrix.CreateTranslation(rect.X, rect.Y)))
+                    context.DrawGeometry(AudioWaveFill, null, cached.Wave);
                 return;
+            }
+
+            using (context.PushClip(rect))
+            using (context.PushTransform(Matrix.CreateTranslation(rect.X, rect.Y)))
+                context.DrawGeometry(AudioWaveFill, null,
+                    ShapeWave(clip, asset, Math.Floor(visLeft) - rect.X, visRight - rect.X, rect.Width, rect.Height));
+        }
+
+        /// <summary>Clips wider than this (zoomed well in) shape just the part on screen each frame.</summary>
+        private const double MaxCachedWaveWidth = 6000;
+
+        private readonly record struct WaveKey(float[] Peaks, double SrcIn, double SrcOut, double Dur, double Width, double Height, int Curve);
+
+        /// <summary>Changes whenever a point of the clip's speed curve moves, so its waveform is shaped again.</summary>
+        private static int CurveFingerprint(Clip clip)
+        {
+            var hash = new HashCode();
+            foreach (var point in ClipTime.Curve(clip)!)
+                hash.Add(point);
+            return hash.ToHashCode();
+        }
+        private sealed record CachedWave(WaveKey Key, Geometry Wave);
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Clip, CachedWave> _waves = new();
+
+        /// <summary>
+        /// The waveform of a clip <paramref name="width"/> by <paramref name="height"/> pixels, from x = <paramref name="from"/>
+        /// to <paramref name="to"/> in the clip's own coordinates, one column a pixel.
+        /// </summary>
+        private static Geometry ShapeWave(Clip clip, MediaAsset asset, double from, double to, double width, double height)
+        {
+            var peaks = asset.WaveformPeaks!;
+            var centerY = height / 2;
+            var halfH = height / 2 - 3;
+            var srcIn = Math.Max(0, clip.SourceIn);
+            var srcSpan = Math.Max(0.0001, clip.SourceOut - srcIn);
+            var samplesPerSec = peaks.Length / asset.DurationSec;
+            var curve = ClipTime.HasCurve(clip);
+            var rect = new Rect(0, 0, width, height);
+            var first = Math.Floor(from);
+            var columns = Math.Max(2, (int)Math.Ceiling(to - first) + 1);
             var amps = new double[columns];
             for (var i = 0; i < columns; i++)
             {
@@ -282,8 +329,7 @@ namespace Fig.App.Views
                     gc.LineTo(new Point(first + i, centerY + Math.Max(0.5, amps[i] * halfH)));
                 gc.EndFigure(true);
             }
-            using (context.PushClip(rect))
-                context.DrawGeometry(AudioWaveFill, null, wave);
+            return wave;
         }
 
         /// <summary>
@@ -304,13 +350,7 @@ namespace Fig.App.Views
                 var room = rect.Right - pad - textX;
                 if (room < 8)
                     return;
-                var words = new FormattedText(ClipName(clip) ?? "Text", System.Globalization.CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White)
-                {
-                    MaxTextWidth = room,
-                    MaxLineCount = 1,
-                    Trimming = TextTrimming.CharacterEllipsis,
-                };
+                var words = TextOf(ClipName(clip) ?? "Text", 11, Brushes.White, room, maxLines: 1, ellipsis: true);
                 context.DrawText(words, new Point(textX, centerY - words.Height / 2));
             }
         }

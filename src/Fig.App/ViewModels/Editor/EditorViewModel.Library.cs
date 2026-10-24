@@ -320,7 +320,11 @@ public partial class EditorViewModel
         }
 
         var timeline = TemplateInstantiator.Instantiate(template, assignments);
-        Project.Timelines[0] = timeline;
+        // the template replaces the open timeline, keeping its name
+        var open = Editor.Document;
+        timeline.Name = open.Name;
+        Project.Timelines[Math.Max(0, Project.Timelines.IndexOf(open))] = timeline;
+        _timelineStates.Remove(open);
         ActivateTimeline(timeline);
         _store?.SaveProject(Project);
         Notify?.Invoke($"Applied \"{template.Name}\"");

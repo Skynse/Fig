@@ -88,28 +88,36 @@ public partial class EditorViewModel
         if (project.Timelines.Count == 0)
             project.Timelines.Add(new TimelineModel { Rate = FrameRate.Common(30) });
 
+        _timelineStates.Clear();
         ActivateTimeline(project.Timelines[0]);
     }
 
     private void ActivateTimeline(TimelineModel timeline)
     {
         Beats.Cancel();
+        StashOpenTimeline();
         UnwireEditorEvents(Editor);
-        Editor = new TimelineEditor(timeline, Preferences.Current.Editing.UndoSteps);
+        // a timeline opened before comes back with its undo history and playhead
+        var known = _timelineStates.TryGetValue(timeline, out var state);
+        Editor = known ? state.Editor : new TimelineEditor(timeline, Preferences.Current.Editing.UndoSteps);
         Editor.MediaResolver = FindAssetById;
         Editor.MagneticSnap = MagneticSnap;
         Editor.RefreshTrackIndices();
         WireEditorEvents(Editor);
         OnPropertyChanged(nameof(Editor));
+        OnPropertyChanged(nameof(MainTrackMagnet));
+        OnPropertyChanged(nameof(HasClipSelection));
+        OnPropertyChanged(nameof(HasVideoSelection));
         OnPropertyChanged(nameof(SequenceEndSec));
         NotifyProjectRate();
 
         SelectedMedia = null;
         InitializePlaybackForCurrentEditor();
-        // back to the start without the scrub snippet a user's seek plays: opening a project makes no sound
+        // back to the start (or where it was) without the scrub snippet a user's seek plays: switching makes no sound
         StopShuttle();
-        MovePlayhead(0, audible: false);
+        MovePlayhead(known ? state.Playhead : 0, audible: false);
         Properties.Refresh();
+        RefreshTimelineTabs();
     }
 
     private void InitializePlaybackForCurrentEditor()

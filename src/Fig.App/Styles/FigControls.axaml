@@ -39,6 +39,10 @@
   <Style Selector="ToggleButton.fig:pointerover"><Setter Property="Background" Value="#30343b"/></Style>
   <Style Selector="ToggleButton.fig.icon"><Setter Property="Width" Value="32"/><Setter Property="Padding" Value="7"/></Style>
   <Style Selector="ComboBox"><Setter Property="FontSize" Value="12"/><Setter Property="MinHeight" Value="32"/><Setter Property="Background" Value="#212328"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="10,4"/></Style>
+  <!-- text boxes show where the pointer is and which one is being typed in -->
+  <Style Selector="TextBox /template/ Border#PART_BorderElement"><Setter Property="BorderThickness" Value="1"/></Style>
+  <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement"><Setter Property="BorderBrush" Value="#3a3e47"/><Setter Property="Background" Value="#25282e"/></Style>
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement"><Setter Property="BorderBrush" Value="#6ea5ff"/><Setter Property="Background" Value="#1b1d22"/></Style>
   <Style Selector="TextBox"><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FontSize" Value="12"/><Setter Property="MinHeight" Value="32"/><Setter Property="Background" Value="#212328"/><Setter Property="BorderBrush" Value="Transparent"/><Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="8,5"/></Style>
   <Style Selector="NumericUpDown"><Setter Property="ShowButtonSpinner" Value="False"/><Setter Property="FontSize" Value="11"/><Setter Property="MinHeight" Value="24"/><Setter Property="Background" Value="#131417"/><Setter Property="BorderBrush" Value="#2d3037"/><Setter Property="CornerRadius" Value="6"/><Setter Property="Padding" Value="6,3"/></Style>
   <Style Selector="Expander"><Setter Property="Template"><ControlTemplate><StackPanel>

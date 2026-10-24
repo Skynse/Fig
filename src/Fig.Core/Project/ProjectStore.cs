@@ -17,6 +17,32 @@ namespace Fig.Core.Project
 
         public string RootDirectory { get; }
 
+        /// <summary>
+        /// A full copy of a timeline, saved and loaded the way a project is, with fresh ids for it, its tracks and its
+        /// clips so nothing that caches by id mixes the two up. Clips stay linked to their copied partners.
+        /// </summary>
+        public static Timeline.Timeline CopyTimeline(Timeline.Timeline source)
+        {
+            var copy = JsonSerializer.Deserialize<Timeline.Timeline>(JsonSerializer.Serialize(source, Options), Options)!;
+            copy.Id = Guid.NewGuid().ToString();
+            var groups = new Dictionary<string, string>();
+            foreach (var track in copy.Tracks)
+            {
+                track.Id = Guid.NewGuid().ToString();
+                foreach (var clip in track.Clips)
+                {
+                    clip.Id = Guid.NewGuid().ToString();
+                    if (clip.LinkGroupId is { Length: > 0 } group)
+                    {
+                        if (!groups.TryGetValue(group, out var fresh))
+                            groups[group] = fresh = Guid.NewGuid().ToString("N");
+                        clip.LinkGroupId = fresh;
+                    }
+                }
+            }
+            return copy;
+        }
+
         public ProjectStore(string rootDirectory)
         {
             RootDirectory = rootDirectory;
@@ -68,18 +94,11 @@ namespace Fig.Core.Project
             project.UpdatedAt = DateTime.Now;
             var folder = ProjectDirectory(project.Id);
             Directory.CreateDirectory(folder);
-            // saved relative to the folder, so it can be zipped up and opened anywhere; in memory they stay full
-            string json;
-            ProjectPaths.MakeRelative(project, folder);
-            try
-            {
-                json = JsonSerializer.Serialize(project, Options);
-            }
-            finally
-            {
-                ProjectPaths.Resolve(project, folder);
-            }
-            File.WriteAllText(ProjectPath(project.Id), json);
+            // saved relative to the folder, so it can be zipped up and opened anywhere; in memory they stay full (the
+            // JSON is rewritten, never the project, which an export or playback may be reading on another thread)
+            var node = JsonSerializer.SerializeToNode(project, Options)!;
+            ProjectPaths.MakeRelative(node, folder);
+            File.WriteAllText(ProjectPath(project.Id), node.ToJsonString(Options));
         }
 
         public IReadOnlyList<ProjectSummary> ListProjects()

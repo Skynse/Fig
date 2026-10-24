@@ -2,11 +2,13 @@ using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
+using Fig.App.Controls;
 using Fig.App.Services;
 using Fig.App.ViewModels;
 using Fig.Core.Media;
@@ -52,6 +54,9 @@ public partial class EditorView : UserControl
         DataContextChanged += OnDataContextChanged;
         Timeline.PlayheadChanged += OnTimelinePlayheadChanged;
         Timeline.Viewport.Changed += UpdateZoomText;
+        ZoomSlider.PropertyChanged += OnZoomSliderChanged;
+        // a double-click on the zoom slider goes back to 100%
+        ZoomSlider.Default = ZoomSliderValue(TimelineViewport.DefaultPixelsPerSecond);
         UpdateZoomText();
         PreviewHost.ContextMenu = BuildPreviewMenu();
     }
@@ -169,10 +174,29 @@ public partial class EditorView : UserControl
         }
     }
 
+    private bool _syncingZoomSlider;
+
     private void UpdateZoomText()
     {
-        var percent = Timeline.Viewport.PixelsPerSecond / TimelineViewport.DefaultPixelsPerSecond * 100;
-        ZoomText.Text = $"{percent:0}%";
+        var pps = Timeline.Viewport.PixelsPerSecond;
+        ZoomText.Text = $"{pps / TimelineViewport.DefaultPixelsPerSecond * 100:0}%";
+        // the slider runs on a log scale, so each step zooms by the same factor
+        _syncingZoomSlider = true;
+        ZoomSlider.Value = ZoomSliderValue(pps);
+        _syncingZoomSlider = false;
+    }
+
+    private double ZoomSliderValue(double pixelsPerSecond)
+        => ZoomSlider.Maximum * Math.Log(pixelsPerSecond / TimelineViewport.MinPixelsPerSecond)
+           / Math.Log(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond);
+
+    private void OnZoomSliderChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != FigSlider.ValueProperty || _syncingZoomSlider || e.NewValue is not double value)
+            return;
+        var pps = TimelineViewport.MinPixelsPerSecond
+                  * Math.Pow(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond, value / ZoomSlider.Maximum);
+        Timeline.ZoomToPixelsPerSecond(pps);
     }
 
     // ---- workspace layout -------------------------------------------------
@@ -351,6 +375,12 @@ public partial class EditorView : UserControl
     private void OnPlaybackPositionChanged(double sec) => Timeline.SetPlayheadFromPlayback(sec);
 
     private void WirePlayback(PlaybackEngine playback) => OnPlaybackAssigned(playback);
+
+    private void TimelineTab_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: TimelineTab tab } && DataContext is EditorViewModel editor)
+            editor.RenameTimelineCommand.Execute(tab);
+    }
 
     private void MediaCard_PointerPressed(object? sender, PointerPressedEventArgs e)
     {

@@ -29,9 +29,14 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ExportJob">
                         <StackPanel Spacing="8" Margin="0,0,10,18">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Grid.Column="1" Text="{Binding StatusLabel}" Foreground="#8A8A8A" FontSize="12"/>
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding StatusLabel}" Foreground="#8A8A8A" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <Button Grid.Column="2" Classes="fig" Padding="10,3" MinHeight="0" FontSize="11" Content="Cancel"
+                                        Command="{Binding CancelCommand}" IsVisible="{Binding IsActive}" IsEnabled="{Binding !IsCancelling}"
+                                        ToolTip.Tip="Stop this export and delete what it wrote" AutomationProperties.Name="Cancel export"/>
                             </Grid>
                             <ProgressBar Classes="job" Classes.done="{Binding IsDone}" Minimum="0" Maximum="1" Value="{Binding Progress}"/>
                             <TextBlock IsVisible="{Binding HasError}" Text="{Binding Error}" Foreground="#FF6B6B" FontSize="11" TextWrapping="Wrap"/>

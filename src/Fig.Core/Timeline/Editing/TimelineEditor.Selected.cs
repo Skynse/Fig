@@ -22,7 +22,9 @@ namespace Fig.Core.Timeline
         /// Deletes what is selected, whatever it is: each kind of thing says how (see <see cref="SelectionGroups"/>).
         /// Returns what was removed (a count and the noun for the message), or null when nothing could be.
         /// </summary>
-        public (int Count, string Noun)? DeleteSelection()
+        public (int Count, string Noun)? DeleteSelection() => KeepMainTrackClosed(DeleteSelectionLeavingGaps);
+
+        private (int Count, string Noun)? DeleteSelectionLeavingGaps()
         {
             // a picked keyframe diamond goes, not the clip or effect it sits on
             if (Selection.Keyframe is { } keyframe)

@@ -120,6 +120,10 @@ namespace Fig.App.Views
         // each dragged clip's speed curve as it was when the drag began, for clips with one
         private readonly Dictionary<string, List<KeyframePoint>> _dragCurves = new();
 
+        // the zoom and scroll of each timeline that was open before
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Fig.Core.Timeline.Timeline, SavedView> _views = new();
+        private sealed record SavedView(double PixelsPerSecond, double ScrollTime);
+
         public TimelineView()
         {
             ClipToBounds = true;
@@ -136,6 +140,15 @@ namespace Fig.App.Views
             base.OnPropertyChanged(change);
             if (change.Property == EditorProperty)
             {
+                // each timeline keeps its own zoom and scroll while another one is open
+                if (change.OldValue is TimelineEditor previous)
+                    _views.AddOrUpdate(previous.Document, new SavedView(Viewport.PixelsPerSecond, Viewport.ScrollTime));
+                if (change.NewValue is TimelineEditor next && _views.TryGetValue(next.Document, out var view))
+                {
+                    Viewport.SetPixelsPerSecond(view.PixelsPerSecond);
+                    Viewport.SetScrollTime(view.ScrollTime);
+                }
+                _selectedGap = null;
                 if (change.OldValue is TimelineEditor oldEditor)
                 {
                     oldEditor.TimelineChanged -= OnTimelineChanged;
@@ -316,12 +329,20 @@ namespace Fig.App.Views
                 _editorVm.RippleSlideStarted += OnRippleSlideStarted;
         }
 
-        private void OnTimelineSelectionChanged() => InvalidateVisual();
+        private void OnTimelineSelectionChanged()
+        {
+            // picking anything else lets go of a selected gap
+            if (Editor?.Selection.Count > 0)
+                _selectedGap = null;
+            InvalidateVisual();
+        }
 
         private void OnBeatPreviewChanged() => InvalidateVisual();
 
         private void OnTimelineChanged()
         {
+            // a selected gap may have closed, moved or filled
+            _selectedGap = null;
             InvalidateMeasure();
             InvalidateVisual();
         }
@@ -572,6 +593,13 @@ namespace Fig.App.Views
                 return;
             }
 
+            // the blade cuts where it is pressed
+            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && BladePress(pos, e.KeyModifiers))
+            {
+                e.Handled = true;
+                return;
+            }
+
             // clip hit-testing: press on a clip starts move/resize drag
             var time = Viewport.XToTime(pos.X - TrackHeaderWidth);
             var clipTrack = HitTestTrack(pos.Y);
@@ -599,7 +627,8 @@ namespace Fig.App.Views
                 }
             }
 
-            // empty space: a click deselects, a drag draws a selection box
+            // empty space: a click deselects (and selects the gap it was in), a drag draws a selection box
+            NotePressGap(clipTrack, time);
             ArmMarquee(pos, e.KeyModifiers);
             e.Pointer.Capture(this);
             InvalidateVisual();
@@ -610,6 +639,7 @@ namespace Fig.App.Views
         {
             base.OnPointerMoved(e);
             NoteModifiers(e.KeyModifiers);
+            _pointerModifiers = e.KeyModifiers;
 
             if (Editor is null)
                 return;
@@ -741,27 +771,44 @@ namespace Fig.App.Views
                         _ghostDelta = delta;
                         _ghostTrackId = null;
 
-                        // over another track of the same kind: the clips go there, at the time the pointer puts them
+                        // over the magnetic main track the clips float and the track opens a hole for them
                         var hoverTrack = HitTestTrack(pos.Y);
+                        if (MagnetMove(hoverTrack, rawStart - origin))
+                        {
+                            Carry(_dragClip.StartSec - origin);
+                            break;
+                        }
+
+                        // over another track of the same kind: the clips go there, at the time the pointer puts them
                         var currentTrack = Editor.Document.Tracks.FirstOrDefault(t => t.Clips.Contains(_dragClip));
                         if (hoverTrack is not null && currentTrack is not null && hoverTrack.Id != currentTrack.Id
                             && hoverTrack.Kind == currentTrack.Kind)
                         {
                             _ghostBlocked = !Editor.MoveClipsToTrack(targets.Keys, hoverTrack.Id, targets);
-                            // no room there: the clips wait where they last fit; the ghost shows the spot on that track
+                            // no room there: the clips wait where they last fit; the ghost shows the spot on that track,
+                            // and letting go puts them on a track that has room
                             if (_ghostBlocked)
+                            {
                                 _ghostTrackId = hoverTrack.Id;
+                                (_blockedTargets, _blockedNearTrackId) = (targets, hoverTrack.Id);
+                            }
                             else
+                            {
                                 _dragOriginalTrack = hoverTrack;
+                            }
+                            PackMagnetAfterMove();
                             Carry(_dragClip.StartSec - origin);
                             break;
                         }
 
-                        // no room there: the clips wait where they last fit, and a red ghost shows where they'd go
+                        // no room there: the clips wait where they last fit, and a ghost shows where they'd go
                         _ghostBlocked = Editor.WouldOverlapMove(targets);
-                        if (!_ghostBlocked)
+                        if (_ghostBlocked)
+                            (_blockedTargets, _blockedNearTrackId) = (targets, currentTrack?.Id);
+                        else
                             foreach (var m in _dragMembers)
                                 m.StartSec = targets[m.Id];
+                        PackMagnetAfterMove();
                         // selected effect bars come along by however far the clips really moved
                         Carry(_dragClip.StartSec - origin);
                         break;
@@ -774,6 +821,7 @@ namespace Fig.App.Views
                         if (Math.Abs(ClampRoll(moved) - moved) > 1e-9)
                             ApplyLiveResizeStart(deltaTime + ClampRoll(moved) - moved);
                         ApplyRoll(atEnd: false);
+                        PackMagnetLive();
                         break;
                     }
                     case DragMode.ResizeEnd:
@@ -783,6 +831,7 @@ namespace Fig.App.Views
                         if (Math.Abs(ClampRoll(moved) - moved) > 1e-9)
                             ApplyLiveResizeEnd(deltaTime + ClampRoll(moved) - moved);
                         ApplyRoll(atEnd: true);
+                        PackMagnetLive();
                         break;
                     }
                     case DragMode.FadeIn:
@@ -802,6 +851,10 @@ namespace Fig.App.Views
                 InvalidateVisual();
                 return;
             }
+
+            // idle: the blade follows the pointer
+            if (UpdateBladeHover(pos, _pointerModifiers))
+                return;
 
             // idle: a keyframe diamond, of any kind, highlights and says what it does
             if (UpdateDiamondHover(pos))
@@ -883,10 +936,18 @@ namespace Fig.App.Views
 
             if (_draggingClip && _dragClip is not null)
             {
+                // the drag changed clips live; record it now as a single undo step, with the clips that had no room
+                // where they were let go put on a track that has
+                if (Editor is not null)
+                    using (Editor.History.Group())
+                    {
+                        FinishMagnetDrag();
+                        Editor.CommitClipGeometry(_dragBefore);
+                        SpillBlockedClips();
+                    }
                 _draggingClip = false;
                 _ghostBlocked = false;
-                // the drag changed clips live; record it now as a single undo step
-                Editor?.CommitClipGeometry(_dragBefore);
+                _magnetTrack = null;
                 EndCarry();
                 // clicking (not dragging) a clip inside a multi-selection narrows the selection to it
                 if (_collapseToClipId is { } only && Math.Abs(_pressedPx - e.GetPosition(this).X) < MarqueeStartPx
@@ -965,6 +1026,7 @@ namespace Fig.App.Views
                 BeginCarryForClips(_dragMembers);
             if (_dragMode is DragMode.ResizeStart or DragMode.ResizeEnd)
                 BeginRoll(atEnd: _dragMode == DragMode.ResizeEnd, roll: _rollEdit);
+            BeginMagnet();
         }
     }
 }

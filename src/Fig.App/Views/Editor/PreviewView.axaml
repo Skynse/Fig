@@ -89,7 +89,7 @@
                                 ToolTip.Tip="Mute monitor audio">
                             <local:StrokeIcon Icon="{Binding MonitorAudioIconKey}" Width="15" Height="15"/>
                         </Button>
-                        <ctrls:FigSlider Minimum="0" Maximum="1" Value="{Binding MonitorVolume}"
+                        <ctrls:FigSlider Minimum="0" Maximum="1" Default="1" Value="{Binding MonitorVolume}"
                                            Width="72" Height="18" VerticalAlignment="Center"
                                            ToolTip.Tip="Monitor volume"/>
                         <ComboBox ItemsSource="{Binding PreviewScaleOptions}"

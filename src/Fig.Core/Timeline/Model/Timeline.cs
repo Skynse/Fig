@@ -125,6 +125,9 @@ namespace Fig.Core.Timeline
     public class Timeline
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
+
+        /// <summary>What the timeline's tab says; null shows "Timeline 1", "Timeline 2"… by its place in the project.</summary>
+        public string? Name { get; set; }
         /// <summary>
         /// The project frame rate: the frame grid (snapping, timecode, frame steps) and the export rate.
         /// Clips play in real time whatever it is.
@@ -139,6 +142,15 @@ namespace Fig.Core.Timeline
         public int Revision { get; set; }
         public bool IsAutosave { get; set; }
         public List<Track> Tracks { get; set; } = new();
+
+        /// <summary>
+        /// The main track (the lowest video track) keeps its clips end to end from the start: deleting, trimming or
+        /// moving a clip there closes the gap, and a clip put there pushes the later ones along.
+        /// </summary>
+        public bool MainTrackMagnet { get; set; } = true;
+
+        /// <summary>The song's tempo, as last given to match a clip's speed to it (null until then).</summary>
+        public double? SongBpm { get; set; }
 
         /// <summary>Timeline start timecode (seconds); 0 when the program starts at zero.</summary>
         public double GlobalStartSec { get; set; }

@@ -57,7 +57,7 @@ public partial class EditorViewModel
     }
 
     [RelayCommand]
-    private void CutSelected() => Editor.CutSelected();
+    private void CutSelected() => RunWithRippleSlide(() => Editor.CutSelected());
 
     [RelayCommand]
     private void Paste()
@@ -66,11 +66,11 @@ public partial class EditorViewModel
         if (Editor.ClipboardHoldsEffects && Editor.HasEffectClipboard)
             Editor.PasteEffects(PlayheadTimeSec, Editor.Selection.ActiveTrackId);
         else
-            Editor.Paste(PlayheadTimeSec, Editor.Selection.ActiveTrackId);
+            RunWithRippleSlide(() => Editor.Paste(PlayheadTimeSec, Editor.Selection.ActiveTrackId));
     }
 
     [RelayCommand]
-    private void DuplicateSelected() => Editor.DuplicateSelected();
+    private void DuplicateSelected() => RunWithRippleSlide(() => Editor.DuplicateSelected());
 
     [RelayCommand]
     private void Redo() => RunWithRippleSlide(() => Editor.Redo());
@@ -103,7 +103,7 @@ public partial class EditorViewModel
     [RelayCommand]
     private void LiftSelected()
     {
-        Editor.LiftSelected();
+        RunWithRippleSlide(Editor.LiftSelected);
         Properties.Refresh();
         Preview.RefreshFrame();
     }

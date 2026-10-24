@@ -9,6 +9,7 @@ public class DuplicationTests
     public void ClipCopiesAreDeepAndUndoTogether()
     {
         var (editor, track) = TimelineFixtures.Create();
+        editor.SetMainTrackMagnet(false);   // about a plain track; the main track inserts instead (MainTrackMagnetTests)
         var clip = TimelineFixtures.Video("source", 0, 2);
         clip.Effects.Add(EffectCatalog.Find("transform")!.CreateInstance());
         editor.AddClip(track.Id, clip);
@@ -29,6 +30,7 @@ public class DuplicationTests
     public void CopyCannotOverwriteOriginal()
     {
         var (editor, track) = TimelineFixtures.Create();
+        editor.SetMainTrackMagnet(false);   // about a plain track; the main track inserts instead (MainTrackMagnetTests)
         var clip = TimelineFixtures.Video("source", 0, 2);
         editor.AddClip(track.Id, clip);
         Assert.Empty(editor.DuplicateClipsAt(new[] { clip.Id }, clip.Id, 1, track.Id));

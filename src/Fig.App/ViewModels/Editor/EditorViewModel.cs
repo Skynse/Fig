@@ -216,7 +216,16 @@ public partial class EditorViewModel : ViewModelBase
         Properties.Refresh();
         UpdateSelectionSummary();
         Markers.RefreshSelection();
+        // the toolbar's clip actions show only while a clip is picked
+        OnPropertyChanged(nameof(HasClipSelection));
+        OnPropertyChanged(nameof(HasVideoSelection));
     }
+
+    /// <summary>A clip is selected: the toolbar shows what can be done to it.</summary>
+    public bool HasClipSelection => Editor.Selection.SelectedClipIds.Count > 0;
+
+    /// <summary>A video clip is selected (it can be frozen).</summary>
+    public bool HasVideoSelection => Editor.Selection.SelectedClipIds.Any(id => Editor.FindClipForView(id) is VideoClip);
 
     private void UpdateSelectionSummary()
         => (SelectionSummary, StatusHint) = Editor.DescribeSelection();
@@ -260,8 +269,11 @@ public partial class EditorViewModel : ViewModelBase
 
     public bool DeleteSelection()
     {
+        // on the magnetic main track the clips after slide back into the gap
+        var before = SnapshotClipStarts();
         if (Editor.DeleteSelection() is not { } removed)
             return false;
+        EmitRippleSlides(before);
         Properties.Refresh();
         Preview.RefreshFrame();
         Notify?.Invoke(removed.Count == 1 ? $"Deleted 1 {removed.Noun}" : $"Deleted {removed.Count} {removed.Noun}s");

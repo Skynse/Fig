@@ -197,13 +197,7 @@ namespace Fig.App.Views
                     context.DrawRectangle(MarkerBrush(m.Color), null, new Rect(rect.Right - 2, rect.Y, 2, rect.Height));
                     if (!string.IsNullOrEmpty(m.Name) && rect.Width > 24)
                     {
-                        var label = new FormattedText(m.Name, System.Globalization.CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight, Typeface.Default, 10, MarkerLabelBrush)
-                        {
-                            MaxTextWidth = Math.Max(1, rect.Width - 12),
-                            MaxTextHeight = rect.Height,
-                            Trimming = TextTrimming.CharacterEllipsis,
-                        };
+                        var label = TextOf(m.Name, 10, MarkerLabelBrush, Math.Max(1, rect.Width - 12), rect.Height, ellipsis: true);
                         context.DrawText(label, new Point(rect.X + 7, rect.Y + (rect.Height - label.Height) / 2));
                     }
                 }
@@ -226,8 +220,7 @@ namespace Fig.App.Views
                         IsMarkerHot(m) ? PenOf(Brushes.White, selected ? 2 : 1.5) : PenOf(Color.FromArgb(160, 0, 0, 0), 1), flag);
                     if (!string.IsNullOrEmpty(m.Name))
                     {
-                        var label = new FormattedText(m.Name, System.Globalization.CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight, Typeface.Default, 10, MarkerBrush(m.Color));
+                        var label = TextOf(m.Name, 10, MarkerBrush(m.Color));
                         context.DrawText(label, new Point(mx + 11, 4));
                     }
                 }

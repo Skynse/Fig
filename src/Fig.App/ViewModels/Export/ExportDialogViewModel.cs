@@ -144,10 +144,6 @@ public partial class ExportDialogViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsSingle))]
     private bool _chapterMode;
 
-    /// <summary>Only offer ranges with this marker colour (null/empty = all).</summary>
-    [ObservableProperty]
-    private string? _selectedColor;
-
     [ObservableProperty]
     private bool _showAdvanced;
 
@@ -171,8 +167,52 @@ public partial class ExportDialogViewModel : ViewModelBase
     public bool IsSingle => !ChapterMode;
     public bool HasTimelineMarkers => _timeline is { Markers.Count: > 0 };
 
-    /// <summary>The marker colours that exist on the timeline (for the colour filter).</summary>
+    /// <summary>The marker colours that exist on the timeline: a chip for each picks the ranges of that colour.</summary>
     public IReadOnlyList<string> MarkerColors { get; }
+
+    /// <summary>
+    /// The header's tick box: true when every range is ticked, false when none is, null (a dash) in between.
+    /// Setting it ticks or unticks them all.
+    /// </summary>
+    public bool? AllIncluded
+    {
+        get => Chapters.Count == 0 || Chapters.All(c => c.IsIncluded) ? true : Chapters.Any(c => c.IsIncluded) ? null : false;
+        set => SetIncluded(Chapters, value != false);
+    }
+
+    /// <summary>Ticks or unticks a set of ranges as one change.</summary>
+    public void SetIncluded(IEnumerable<ExportChapterItem> chapters, bool included)
+    {
+        _rebuilding = true;
+        foreach (var chapter in chapters)
+            chapter.IsIncluded = included;
+        _rebuilding = false;
+        Revalidate();
+    }
+
+    /// <summary>Ticks just the ranges marked in <paramref name="color"/> (or adds them, when <paramref name="add"/>).</summary>
+    public void SelectColor(string color, bool add)
+    {
+        _rebuilding = true;
+        foreach (var chapter in Chapters)
+        {
+            var match = string.Equals(chapter.Color, color, StringComparison.OrdinalIgnoreCase);
+            if (match || !add)
+                chapter.IsIncluded = match;
+        }
+        _rebuilding = false;
+        Revalidate();
+    }
+
+    [CommunityToolkit.Mvvm.Input.RelayCommand]
+    private void InvertSelection()
+    {
+        _rebuilding = true;
+        foreach (var chapter in Chapters)
+            chapter.IsIncluded = !chapter.IsIncluded;
+        _rebuilding = false;
+        Revalidate();
+    }
 
     /// <summary>Quality as a 0–10 slider position: left = smaller file, right = higher quality.</summary>
     public int QualityStep
@@ -256,11 +296,6 @@ public partial class ExportDialogViewModel : ViewModelBase
         Revalidate();
     }
 
-    partial void OnSelectedColorChanged(string? value)
-    {
-        RebuildChapters();
-        Revalidate();
-    }
 
     /// <summary>
     /// Builds the range list from the timeline's markers. A range marker spans its own
@@ -287,8 +322,6 @@ public partial class ExportDialogViewModel : ViewModelBase
                     continue;
                 index++;
                 var color = marker.Color;
-                if (!string.IsNullOrEmpty(SelectedColor) && !string.Equals(color, SelectedColor, StringComparison.OrdinalIgnoreCase))
-                    continue;
 
                 var start = rate.ToSeconds(rate.ToFrame(marker.StartSec));
                 double stop;
@@ -308,6 +341,7 @@ public partial class ExportDialogViewModel : ViewModelBase
             }
         }
         _rebuilding = false;
+        OnPropertyChanged(nameof(AllIncluded));
     }
 
     private static double TimelineEnd(TimelineModel timeline) =>
@@ -343,6 +377,7 @@ public partial class ExportDialogViewModel : ViewModelBase
         OnPropertyChanged(nameof(ValidationMessage));
         OnPropertyChanged(nameof(ChapterSummary));
         OnPropertyChanged(nameof(ExportButtonText));
+        OnPropertyChanged(nameof(AllIncluded));
     }
 
     /// <summary>Returns the reason export is blocked, or null when everything is valid. Also marks per-file problems.</summary>

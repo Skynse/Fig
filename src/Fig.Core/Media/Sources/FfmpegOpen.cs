@@ -14,7 +14,9 @@ namespace Fig.Core.Media
         public static AVFormatContext* Input(string path)
         {
             AVFormatContext* ctx = null;
-            Check(ffmpeg.avformat_open_input(&ctx, path, null, null), "avformat_open_input");
+            var opened = ffmpeg.avformat_open_input(&ctx, path, null, null);
+            if (opened < 0)
+                throw new InvalidOperationException($"Couldn't open {System.IO.Path.GetFileName(path)}: {Describe(opened)} ({path})");
             var info = ffmpeg.avformat_find_stream_info(ctx, null);
             if (info < 0)
             {
@@ -91,7 +93,17 @@ namespace Fig.Core.Media
         public static void Check(int ret, string what)
         {
             if (ret < 0)
-                throw new InvalidOperationException($"{what} failed: {ret}");
+                throw new InvalidOperationException($"{what} failed: {Describe(ret)}");
+        }
+
+        /// <summary>FFmpeg's words for an error code ("No such file or directory"), with the code.</summary>
+        public static string Describe(int error)
+        {
+            const int size = 256;
+            var buffer = stackalloc byte[size];
+            ffmpeg.av_strerror(error, buffer, size);
+            var text = System.Runtime.InteropServices.Marshal.PtrToStringUTF8((IntPtr)buffer);
+            return string.IsNullOrWhiteSpace(text) ? error.ToString() : $"{text} ({error})";
         }
     }
 }
