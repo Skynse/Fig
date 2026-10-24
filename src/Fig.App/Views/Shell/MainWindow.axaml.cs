@@ -83,9 +83,15 @@ public partial class MainWindow : Window
     /// this Ctrl+V in a text box pasted clips on the timeline instead of the text, and Left stepped a frame.
     /// </summary>
     private bool TextBoxWants(KeyGesture gesture)
-        => FocusManager?.GetFocusedElement() is Visual focused
-           && focused.GetSelfAndVisualAncestors().OfType<TextBox>().Any()
-           && TextEditing().Contains(gesture);
+    {
+        if (FocusManager?.GetFocusedElement() is not Visual focused)
+            return false;
+        // a focused slider or number field steps with the arrows (and Home / End)
+        if (focused is Fig.App.Controls.FigSlider or Fig.App.Controls.NumberField
+            && gesture.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End)
+            return true;
+        return focused.GetSelfAndVisualAncestors().OfType<TextBox>().Any() && TextEditing().Contains(gesture);
+    }
 
     private HashSet<KeyGesture>? _textEditing;
 

@@ -27,6 +27,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             AppPaths.EnsureDirectories();
+            TextBoxBehavior.Install();
 
             var preferences = new PreferenceService(new PreferenceLoader(AppPaths.PreferencesPath));
             var store = new ProjectStore(AppPaths.ProjectsDir);

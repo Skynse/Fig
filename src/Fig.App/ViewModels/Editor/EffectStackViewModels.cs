@@ -172,6 +172,10 @@ public sealed partial class DoubleParamEditorViewModel(ParamDef def, IParamTarge
     public double Min => Def.Min;
     public double Max => Def.Max;
     public bool IsInteger => Def.Kind == ParamKind.Int;
+    /// <summary>Where a double-click on the slider puts it back to.</summary>
+    public double Default => Def.Default;
+    /// <summary>How the value reads ("{0:P0}" for 50%); typing into the field reads it the same way.</summary>
+    public string Format => Def.Format;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ValueText))] private double _value;
 

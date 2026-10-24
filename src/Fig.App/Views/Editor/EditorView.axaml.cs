@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
+using Fig.App.Controls;
 using Fig.App.Services;
 using Fig.App.ViewModels;
 using Fig.Core.Media;
@@ -53,7 +54,9 @@ public partial class EditorView : UserControl
         DataContextChanged += OnDataContextChanged;
         Timeline.PlayheadChanged += OnTimelinePlayheadChanged;
         Timeline.Viewport.Changed += UpdateZoomText;
-        ZoomSlider.ValueChanged += OnZoomSliderChanged;
+        ZoomSlider.PropertyChanged += OnZoomSliderChanged;
+        // a double-click on the zoom slider goes back to 100%
+        ZoomSlider.Default = ZoomSliderValue(TimelineViewport.DefaultPixelsPerSecond);
         UpdateZoomText();
         PreviewHost.ContextMenu = BuildPreviewMenu();
     }
@@ -179,17 +182,20 @@ public partial class EditorView : UserControl
         ZoomText.Text = $"{pps / TimelineViewport.DefaultPixelsPerSecond * 100:0}%";
         // the slider runs on a log scale, so each step zooms by the same factor
         _syncingZoomSlider = true;
-        ZoomSlider.Value = ZoomSlider.Maximum * Math.Log(pps / TimelineViewport.MinPixelsPerSecond)
-                           / Math.Log(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond);
+        ZoomSlider.Value = ZoomSliderValue(pps);
         _syncingZoomSlider = false;
     }
 
-    private void OnZoomSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    private double ZoomSliderValue(double pixelsPerSecond)
+        => ZoomSlider.Maximum * Math.Log(pixelsPerSecond / TimelineViewport.MinPixelsPerSecond)
+           / Math.Log(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond);
+
+    private void OnZoomSliderChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
     {
-        if (_syncingZoomSlider)
+        if (e.Property != FigSlider.ValueProperty || _syncingZoomSlider || e.NewValue is not double value)
             return;
         var pps = TimelineViewport.MinPixelsPerSecond
-                  * Math.Pow(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond, e.NewValue / ZoomSlider.Maximum);
+                  * Math.Pow(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond, value / ZoomSlider.Maximum);
         Timeline.ZoomToPixelsPerSecond(pps);
     }
 

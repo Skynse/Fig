@@ -36,50 +36,68 @@
 
         <!-- ================= Marked ranges: list ================= -->
         <StackPanel IsVisible="{Binding ChapterMode}" Spacing="12">
-            <Grid ColumnDefinitions="28,*,110,70" Background="#272a30" Margin="0">
-                <TextBlock Grid.Column="1" Classes="label" Margin="0,8" Text="Range / output file"/>
-                <TextBlock Grid.Column="2" Classes="label" Margin="0,8" Text="Start → End"/>
-                <TextBlock Grid.Column="3" Classes="label" Margin="0,8" Text="Duration"/>
+            <!-- tick all / none; Shift-click a row's box to tick or untick everything between it and the last one clicked -->
+            <Grid ColumnDefinitions="34,*,Auto" Background="#272a30" Margin="0">
+                <CheckBox IsThreeState="False" IsChecked="{Binding AllIncluded}" Margin="6,0,0,0" MinWidth="0" VerticalAlignment="Center"
+                          ToolTip.Tip="Tick or untick every range" AutomationProperties.Name="All ranges"/>
+                <TextBlock Grid.Column="1" Classes="label" Margin="0,8" VerticalAlignment="Center" Text="{Binding ChapterSummary}"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="0,0,6,0" VerticalAlignment="Center">
+                    <!-- one chip per marker colour: click picks those ranges, Shift-click adds them -->
+                    <ItemsControl ItemsSource="{Binding MarkerColors}" IsVisible="{Binding MarkerColors.Count}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <Button Classes="fig ghost" Width="22" Height="22" MinHeight="0" Padding="0" Tag="{Binding}"
+                                        Click="ColorChip_Click" ToolTip.Tip="Pick the ranges of this colour · Shift-click adds them">
+                                    <Ellipse Width="12" Height="12" Fill="{Binding}"/>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Classes="fig ghost" Padding="8,2" MinHeight="0" FontSize="11" Content="Invert"
+                            Command="{Binding InvertSelectionCommand}" ToolTip.Tip="Tick the unticked ranges and untick the rest"/>
+                </StackPanel>
             </Grid>
 
             <TextBlock IsVisible="{Binding !Chapters.Count}" Classes="label" TextWrapping="Wrap"
                        Text="This timeline has no marked ranges yet. Add range markers in the Markers panel, or create ranges from your bookmarks below."/>
 
-            <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Chapters}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ExportChapterItem">
-                            <Border Background="#212328" CornerRadius="6" Margin="0,0,0,8" Padding="0,10">
-                                <Grid ColumnDefinitions="28,6,*,110,70">
-                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsIncluded}" Margin="6,0,0,0" MinWidth="0"
-                                              VerticalAlignment="Center" AutomationProperties.Name="{Binding Name}"/>
-                                    <Border Grid.Column="1" Width="4" CornerRadius="2" Margin="0,2" Background="{Binding Color}"/>
-                                    <StackPanel Grid.Column="2" Margin="12,0,8,0" Spacing="4">
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                        <TextBox Text="{Binding FileName}" FontSize="12" MinHeight="26" Padding="6,3"
-                                                 IsEnabled="{Binding IsIncluded}" BorderThickness="0" Background="Transparent"
-                                                 ToolTip.Tip="File name for this range"/>
-                                        <TextBlock IsVisible="{Binding HasProblem}" Text="{Binding Problem}" Foreground="#FF6B6B" FontSize="11"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="3" Classes="label" VerticalAlignment="Center" Text="{Binding RangeText}" FontFamily="monospace"/>
-                                    <TextBlock Grid.Column="4" Classes="label" VerticalAlignment="Center" Text="{Binding DurationText}"/>
-                                </Grid>
+                            <!-- one compact line a range; a click anywhere on it (but the file name) ticks it -->
+                            <Border Background="#212328" CornerRadius="6" Margin="0,0,0,3" Padding="0,3"
+                                    Tapped="ChapterRow_Tapped" Cursor="Hand">
+                                <StackPanel>
+                                    <Grid ColumnDefinitions="34,4,*,160,96,50">
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsIncluded}" Margin="6,0,0,0" MinWidth="0"
+                                                  VerticalAlignment="Center" Click="ChapterCheck_Click"
+                                                  AutomationProperties.Name="{Binding Name}"/>
+                                        <Border Grid.Column="1" CornerRadius="2" Margin="0,4" Background="{Binding Color}"/>
+                                        <TextBlock Grid.Column="2" Margin="10,0,8,0" Text="{Binding Name}" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <TextBox Grid.Column="3" Text="{Binding FileName}" FontSize="11" MinHeight="24" Padding="6,2"
+                                                 IsEnabled="{Binding IsIncluded}" Cursor="IBeam" ToolTip.Tip="File name for this range"/>
+                                        <TextBlock Grid.Column="4" Classes="label" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                   Text="{Binding RangeText}" FontFamily="monospace"/>
+                                        <TextBlock Grid.Column="5" Classes="label" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                   Margin="0,0,8,0" Text="{Binding DurationText}"/>
+                                    </Grid>
+                                    <TextBlock IsVisible="{Binding HasProblem}" Text="{Binding Problem}" Foreground="#FF6B6B" FontSize="11"
+                                               Margin="48,2,8,2"/>
+                                </StackPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
 
-            <TextBlock Classes="label" Text="{Binding ChapterSummary}"/>
-
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Classes="fig" Content="Create ranges from bookmarks…" HorizontalAlignment="Left"
                         IsVisible="{Binding HasBookmarks}" Click="CreateRanges_Click"/>
-                <ComboBox IsVisible="{Binding MarkerColors.Count}" MinWidth="150" PlaceholderText="All colors"
-                          ItemsSource="{Binding MarkerColors}" SelectedItem="{Binding SelectedColor}"
-                          ToolTip.Tip="Only list ranges with this marker color"/>
-                <Button Classes="fig ghost" Content="Show all" IsVisible="{Binding SelectedColor, Converter={x:Static ObjectConverters.IsNotNull}}"
-                        Click="ClearColor_Click" HorizontalAlignment="Left"/>
             </StackPanel>
 
             <Border Classes="rule"/>

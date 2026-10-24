@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -24,7 +25,7 @@ namespace Fig.Core.Media
             string outputPath, int width, int height, int crf = 23, Action<double>? progress = null,
             double? rangeStartSec = null, double? rangeEndSec = null, ISceneRenderer? renderer = null,
             ILayerRasterizer? layers = null, VideoEncoderChoice encoder = VideoEncoderChoice.Automatic,
-            Action<string>? encoderUsed = null, ExportTurn turn = ExportTurn.None)
+            Action<string>? encoderUsed = null, ExportTurn turn = ExportTurn.None, CancellationToken cancel = default)
         {
             if (timeline.Tracks.Count == 0)
                 throw new InvalidOperationException("Timeline has no tracks");
@@ -122,6 +123,13 @@ namespace Fig.Core.Media
                     var spare = new Stack<byte[]>();
                     for (var f = 0L; f < totalFrames; f++)
                     {
+                        if (cancel.IsCancellationRequested)
+                        {
+                            // frames already handed to the renderer finish first: they write into canvases it holds
+                            foreach (var pending in inFlight)
+                                try { pending.Done.Wait(); } catch { }
+                            cancel.ThrowIfCancellationRequested();
+                        }
                         var t = start + f * (double)rate.Den / rate.Num;
                         var scene = BuildScene(project, timeline, sources, t, width, height, layers);
                         var canvas = spare.Count > 0 ? spare.Pop() : new byte[width * height * 4];
@@ -150,6 +158,7 @@ namespace Fig.Core.Media
                     var pos = start;
                     while (pos < end - 1e-6)
                     {
+                        cancel.ThrowIfCancellationRequested();
                         var dur = Math.Min(chunkFrames / (double)AudioMixer.SampleRate, end - pos);
                         var floats = mixer.Mix(timeline, pos, dur);
                         var frames = floats.Length / 2;
@@ -169,6 +178,9 @@ namespace Fig.Core.Media
                     if (bgra != null) ffmpeg.av_frame_free(&bgra);
                     if (aEnc != null) ffmpeg.avcodec_free_context(&aEnc);
                     opened?.Dispose();
+                    // the file was opened by avio_open: close it, or every export leaves it open
+                    if (outCtx != null && outCtx->pb != null && (outCtx->oformat->flags & ffmpeg.AVFMT_NOFILE) == 0)
+                        ffmpeg.avio_closep(&outCtx->pb);
                     if (outCtx != null) ffmpeg.avformat_free_context(outCtx);
                 }
             }

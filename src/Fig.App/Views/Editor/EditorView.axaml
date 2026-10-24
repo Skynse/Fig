@@ -341,11 +341,11 @@
                 <TextBlock Text="{Binding Label}" Classes="field-label" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"/>
                 <ctrls:FigSlider Grid.Column="1" Minimum="{Binding Min}" Maximum="{Binding Max}" Value="{Binding Value}"
-                                 VerticalAlignment="Center" AutomationProperties.Name="{Binding Label}"/>
-                <Border Grid.Column="2" Classes="inspector-value">
-                    <TextBlock Text="{Binding ValueText}" Classes="field-value" FontSize="10"
-                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                </Border>
+                                 Default="{Binding Default}" VerticalAlignment="Center" AutomationProperties.Name="{Binding Label}"
+                                 ToolTip.Tip="Double-click to reset · Shift-drag for fine control"/>
+                <ctrls:NumberField Grid.Column="2" Height="22" Value="{Binding Value}" Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                   Format="{Binding Format}" IsInteger="{Binding IsInteger}"
+                                   ToolTip.Tip="Drag up or down to adjust (Shift: fine) · click to type"/>
                 <ContentControl Grid.Column="3" Content="{Binding}" ContentTemplate="{StaticResource KeyframeButtons}"/>
             </Grid>
         </DataTemplate>
@@ -508,11 +508,12 @@
                                             </Grid>
                                             <Grid ColumnDefinitions="58,*,56" ColumnSpacing="7">
                                                 <TextBlock Text="Speed" Classes="field-label" VerticalAlignment="Center"/>
-                                                <ctrls:FigSlider Grid.Column="1" Minimum="0.25" Maximum="4" Value="{Binding SpeedValue}"
-                                                                 IsEnabled="{Binding !HasSpeedCurve}"/>
-                                                <Border Grid.Column="2" Classes="inspector-value">
-                                                    <TextBlock Text="{Binding SpeedValue, StringFormat={}{0:0.00}×}" Classes="field-value" FontSize="10" HorizontalAlignment="Right"/>
-                                                </Border>
+                                                <ctrls:FigSlider Grid.Column="1" Minimum="0.25" Maximum="4" Value="{Binding SpeedValue}" Default="1"
+                                                                 IsEnabled="{Binding !HasSpeedCurve}" VerticalAlignment="Center"
+                                                                 ToolTip.Tip="Double-click for 1× · Shift-drag for fine control"/>
+                                                <ctrls:NumberField Grid.Column="2" Height="22" Value="{Binding SpeedValue}" Minimum="0.1" Maximum="8"
+                                                                   Step="0.05" Format="{}{0:0.00}×" IsEnabled="{Binding !HasSpeedCurve}"
+                                                                   ToolTip.Tip="Drag up or down to adjust (Shift: fine) · click to type, up to 8×"/>
                                             </Grid>
                                             <Grid ColumnDefinitions="65,*,Auto">
                                                 <Grid Grid.Column="1" ColumnDefinitions="*,Auto">
@@ -1829,9 +1830,10 @@
                                         AutomationProperties.Name="Zoom out">
                                     <local:StrokeIcon Icon="minus" Width="12" Height="12" HorizontalAlignment="Center"/>
                                 </Button>
-                                <Slider x:Name="ZoomSlider" Width="110" Minimum="0" Maximum="1000" VerticalAlignment="Center"
-                                        ToolTip.Tip="Zoom (Ctrl+= / Ctrl+-, fit: Shift+Z)" AutomationProperties.Name="Timeline zoom"/>
-                                <TextBlock x:Name="ZoomText" Text="100%" Width="44" TextAlignment="Center" VerticalAlignment="Center"
+                                <ctrls:FigSlider x:Name="ZoomSlider" Width="110" Minimum="0" Maximum="1000" VerticalAlignment="Center"
+                                                 ToolTip.Tip="Zoom (Ctrl+= / Ctrl+-, fit: Shift+Z) · double-click for 100%"
+                                                 AutomationProperties.Name="Timeline zoom"/>
+                                <TextBlock x:Name="ZoomText" Text="100%" MinWidth="44" TextAlignment="Right" VerticalAlignment="Center"
                                            Foreground="{StaticResource TextSecondary}" FontSize="11"/>
                                 <Button Classes="fig compact icon" Width="30" Click="TimelineZoomIn_Click" ToolTip.Tip="Zoom in"
                                         AutomationProperties.Name="Zoom in">
@@ -1866,8 +1868,8 @@
 
                                                 <StackPanel Spacing="10" IsVisible="{Binding Beats.HasPreview}">
                                                     <TextBlock Text="Sensitivity"/>
-                                                    <Slider Minimum="0" Maximum="100" Value="{Binding Beats.Sensitivity, Mode=TwoWay}"
-                                                            AutomationProperties.Name="Beat sensitivity"/>
+                                                    <ctrls:FigSlider Minimum="0" Maximum="100" Value="{Binding Beats.Sensitivity, Mode=TwoWay}"
+                                                                     AutomationProperties.Name="Beat sensitivity"/>
                                                     <Grid ColumnDefinitions="*,*">
                                                         <TextBlock Text="Strong hits" FontSize="11"/>
                                                         <TextBlock Grid.Column="1" Text="More hits" FontSize="11" HorizontalAlignment="Right"/>

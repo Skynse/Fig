@@ -94,18 +94,11 @@ namespace Fig.Core.Project
             project.UpdatedAt = DateTime.Now;
             var folder = ProjectDirectory(project.Id);
             Directory.CreateDirectory(folder);
-            // saved relative to the folder, so it can be zipped up and opened anywhere; in memory they stay full
-            string json;
-            ProjectPaths.MakeRelative(project, folder);
-            try
-            {
-                json = JsonSerializer.Serialize(project, Options);
-            }
-            finally
-            {
-                ProjectPaths.Resolve(project, folder);
-            }
-            File.WriteAllText(ProjectPath(project.Id), json);
+            // saved relative to the folder, so it can be zipped up and opened anywhere; in memory they stay full (the
+            // JSON is rewritten, never the project, which an export or playback may be reading on another thread)
+            var node = JsonSerializer.SerializeToNode(project, Options)!;
+            ProjectPaths.MakeRelative(node, folder);
+            File.WriteAllText(ProjectPath(project.Id), node.ToJsonString(Options));
         }
 
         public IReadOnlyList<ProjectSummary> ListProjects()
