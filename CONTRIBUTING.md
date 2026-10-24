@@ -1,35 +1,33 @@
 # Contributing to Fig
 
-Thanks for helping. Fig is a deliberately small editor ("simple, like CapCut"), so the most useful contributions are the ones that keep it that way: focused, understood, and designed before they are built.
+Thanks for helping. Fig is a deliberately small editor ("simple, like CapCut"), so the most useful contributions are the ones that keep it that way: focused, understood, and built a step at a time.
 
-## The one rule: design before you build any large subsystem (excludes small features)
+## The one rule: understand what you're building
 
-**Before any major feature is implemented, its UML must exist and be part of the same pull request (or an earlier one).**
+You should be able to explain your change: what it does, how it works, and where it sits in the code. If you can't, it isn't ready, however well it seems to run.
 
-Two diagrams are required. Nothing more is needed for now.
+For a major feature, that means building it **incrementally**: a series of small pull requests, each one a step you understand completely, instead of one large drop.
 
-1. **A simple class diagram** of the types the feature adds or changes, and how they relate.
-2. **A sequence diagram** that walks through the implementation: who calls whom, in what order, for the main user action.
+### Building a major feature step by step
 
-The order of work is:
+1. **Agree the plan first.** Open an issue that says what the feature is, why it belongs in Fig, and the steps you'll build it in. A few lines per step is enough.
+2. **Start with the core.** The first steps go in `Fig.Core`: the model, then the commands that change it (undoable, through `TimelineEditor`), each with its tests. No UI yet.
+3. **Then the UI.** Once the core works, wire up the smallest interface that uses it, then improve it in later steps.
+4. **Every step stands on its own.** Each pull request builds, passes `dotnet test` and leaves the app working. A half-built feature stays out of sight until it is usable. Nothing should depend on a later PR to stop being broken.
+5. **Keep each step small enough to review in one sitting.** If one is getting big, split it.
 
-1. **UML first.** Write the two diagrams.
-2. **Implementation.** Build the headless code in `Fig.Core` (no UI dependencies).
-3. **Tests.** Cover the core behaviour before any UI exists.
-4. **UI last.** The interface is built on top of a backend that already works.
-
-If the diagrams are hard to draw, the design is not ready yet. That is the point of drawing them.
+The existing code and the diagrams already in `uml/` are good maps of how things fit together. You don't need to add diagrams of your own, but draw one if it helps you or a reviewer follow the change.
 
 ### What counts as a "major feature"
 
-Needs UML:
+Build these incrementally:
 
 - A new subsystem, module, or pipeline stage (for example an effect graph, a new export path, a new kind of selection).
 - A new editing command family, or a change to how the timeline model or undo history works.
-- Anything that adds a new concept to the project file format (like an Audio Mixer)
+- Anything that adds a new concept to the project file format (like an audio mixer).
 - Anything that touches more than one of `Fig.Core`'s modules.
 
-Does **not** need UML:
+These can go in a single pull request:
 
 - Bug fixes and small tweaks.
 - New effects and transitions that follow the existing pattern (see [DEVELOPMENT.md](DEVELOPMENT.md)).
@@ -37,104 +35,9 @@ Does **not** need UML:
 
 If you are unsure, open an issue and ask before writing code.
 
-### Where the diagrams go
-
-Diagrams are [PlantUML](https://plantuml.com), stored next to the rendered image, in the folder for the module they belong to:
-
-```
-uml/
-  domain/       timeline model, editing commands
-  media/        decoding, effects, transitions, analysis
-  playback/     playback engine
-  export/       export pipeline
-  input/        gestures and key bindings
-  persistence/  project files, import
-  templates/
-```
-
-Name them after the feature and keep the pair together:
-
-```
-uml/media/my-feature-schema.puml      <- class diagram
-uml/media/my-feature-schema.png
-uml/media/my-feature-sequence.puml    <- sequence diagram
-uml/media/my-feature-sequence.png
-```
-
-Render with `plantuml -tpng uml/media/my-feature-*.puml` and commit both the `.puml` and the `.png`. Edit the existing diagram instead of adding a new one when your change extends something already drawn there. Diagrams must match the code when you finish: if the implementation changed shape along the way, update the UML.
-
-### What the two diagrams should look like
-
-Keep them small. They are for understanding, not decoration.
-
-**Class diagram.** Only the types that matter to the feature: the new ones, and the existing ones they attach to. Show the key members, the relationships (composition, creates, implements), and nothing else.
-
-```plantuml
-@startuml
-title Effect bar group move: classes
-
-interface ICoalescingEditCommand {
-  +CanCoalesceWith(other): bool
-  +CoalesceFrom(other)
-}
-class CommandHistory {
-  +ExecuteCoalescing(command)
-  +Undo()
-}
-class TimelineEditor {
-  +MoveEffects(items, deltaSec, gesture)
-}
-class SelectionState {
-  +SelectedEffects: list
-  +ToggleEffect(ownerId, effectId)
-}
-class MoveEffectsCommand {
-  -before: EffectState per effect
-  -deltaSec: double
-}
-
-TimelineEditor *-- CommandHistory
-TimelineEditor *-- SelectionState
-TimelineEditor ..> MoveEffectsCommand : creates
-MoveEffectsCommand ..|> ICoalescingEditCommand
-CommandHistory o-- ICoalescingEditCommand
-@enduml
-```
-
-**Sequence diagram.** One main user action, from the input to the result, including undo if the feature is editable. Show the real class and method names you intend to use, and the interesting branches.
-
-```plantuml
-@startuml
-title Effect bar group move: dragging a selected bar
-
-actor User
-participant TimelineView
-participant TimelineEditor
-participant CommandHistory
-participant MoveEffectsCommand
-
-User -> TimelineView : drag a selected bar
-loop every pointer move
-  TimelineView -> TimelineEditor : MoveEffects(selected, deltaSec, gesture)
-  TimelineEditor -> CommandHistory : ExecuteCoalescing(new MoveEffectsCommand)
-  alt same gesture and same bars
-    CommandHistory -> MoveEffectsCommand : CoalesceFrom(new)
-    note right: restore the before-state, apply the new total delta
-  else first move of the gesture
-    CommandHistory -> MoveEffectsCommand : Execute()
-  end
-end
-User -> TimelineView : release
-User -> TimelineEditor : Undo
-note right: one step restores every bar
-@enduml
-```
-
-Existing diagrams in `uml/` (for example `uml/media/fade-sequence.puml`) are good references for style.
-
 ## Getting set up
 
-Requirements: .NET SDK 10.0 or later, and a desktop platform supported by Avalonia (Windows, macOS, Linux). To run with sound you also need an audio output device. [PlantUML](https://plantuml.com/starting) is needed to render diagrams.
+Requirements: .NET SDK 10.0 or later, and a desktop platform supported by Avalonia (Windows, macOS, Linux). To run with sound you also need an audio output device.
 
 ```bash
 dotnet build
@@ -146,7 +49,7 @@ dotnet test
 
 - `src/Fig.Core` is the engine and has **no UI dependency**. Behaviour belongs here and is unit tested.
 - `src/Fig.App` is the Avalonia application: views, view models, services. Keep logic out of views; they call into Core.
-- Tests live in `tests/Fig.Core.Tests` and `tests/Fig.App.Tests` (headless Avalonia UI tests).
+- Tests live in `tests/Fig.Core.Tests`. Behaviour is tested through Core, not through the UI.
 - One namespace per module (for example `Fig.Core.Media`). Folders are for organisation only and do not change the namespace.
 - Edits to the timeline go through commands on `TimelineEditor` so that they are undoable. Do not mutate the document directly from the UI.
 - Match the style of the surrounding code: naming, comment density, and idiom.
@@ -156,7 +59,7 @@ dotnet test
 
 - Core behaviour gets unit tests before the UI is written.
 - Fix a bug by adding a test that fails without the fix.
-- UI behaviour that can be driven headlessly (clicks, key presses, dragging) should have an App test.
+- Don't write headless UI tests (simulated clicks, key presses or drags). If something needs testing, move its logic into `Fig.Core` and test it there.
 - Run `dotnet test` before opening a pull request, and say in the description if anything fails and why.
 
 ### Requirements document
@@ -169,12 +72,12 @@ dotnet test
 2. Keep each pull request to one feature or fix. Unrelated cleanups go in their own.
 3. Use a short, plain commit message in the imperative ("add beat detection").
 4. In the description, explain **what** you changed, **how** it works, and **why** it belongs in Fig.
-5. For a major feature, link the UML files you added or changed.
+5. For a step of a major feature, link its issue and say which step this is and what the next one will be.
 
 ### Checklist
 
-- [ ] UML (class and sequence diagram) added or updated, for major features
-- [ ] Diagrams match the final implementation
+- [ ] I can explain what this changes and how it works
+- [ ] For a major feature: this is one step of the plan in its issue, and the app still works with it alone
 - [ ] Core behaviour has tests; `dotnet test` passes (or failures are explained)
 - [ ] `software_requirements.md` updated if a feature was added or completed
 - [ ] Docs updated if behaviour users see has changed
@@ -190,7 +93,7 @@ You can use AI to write tutorials for you if you want to implement something. It
 
 AI can be used for profiling, but there's really no need for that when profiling tools already exist. If you find it easier to explore flamecharts with AI, then that's fine.
 
-The main rule is that you have to understand what you've written. My dependence on UML was to ensure that I understood how to extend the codebase, which is why I'm able to not have to rely on AI for it, but I don't want contributors to have to write UML. If possible, you can use AI for UML if it makes sense.
+The main rule is the same as everywhere else: you have to understand what you've written. Building major features in small steps is how that stays possible, with or without AI.
 
 ## Reporting bugs
 
