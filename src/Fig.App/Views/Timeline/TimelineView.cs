@@ -120,6 +120,10 @@ namespace Fig.App.Views
         // each dragged clip's speed curve as it was when the drag began, for clips with one
         private readonly Dictionary<string, List<KeyframePoint>> _dragCurves = new();
 
+        // the zoom and scroll of each timeline that was open before
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Fig.Core.Timeline.Timeline, SavedView> _views = new();
+        private sealed record SavedView(double PixelsPerSecond, double ScrollTime);
+
         public TimelineView()
         {
             ClipToBounds = true;
@@ -136,6 +140,15 @@ namespace Fig.App.Views
             base.OnPropertyChanged(change);
             if (change.Property == EditorProperty)
             {
+                // each timeline keeps its own zoom and scroll while another one is open
+                if (change.OldValue is TimelineEditor previous)
+                    _views.AddOrUpdate(previous.Document, new SavedView(Viewport.PixelsPerSecond, Viewport.ScrollTime));
+                if (change.NewValue is TimelineEditor next && _views.TryGetValue(next.Document, out var view))
+                {
+                    Viewport.SetPixelsPerSecond(view.PixelsPerSecond);
+                    Viewport.SetScrollTime(view.ScrollTime);
+                }
+                _selectedGap = null;
                 if (change.OldValue is TimelineEditor oldEditor)
                 {
                     oldEditor.TimelineChanged -= OnTimelineChanged;

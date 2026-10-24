@@ -370,6 +370,12 @@ public partial class EditorView : UserControl
 
     private void WirePlayback(PlaybackEngine playback) => OnPlaybackAssigned(playback);
 
+    private void TimelineTab_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (sender is Control { DataContext: TimelineTab tab } && DataContext is EditorViewModel editor)
+            editor.RenameTimelineCommand.Execute(tab);
+    }
+
     private void MediaCard_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed && sender is Control { DataContext: MediaAsset asset })
