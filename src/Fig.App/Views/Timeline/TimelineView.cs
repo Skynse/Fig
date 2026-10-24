@@ -175,17 +175,70 @@ namespace Fig.App.Views
             return RulerHeight + lanes + HeaderButtonSize + 12;
         }
 
-        private double TrackHeight(Track track) =>
-            track.Clips.Count == 0 && track.Markers.Count == 0 && track.Effects.Count == 0
+        private double TrackHeight(Track track)
+        {
+            if (_laneHeights is not null && _laneHeights.TryGetValue(track, out var known))
+                return known;
+            var height = track.Clips.Count == 0 && track.Markers.Count == 0 && track.Effects.Count == 0
                 ? EmptyTrackHeight
                 : TimelineGeometry.LaneHeight(track, TrackScale) + TrackRackHeight(track);
+            _laneHeights?.Add(track, height);
+            return height;
+        }
+
+        // Lane heights depend on every clip's rack, and TrackTop sums them for each lane above, so within one frame
+        // or one pointer move they are worked out once. Null outside those, where edits can change them.
+        private Dictionary<Track, double>? _laneHeights;
+
+        /// <summary>Remembers lane heights until the returned scope ends (a frame, a pointer move).</summary>
+        private LaneHeightScope RememberLaneHeights() => new(this);
+
+        private readonly struct LaneHeightScope : IDisposable
+        {
+            private readonly TimelineView _view;
+            private readonly bool _owner;
+
+            public LaneHeightScope(TimelineView view)
+            {
+                _view = view;
+                _owner = view._laneHeights is null;
+                if (_owner)
+                    view._laneHeights = new Dictionary<Track, double>(ReferenceEqualityComparer.Instance);
+            }
+
+            public void Dispose()
+            {
+                if (_owner)
+                {
+                    _view._laneHeights = null;
+                    _view._laneGeometry = default;
+                }
+            }
+        }
 
         /// <summary>How tall pictures and waveforms are drawn (1 = standard); Alt+wheel and the toolbar change it.</summary>
         public double TrackScale { get; private set; } = 1;
 
-        private double ClipTotal(Track track) => TimelineGeometry.ClipTotal(track, TrackScale);
+        private double ClipTotal(Track track) => LabelHeight(track) + BodyHeight(track);
 
-        private double BodyHeight(Track track) => TimelineGeometry.BodyHeight(track, TrackScale);
+        private double BodyHeight(Track track) => LaneGeometry(track).Body;
+
+        private double LabelHeight(Track track) => LaneGeometry(track).Label;
+
+        // Whether a track is text-only (thin bars) takes a look at every clip on it, and drawing asks once per clip;
+        // within a frame or a hover the answer can't change, so the last track asked about is remembered
+        private (Track? Track, double Label, double Body) _laneGeometry;
+
+        private (double Label, double Body) LaneGeometry(Track track)
+        {
+            if (_laneHeights is not null && ReferenceEquals(_laneGeometry.Track, track))
+                return (_laneGeometry.Label, _laneGeometry.Body);
+            var label = TimelineGeometry.LabelHeight(track);
+            var body = TimelineGeometry.BodyHeight(track, TrackScale);
+            if (_laneHeights is not null)
+                _laneGeometry = (track, label, body);
+            return (label, body);
+        }
 
         private double SoundStrip => TimelineGeometry.AudioStripAt(TrackScale);
 
@@ -568,7 +621,16 @@ namespace Fig.App.Views
             if (_draggingPlayhead || !leftPressed)
                 pos = RulerSpace(pos);
             _lastDragPos = pos;
-            PointerMovedAt(pos, leftPressed);
+            if (leftPressed || DragInProgress)
+            {
+                PointerMovedAt(pos, leftPressed);
+            }
+            else
+            {
+                // hovering changes nothing, so lane heights hold for the whole move
+                using var laneHeights = RememberLaneHeights();
+                PointerMovedAt(pos, leftPressed);
+            }
             // a drag held near an edge keeps scrolling
             if (leftPressed && DragInProgress)
                 EnsureAutoScroll();

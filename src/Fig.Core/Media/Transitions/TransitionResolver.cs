@@ -34,12 +34,24 @@ namespace Fig.Core.Media
             // Avoid allocating and sorting a fresh list for every rendered frame. Clip storage
             // order is not stable after moves/imports, so find the abutting partner directly.
             var clips = track.Clips;
+
+            // a pair's window is never longer than its longer edge transition, so only cuts that close to the time
+            // can be active; pairing those alone keeps a long track linear rather than every clip against every clip
+            var reach = 0.0;
+            foreach (var clip in clips)
+                reach = Math.Max(reach, Math.Max(clip.TransitionOut?.DurationSec ?? 0, clip.TransitionIn?.DurationSec ?? 0));
+            if (reach <= 1e-6)
+                return null;
+            reach = reach / 2 + AbutEps;
+
             for (var i = 0; i < clips.Count; i++)
             {
                 var a = clips[i];
                 if (!a.Enabled)
                     continue;
                 var cut = a.StartSec + a.DurSec;
+                if (Math.Abs(timeSec - cut) > reach)
+                    continue;
                 for (var j = 0; j < clips.Count; j++)
                 {
                     if (i == j)

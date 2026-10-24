@@ -128,7 +128,7 @@ public partial class TimelineView
         double top = TrackTop(Editor.Document.Tracks.IndexOf(track)) + TimelineGeometry.ClipInset;
         var rect = new Rect(TrackHeaderWidth + Viewport.TimeToX(start), top,
             Math.Max(5, duration * Viewport.PixelsPerSecond), ClipTotal(track));
-        context.DrawRectangle(new SolidColorBrush(Color.FromArgb(90, 95, 156, 248)), new Pen(Brushes.White, 1.5), rect, 3, 3);
+        context.DrawRectangle(new SolidColorBrush(Color.FromArgb(90, 95, 156, 248)), PenOf(Brushes.White, 1.5), rect, 3, 3);
         var text = new FormattedText(drag.Effect is null ? $"Copy {drag.ClipIds.Length} clip(s)" : "Copy effect",
             System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
         context.DrawText(text, new Point(rect.X + 8, rect.Y + 5));

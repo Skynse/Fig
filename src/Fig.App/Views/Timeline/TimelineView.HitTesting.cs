@@ -42,7 +42,7 @@ namespace Fig.App.Views
                 // a text clip has no name strip, so its body starts at the top of the clip (as it is drawn)
                 foreach (var clip in track.Clips)
                 {
-                    var bodyTop = top + TimelineGeometry.ClipInset + (clip is TextClip ? 0 : TimelineGeometry.LabelHeight(track));
+                    var bodyTop = top + TimelineGeometry.ClipInset + (clip is TextClip ? 0 : LabelHeight(track));
                     if (pos.Y >= bodyTop - 2 && pos.Y <= bodyTop + 14)
                         foreach (var (key, trackKf) in clip.Keyframes)
                             foreach (var kf in key == AutomationKeys.Speed ? [] : trackKf)
@@ -69,7 +69,7 @@ namespace Fig.App.Views
                     continue;
                 // the badge sits at the clip body's vertical center; only grab within that band so
                 // markers / keyframes near the cut stay clickable
-                var centerY = top + TimelineGeometry.ClipInset + TimelineGeometry.LabelHeight(track) + BodyHeight(track) / 2;
+                var centerY = top + TimelineGeometry.ClipInset + LabelHeight(track) + BodyHeight(track) / 2;
                 if (pos.Y < centerY - 16 || pos.Y > centerY + 16)
                     continue;
                 foreach (var t in Editor.EnumerateTransitions(track))
@@ -167,21 +167,29 @@ namespace Fig.App.Views
         private enum RangeGrab { None, Start, End, Body }
 
         /// <summary>True when a clip has a neighbor touching it on the left/right in the same track.</summary>
-        private static (bool HasPrev, bool HasNext) HasAdjacent(Track track, Clip clip)
+        /// <summary>Where a track's clips start and end, so finding a clip's neighbours doesn't scan the whole track.</summary>
+        private sealed class ClipEdges
         {
-            const double eps = 1e-6;
-            var hasPrev = false;
-            var hasNext = false;
-            foreach (var other in track.Clips)
+            private readonly HashSet<long> _starts = new();
+            private readonly HashSet<long> _ends = new();
+
+            // times are frame-snapped; a tenth of a millisecond tells cuts apart and lets touching edges meet
+            private static long Key(double sec) => (long)Math.Round(sec * 1e4);
+
+            public static ClipEdges Of(Track track)
             {
-                if (other.Id == clip.Id)
-                    continue;
-                if (Math.Abs(other.StartSec + other.DurSec - clip.StartSec) < eps)
-                    hasPrev = true;
-                if (Math.Abs(other.StartSec - (clip.StartSec + clip.DurSec)) < eps)
-                    hasNext = true;
+                var edges = new ClipEdges();
+                foreach (var clip in track.Clips)
+                {
+                    edges._starts.Add(Key(clip.StartSec));
+                    edges._ends.Add(Key(clip.StartSec + clip.DurSec));
+                }
+                return edges;
             }
-            return (hasPrev, hasNext);
+
+            /// <summary>Whether another clip ends where this one starts, and starts where it ends.</summary>
+            public (bool HasPrev, bool HasNext) Adjacent(Clip clip)
+                => (_ends.Contains(Key(clip.StartSec)), _starts.Contains(Key(clip.StartSec + clip.DurSec)));
         }
 
         /// <summary>Returns whether the pointer is over a clip's trim or fade edge.</summary>

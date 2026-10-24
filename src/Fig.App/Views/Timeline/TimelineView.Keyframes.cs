@@ -162,7 +162,7 @@ namespace Fig.App.Views
             if (_diamondDrag is not { Copy: true, Moved: true } drag || Editor?.FindKeyframeHost(drag.Picked.Host) is not { } host)
                 return;
             var x = TrackHeaderWidth + Viewport.TimeToX(host.OriginSec + drag.CurrentSec);
-            context.DrawEllipse(DiamondGhostBrush, new Pen(Brushes.White, 1), new Point(x, drag.PressY), 5, 5);
+            context.DrawEllipse(DiamondGhostBrush, PenOf(Brushes.White, 1), new Point(x, drag.PressY), 5, 5);
         }
 
         /// <summary>Hovering a diamond: highlight it and say what it does. True when over one.</summary>

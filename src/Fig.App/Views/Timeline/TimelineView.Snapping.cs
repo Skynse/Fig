@@ -74,7 +74,7 @@ namespace Fig.App.Views
             var x = TrackHeaderWidth + Viewport.TimeToX(sec);
             if (x < TrackHeaderWidth || x > Bounds.Width)
                 return;
-            context.DrawLine(new Pen(SnapGuideBrush, 1.5), new Point(x, MarkerLaneHeight), new Point(x, Bounds.Height));
+            context.DrawLine(PenOf(SnapGuideBrush, 1.5), new Point(x, MarkerLaneHeight), new Point(x, Bounds.Height));
         }
     }
 }

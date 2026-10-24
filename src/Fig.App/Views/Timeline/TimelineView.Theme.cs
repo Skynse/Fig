@@ -76,5 +76,25 @@ namespace Fig.App.Views
         private const double HeaderPaddingLeft = 7;
         private const double TrackAccentBarWidth = 2;
         private const double EmptyTrackHeight = 34;
+
+        // Avalonia pens are slow to make (each one raises property notifications under a lock), and the timeline
+        // draws thousands of outlines a frame in a few colours, so each colour and width gets one pen
+        private static readonly Dictionary<(uint Color, double Thickness), IPen> Pens = new();
+
+        private static IPen PenOf(Color color, double thickness)
+        {
+            if (!Pens.TryGetValue((color.ToUInt32(), thickness), out var pen))
+                Pens[(color.ToUInt32(), thickness)] = pen = new Avalonia.Media.Immutable.ImmutablePen(color.ToUInt32(), thickness);
+            return pen;
+        }
+
+        private static IPen PenOf(IBrush brush, double thickness)
+            => brush is ISolidColorBrush solid
+                ? PenOf(Color.FromArgb((byte)Math.Round(solid.Color.A * solid.Opacity), solid.Color.R, solid.Color.G, solid.Color.B), thickness)
+                : new Pen(brush, thickness);
+        /// <summary>Narrower clips skip their name: it couldn't be read, and laying out text for thousands of slivers is slow.</summary>
+        private const double MinLabelWidth = 24;
+        /// <summary>Clips and effect bars narrower than this are drawn as plain colour, without their details.</summary>
+        private const double ClipDetailWidth = 6;
     }
 }

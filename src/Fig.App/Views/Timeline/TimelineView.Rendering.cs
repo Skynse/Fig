@@ -33,6 +33,7 @@ namespace Fig.App.Views
             if (Editor is null)
                 return;
 
+            using var laneHeights = RememberLaneHeights();
             var px = Viewport.PixelsPerSecond;
             var scroll = Viewport.ScrollTime;
 
@@ -57,8 +58,8 @@ namespace Fig.App.Views
                     context.DrawRectangle(SelectedLaneTintBrush, null, rowRect);
                     context.DrawRectangle(SelectionBrush, null, new Rect(0, top, TrackAccentBarWidth, height));
                 }
-                context.DrawLine(new Pen(BorderBrush, 1), new Point(TrackHeaderWidth, top), new Point(TrackHeaderWidth, top + height));
-                context.DrawLine(new Pen(BorderBrush, 1), new Point(0, top + height), new Point(Bounds.Width, top + height));
+                context.DrawLine(PenOf(BorderBrush, 1), new Point(TrackHeaderWidth, top), new Point(TrackHeaderWidth, top + height));
+                context.DrawLine(PenOf(BorderBrush, 1), new Point(0, top + height), new Point(Bounds.Width, top + height));
                 DrawTrackGrid(context, top, height);
 
                 var trackLabel = track.Name ?? track.Kind.ToString();
@@ -84,6 +85,7 @@ namespace Fig.App.Views
                 using (context.PushClip(clipArea))
                 {
                     var trackTransitions = Editor.EnumerateTransitions(track).ToList();
+                    var edges = ClipEdges.Of(track);
 
                     foreach (var clip in track.Clips)
                     {
@@ -106,12 +108,22 @@ namespace Fig.App.Views
                         var clipTop = top + TimelineGeometry.ClipInset;
                         var totalHeight = ClipTotal(track);
                         // a text clip has no name strip: its words are written inside the bar instead
-                        var labelHeight = clip is TextClip ? 0 : TimelineGeometry.LabelHeight(track);
+                        var labelHeight = clip is TextClip ? 0 : LabelHeight(track);
                         var bodyHeight = totalHeight - labelHeight;
+
+                        // zoomed out, a clip a few pixels wide shows nothing but its colour: no shadow, corners,
+                        // picture, waveform or keyframes, which on a long edit are tens of thousands of draws
+                        if (w < ClipDetailWidth)
+                        {
+                            var sliverSelected = _selectedClipId is not null && Editor.Selection.IsSelected(clip.Id);
+                            context.DrawRectangle(sliverSelected ? ClipSelectionBrush : fill, null,
+                                new Rect(x, clipTop, Math.Max(1, w - SplitGap), totalHeight));
+                            continue;
+                        }
 
                         // every clip is rounded; clips that butt together (split halves) leave a hairline
                         // between them so each reads as its own rounded bar
-                        var (hasPrev, hasNext) = HasAdjacent(track, clip);
+                        var (hasPrev, hasNext) = edges.Adjacent(clip);
                         if (hasPrev)
                         {
                             x += SplitGap;
@@ -145,7 +157,7 @@ namespace Fig.App.Views
                             using (context.PushClip(labelRect))
                             {
                                 var clipName = ClipName(clip);
-                                if (clipName is not null)
+                                if (clipName is not null && w >= MinLabelWidth)
                                 {
                                     var labelText = new FormattedText(
                                         clipName,
@@ -177,7 +189,7 @@ namespace Fig.App.Views
                             && GetBitmap(stripPath) is Bitmap strip)
                         {
                             DrawFilmstrip(context, new Rect(rect.X, rect.Y, rect.Width, rect.Height - soundHeight), vc, asset, strip);
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, PenOf(outline, outlineWidth), bodyRounded);
                         }
                         // draw waveform as audio clip background
                         else if (clip is AudioClip ac && MediaById is not null
@@ -185,7 +197,7 @@ namespace Fig.App.Views
                             && audioAsset is not null)
                         {
                             DrawAudioWaveform(context, rect, ac, audioAsset);
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, PenOf(outline, outlineWidth), bodyRounded);
                         }
                         // a still repeats its thumbnail along the bar
                         else if (clip is ImageClip image && MediaById is not null
@@ -201,11 +213,11 @@ namespace Fig.App.Views
                                     context.DrawImage(thumb, new Rect(0, 0, thumb.PixelSize.Width, thumb.PixelSize.Height),
                                         new Rect(tx, rect.Y, tileW, rect.Height));
                             }
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, PenOf(outline, outlineWidth), bodyRounded);
                         }
                         else
                         {
-                            context.DrawRectangle(fill, new Pen(outline, outlineWidth), bodyRounded);
+                            context.DrawRectangle(fill, PenOf(outline, outlineWidth), bodyRounded);
                         }
 
                         if (clip is TextClip textClip)
@@ -217,7 +229,7 @@ namespace Fig.App.Views
                             var soundRect = new Rect(rect.X, rect.Bottom - soundHeight, rect.Width, soundHeight);
                             using (context.PushClip(bodyRounded))
                                 DrawAudioWaveform(context, soundRect, sounding, soundAsset);
-                            context.DrawRectangle(Brushes.Transparent, new Pen(outline, outlineWidth), bodyRounded);
+                            context.DrawRectangle(Brushes.Transparent, PenOf(outline, outlineWidth), bodyRounded);
                         }
 
                         if (isEffectDropTarget)
@@ -259,7 +271,7 @@ namespace Fig.App.Views
 
                         // selected: the whole clip, name strip and all, inside its rounded edge
                         if (isClipSelected)
-                            context.DrawRectangle(null, new Pen(ClipSelectionBrush, 2),
+                            context.DrawRectangle(null, PenOf(ClipSelectionBrush, 2),
                                 new RoundedRect(widgetRect.Deflate(1), new CornerRadius(Math.Max(0, radius - 1))));
 
                         // resize-handle indicator on the edge under the cursor (or both edges when selected)
@@ -311,7 +323,7 @@ namespace Fig.App.Views
                 var ghostRect = new Rect(ghostX, trackTop + TimelineGeometry.ClipInset, ghostW, ghostHeight);
                 context.DrawRectangle(new SolidColorBrush(Color.Parse("#88ffffff")), null,
                     new RoundedRect(ghostRect, ClipCornerRadius));
-                context.DrawRectangle(Brushes.Transparent, new Pen(SelectionBrush, 2),
+                context.DrawRectangle(Brushes.Transparent, PenOf(SelectionBrush, 2),
                     new RoundedRect(ghostRect, ClipCornerRadius));
             }
 
@@ -329,14 +341,14 @@ namespace Fig.App.Views
                     : new Rect(ghostX, trackTop + TimelineGeometry.ClipInset + ClipTotal(_dropPreviewTrack) + 4,
                         ghostW, 24);
                 context.DrawRectangle(_dropLayer ? TextClipBrush : new SolidColorBrush(Color.FromArgb(140, 199, 154, 61)),
-                    new Pen(Brushes.White, 1), ghost, 3, 3);
+                    PenOf(Brushes.White, 1), ghost, 3, 3);
             }
 
             // drop indicator line (media into empty space)
             if (_dropTimeSec >= 0 && _dropPreviewTrack is null)
             {
                 var x = TrackHeaderWidth + Viewport.TimeToX(_dropTimeSec);
-                context.DrawLine(new Pen(Brushes.OrangeRed, 2), new Point(x, RulerHeight), new Point(x, Bounds.Height));
+                context.DrawLine(PenOf(Brushes.OrangeRed, 2), new Point(x, RulerHeight), new Point(x, Bounds.Height));
             }
 
             // transition drop: highlight cut between abutting clips
@@ -349,7 +361,7 @@ namespace Fig.App.Views
                     var x = TrackHeaderWidth + Viewport.TimeToX(_dropTransitionCutSec);
                     var marker = new SolidColorBrush(Color.FromArgb(230, 0xea, 0xb3, 0x08));
                     var cutTotal = ClipTotal(_dropTransitionTrack);
-                    context.DrawLine(new Pen(marker, 3), new Point(x, trackTop + TimelineGeometry.ClipInset),
+                    context.DrawLine(PenOf(marker, 3), new Point(x, trackTop + TimelineGeometry.ClipInset),
                         new Point(x, trackTop + TimelineGeometry.ClipInset + cutTotal));
                     var midY = trackTop + TimelineGeometry.ClipInset + cutTotal / 2;
                     var diamond = new StreamGeometry();
@@ -387,7 +399,7 @@ namespace Fig.App.Views
             var playheadX = TrackHeaderWidth + Viewport.TimeToX(PlayheadTimeSec);
             if (playheadX >= TrackHeaderWidth)
             {
-                var playheadPen = new Pen(EditorTheme.PlayheadBrush, 1);
+                var playheadPen = PenOf(EditorTheme.PlayheadBrush, 1);
                 // the line starts at the cap's lower tip, not behind it
                 context.DrawLine(playheadPen, new Point(playheadX, pinned + MarkerLaneHeight + PlayheadCapHeight),
                     new Point(playheadX, Bounds.Height));

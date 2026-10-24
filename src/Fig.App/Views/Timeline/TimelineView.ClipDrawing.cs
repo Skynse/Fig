@@ -109,7 +109,7 @@ namespace Fig.App.Views
         {
             var px = Viewport.PixelsPerSecond;
             var shade = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
-            var line = new Pen(new SolidColorBrush(Color.FromArgb(200, 0xff, 0xff, 0xff)), 1);
+            var line = PenOf(Color.FromArgb(200, 0xff, 0xff, 0xff), 1);
 
             if (fadeInSec > 1e-6)
             {
@@ -176,7 +176,7 @@ namespace Fig.App.Views
             var rect = new Rect(cutX - 13, cy - 9, 26, 18);
             var selected = Editor?.Selection.SelectedTransitionKey == t.Key;
             context.DrawRectangle(TransitionBadgeBrush,
-                selected ? new Pen(Brushes.White, 1.5) : null,
+                selected ? PenOf(Brushes.White, 1.5) : null,
                 new RoundedRect(rect, 5));
             IconService.DrawStroked(context, "blend", rect.Inflate(-5), Brushes.White, 1.6);
         }

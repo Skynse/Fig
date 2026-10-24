@@ -188,7 +188,7 @@ namespace Fig.App.Views
             if (!_marqueeActive || Editor is null)
                 return;
             var box = MarqueeBox();
-            var outline = new Pen(new SolidColorBrush(Color.FromArgb(235, 0x5f, 0x9c, 0xf8)), 2);
+            var outline = PenOf(Color.FromArgb(235, 0x5f, 0x9c, 0xf8), 2);
             foreach (var bar in EffectsInBox(box))
                 context.DrawRectangle(null, outline, bar.Rect);
             foreach (var clip in ClipsInBox(box))

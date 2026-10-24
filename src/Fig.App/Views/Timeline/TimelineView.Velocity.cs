@@ -36,10 +36,17 @@ namespace Fig.App.Views
             if (Editor?.Document.Tracks.FirstOrDefault(t => t.Clips.Contains(clip)) is not { } track)
                 return null;
             var index = Editor.Document.Tracks.IndexOf(track);
-            var top = TrackTop(index) + TimelineGeometry.ClipInset + TimelineGeometry.LabelHeight(track);
+            var top = TrackTop(index) + TimelineGeometry.ClipInset + LabelHeight(track);
             var height = BodyHeight(track) - SoundStripHeight(clip);
             var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
             return SpeedBand(new Rect(x, top, clip.DurSec * Viewport.PixelsPerSecond, height));
+        }
+
+        /// <summary>True when the pointer is over the clip's span (with grab room), a cheap test before finding its band.</summary>
+        private bool UnderPointerX(Clip clip, Point pos)
+        {
+            var x = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec);
+            return pos.X >= x - SpeedGrabPx && pos.X <= x + clip.DurSec * Viewport.PixelsPerSecond + SpeedGrabPx;
         }
 
         private static Rect SpeedBand(Rect picture) => picture.Deflate(new Thickness(0, SpeedLinePad));
@@ -107,7 +114,7 @@ namespace Fig.App.Views
                         continue;   // past the end: kept, but hidden until the clip is trimmed longer
                     var center = new Point(picture.X + keys[i].TimeSec * Viewport.PixelsPerSecond, SpeedToY(band, keys[i].Value.AsNumber));
                     var active = IsDiamondHot(KeyframeHostRef.OfSpeed(clip.Id), keys[i].TimeSec);
-                    context.DrawEllipse(active ? Brushes.White : SpeedLineBrush, new Pen(Brushes.Black, 1), center,
+                    context.DrawEllipse(active ? Brushes.White : SpeedLineBrush, PenOf(Brushes.Black, 1), center,
                         active ? SpeedPointRadius + 1 : SpeedPointRadius, active ? SpeedPointRadius + 1 : SpeedPointRadius);
                     if (active)
                         DrawSpeedLabel(context, center, keys[i].Value.AsNumber, keys[i].Easing);
@@ -131,7 +138,7 @@ namespace Fig.App.Views
                 return null;
             foreach (var clip in Editor.Document.Tracks.SelectMany(t => t.Clips))
             {
-                if (ClipTime.Curve(clip) is not { } keys || SpeedBand(clip) is not { } band)
+                if (!UnderPointerX(clip, pos) || ClipTime.Curve(clip) is not { } keys || SpeedBand(clip) is not { } band)
                     continue;
                 if (pos.Y < band.Top - SpeedGrabPx || pos.Y > band.Bottom + SpeedGrabPx)
                     continue;
@@ -155,7 +162,7 @@ namespace Fig.App.Views
                 return null;
             foreach (var clip in Editor.Document.Tracks.SelectMany(t => t.Clips))
             {
-                if (!ClipTime.HasCurve(clip) || SpeedBand(clip) is not { } band
+                if (!UnderPointerX(clip, pos) || !ClipTime.HasCurve(clip) || SpeedBand(clip) is not { } band
                     || pos.X < band.X || pos.X > band.Right || pos.Y < band.Top - SpeedGrabPx || pos.Y > band.Bottom + SpeedGrabPx)
                     continue;
                 var t = (pos.X - band.X) / Viewport.PixelsPerSecond;

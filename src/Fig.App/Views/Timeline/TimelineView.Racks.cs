@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Immutable;
 using Fig.App.Services;
 using Fig.Core.Media;
 using Fig.Core.Timeline;
@@ -66,7 +67,64 @@ namespace Fig.App.Views
         private (string OwnerId, string EffectId)? _collapseToEffect;
         private bool _rackMoved;
 
-        private static List<RackItem> BuildRack(IEffectOwner clip)
+        private sealed record CachedRack(int Fingerprint, List<RackItem> Items);
+
+        // bars come in a handful of colours; a fresh brush and pen per bar per frame is thousands of allocations
+        private static readonly Dictionary<Color, IBrush> BarBrushes = new();
+        private static readonly IPen SelectedBarPen = new ImmutablePen(Brushes.White, 1.5);
+        private static readonly IPen DiamondEdgePen = new ImmutablePen(Color.FromArgb(200, 0, 0, 0).ToUInt32(), 1);
+
+        private static IBrush BarBrush(Color color)
+        {
+            if (!BarBrushes.TryGetValue(color, out var brush))
+                BarBrushes[color] = brush = new ImmutableSolidColorBrush(color);
+            return brush;
+        }
+
+
+
+        // racks are looked up many times a frame (lane heights, drawing, hit testing); a long timeline's track rack
+        // has thousands of bars, so each is kept until what it is built from changes
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<IEffectOwner, CachedRack> _racks = new();
+
+        /// <summary>The bars under a clip or track, rebuilt only when its effects, length or sound settings change.</summary>
+        private List<RackItem> BuildRack(IEffectOwner clip)
+        {
+            var fingerprint = RackFingerprint(clip);
+            if (_racks.TryGetValue(clip, out var cached) && cached.Fingerprint == fingerprint)
+                return cached.Items;
+            var items = ComputeRack(clip);
+            _racks.AddOrUpdate(clip, new CachedRack(fingerprint, items));
+            return items;
+        }
+
+        /// <summary>Everything <see cref="ComputeRack"/> reads, folded into one number.</summary>
+        private static int RackFingerprint(IEffectOwner clip)
+        {
+            var hash = new HashCode();
+            hash.Add(clip.DurSec);
+            hash.Add(clip.Effects.Count);
+            foreach (var fx in clip.Effects)
+            {
+                hash.Add(fx);
+                hash.Add(fx.TypeId);
+                hash.Add(fx.Order);
+                hash.Add(fx.Enabled);
+                hash.Add(fx.StartSec);
+                hash.Add(fx.DurSec);
+            }
+            if (clip is Clip c)
+            {
+                hash.Add(c.Volume);
+                hash.Add(c.Keyframes.ContainsKey(AutomationKeys.Volume));
+                hash.Add(c.FadeInSec);
+                hash.Add(c.FadeOutSec);
+                hash.Add(c is VideoClip { PlaysAudio: true });
+            }
+            return hash.ToHashCode();
+        }
+
+        private static List<RackItem> ComputeRack(IEffectOwner clip)
         {
             var items = new List<RackItem>();
             foreach (var fx in clip.Effects.OrderBy(e => e.Order))
@@ -178,25 +236,56 @@ namespace Fig.App.Views
 
         private bool IsRackExpanded(IEffectOwner clip) => TrackOf(clip) is not { } track || IsTrackRackExpanded(track);
 
-        private double RackBar(IEffectOwner clip) => IsRackExpanded(clip) ? RackBarFull : RackBarCompact;
+        // sized by the track the bars sit on: looking a clip's track up scans every clip on the timeline
+        private double RackBar(Track track) => IsTrackRackExpanded(track) ? RackBarFull : RackBarCompact;
 
-        private double RackGap(IEffectOwner clip) => IsRackExpanded(clip) ? RackGapFull : RackGapCompact;
+        private double RackGap(Track track) => IsTrackRackExpanded(track) ? RackGapFull : RackGapCompact;
 
-        /// <summary>Extra lane height a clip needs for its rack (0 when it has nothing to show).</summary>
-        private double RackHeight(IEffectOwner clip)
+        /// <summary>Extra lane height a clip or track on <paramref name="track"/> needs for its rack (0 when it has nothing to show).</summary>
+        private double RackHeight(IEffectOwner owner, Track track)
         {
-            var items = BuildRack(clip);
-            var n = items.Count == 0 ? 0 : items.Max(i => i.Row) + 1;
-            return n == 0 ? 0 : RackPad + n * (RackBar(clip) + RackGap(clip));
+            // a clip's bars take a row each, so it needs only their count; a track packs its bars, so it needs the rack
+            var rows = owner is Clip clip ? ClipRackRows(clip)
+                : BuildRack(owner) is { Count: > 0 } items ? items.Max(i => i.Row) + 1 : 0;
+            return rows == 0 ? 0 : RackPad + rows * (RackBar(track) + RackGap(track));
         }
 
-        private double TrackRackHeight(Track track) => RackHeight(track) + track.Clips.Select(c => RackHeight(c)).DefaultIfEmpty(0).Max();
+        /// <summary>How many bars <see cref="ComputeRack"/> gives a clip, without building them.</summary>
+        private static int ClipRackRows(Clip clip)
+        {
+            var rows = clip.Effects.Count;
+            if (clip is AudioClip audio)
+            {
+                if (Math.Abs(audio.Volume - 1) > 0.01 || audio.Keyframes.ContainsKey(AutomationKeys.Volume)) rows++;
+                if (audio.FadeInSec > 1e-3) rows++;
+                if (audio.FadeOutSec > 1e-3) rows++;
+            }
+            else if (clip is VideoClip { PlaysAudio: true } video
+                && (Math.Abs(video.Volume - 1) > 0.01 || video.Keyframes.ContainsKey(AutomationKeys.Volume)))
+                rows++;
+            return rows;
+        }
 
-        private Rect RackItemRect(IEffectOwner clip, RackItem item, int index, double clipX, double clipTop, Track track)
+        /// <summary>The tallest rack among a track's clips; the track's own bars go under it.</summary>
+        private double ClipRacksHeight(Track track)
+        {
+            var tallest = 0.0;
+            foreach (var clip in track.Clips)
+                tallest = Math.Max(tallest, RackHeight(clip, track));
+            return tallest;
+        }
+
+        private double TrackRackHeight(Track track) => RackHeight(track, track) + ClipRacksHeight(track);
+
+        /// <summary>Where an owner's first row of bars starts: under the clips, and for a track under its clips' own racks too.</summary>
+        private double RackTop(IEffectOwner clip, double clipTop, Track track)
+            => clipTop + ClipTotal(track) + (clip is Track ? ClipRacksHeight(track) : 0) + RackPad;
+
+        private Rect RackItemRect(RackItem item, double clipX, double rackTop, Track track)
         {
             var px = Viewport.PixelsPerSecond;
-            var top = clipTop + ClipTotal(track) + (clip is Track ? TrackOf(clip)!.Clips.Select(c => RackHeight(c)).DefaultIfEmpty(0).Max() : 0) + RackPad + item.Row * (RackBar(clip) + RackGap(clip));
-            return new Rect(clipX + item.StartSec * px, top, Math.Max(MinRackBarWidth, item.DurSec * px), RackBar(clip));
+            var top = rackTop + item.Row * (RackBar(track) + RackGap(track));
+            return new Rect(clipX + item.StartSec * px, top, Math.Max(MinRackBarWidth, item.DurSec * px), RackBar(track));
         }
 
         private void DrawRack(DrawingContext context, IEffectOwner clip, double clipX, double clipW, double clipTop, Track track)
@@ -205,23 +294,32 @@ namespace Fig.App.Views
             if (items.Count == 0)
                 return;
 
-            var expanded = IsRackExpanded(clip);
+            var expanded = IsTrackRackExpanded(track);
+            var rackTop = RackTop(clip, clipTop, track);
 
             for (var i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                var rect = RackItemRect(clip, item, i, clipX, clipTop, track);
+                var rect = RackItemRect(item, clipX, rackTop, track);
+                if (rect.Right < TrackHeaderWidth || rect.X > Bounds.Width)
+                    continue;   // culled: not visible
                 var alpha = item.Enabled ? (byte)255 : (byte)110;
-                var fill = new SolidColorBrush(Color.FromArgb(alpha, item.Fill.R, item.Fill.G, item.Fill.B));
+                if (rect.Width < ClipDetailWidth)
+                {
+                    // a sliver of a bar: its colour only, like a sliver of a clip
+                    context.DrawRectangle(BarBrush(Color.FromArgb(alpha, item.Edge.R, item.Edge.G, item.Edge.B)), null, rect);
+                    continue;
+                }
+                var fill = BarBrush(Color.FromArgb(alpha, item.Fill.R, item.Fill.G, item.Fill.B));
                 var selected = item.Effect is not null && Editor?.Selection.IsEffectSelected(item.Effect.Id) == true;
                 var outline = selected
-                    ? new Pen(Brushes.White, 1.5)
-                    : new Pen(new SolidColorBrush(Color.FromArgb(alpha, item.Edge.R, item.Edge.G, item.Edge.B)), 1);
+                    ? SelectedBarPen
+                    : PenOf(Color.FromArgb(alpha, item.Edge.R, item.Edge.G, item.Edge.B), 1);
                 context.DrawRectangle(fill, outline, rect, 3, 3);
 
                 DrawBarKeyframes(context, clip, item, rect, expanded);
 
-                if (!expanded)
+                if (!expanded || rect.Width < MinLabelWidth)
                     continue;
 
                 using (context.PushClip(rect.Deflate(new Thickness(2, 0))))
@@ -273,7 +371,7 @@ namespace Fig.App.Views
             var px = Viewport.PixelsPerSecond;
             var clipX = rect.X - item.StartSec * px;
             var y = expanded ? rect.Y + RackLabelRow + (RackBarFull - RackLabelRow) / 2.0 : rect.Center.Y;
-            var edge = new SolidColorBrush(item.Edge);
+            var edge = BarBrush(item.Edge);
             var selectedId = _editorVm?.Properties.SelectedEffect?.EffectId;
             var selectedSec = _editorVm?.Properties.SelectedKeyframeSec;
 
@@ -281,7 +379,7 @@ namespace Fig.App.Views
             {
                 var first = clipX + times[0] * px;
                 var last = clipX + times[^1] * px;
-                context.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(130, item.Edge.R, item.Edge.G, item.Edge.B)), 1.2), new Point(first, y), new Point(last, y));
+                context.DrawLine(PenOf(Color.FromArgb(130, item.Edge.R, item.Edge.G, item.Edge.B), 1.2), new Point(first, y), new Point(last, y));
             }
 
             foreach (var time in times)
@@ -301,7 +399,7 @@ namespace Fig.App.Views
                     gc.LineTo(new Point(x - size, y));
                     gc.EndFigure(true);
                 }
-                context.DrawGeometry(selected ? Brushes.White : edge, new Pen(new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)), 1), g);
+                context.DrawGeometry(selected ? Brushes.White : edge, DiamondEdgePen, g);
             }
         }
 
@@ -325,10 +423,11 @@ namespace Fig.App.Views
                         continue;
                     var clipX = TrackHeaderWidth + Viewport.TimeToX(clip.StartSec + GetRippleOffsetSec(clip.Id));
                     var clipW = clip.DurSec * Viewport.PixelsPerSecond;
+                    var rackTop = RackTop(clip, clipTop, track);
 
                     for (var i = 0; i < items.Count; i++)
                     {
-                        var rect = RackItemRect(clip, items[i], i, clipX, clipTop, track);
+                        var rect = RackItemRect(items[i], clipX, rackTop, track);
                         // thin bars get a taller grab area, and the ends get a resize zone
                         var grab = rect.Inflate(new Thickness(4, 2));
                         if (!grab.Contains(pos))
@@ -528,11 +627,12 @@ namespace Fig.App.Views
                     if (items.Count == 0)
                         continue;
                     var ownerX = TrackHeaderWidth + Viewport.TimeToX(owner.StartSec + GetRippleOffsetSec(owner.Id));
+                    var rackTop = RackTop(owner, clipTop, track);
                     for (var i = 0; i < items.Count; i++)
                     {
                         if (items[i].Effect is not { } fx)
                             continue;
-                        var rect = RackItemRect(owner, items[i], i, ownerX, clipTop, track);
+                        var rect = RackItemRect(items[i], ownerX, rackTop, track);
                         if (rect.Intersects(box))
                             hit.Add((owner.Id, fx.Id, rect));
                     }

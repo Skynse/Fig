@@ -109,7 +109,7 @@ namespace Fig.App.Views
                     gc.LineTo(new Point(mx - 7, y + 9));
                     gc.EndFigure(true);
                 }
-                context.DrawGeometry(brush, hot ? new Pen(Brushes.White, selected ? 2 : 1.5) : new Pen(new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)), 1), head);
+                context.DrawGeometry(brush, hot ? PenOf(Brushes.White, selected ? 2 : 1.5) : PenOf(Color.FromArgb(160, 0, 0, 0), 1), head);
             }
 
             if (preview is not null)
@@ -192,7 +192,7 @@ namespace Fig.App.Views
                     if (right < TrackHeaderWidth || left > Bounds.Width)
                         continue;
                     var rect = new Rect(left, 3, Math.Max(2, right - left), MarkerLaneHeight - 6);
-                    context.DrawRectangle(RangeFill(m.Color), IsMarkerHot(m) ? new Pen(Brushes.White, selected ? 1.5 : 1) : null, rect, 3, 3);
+                    context.DrawRectangle(RangeFill(m.Color), IsMarkerHot(m) ? PenOf(Brushes.White, selected ? 1.5 : 1) : null, rect, 3, 3);
                     context.DrawRectangle(MarkerBrush(m.Color), null, new Rect(rect.X, rect.Y, 2, rect.Height));
                     context.DrawRectangle(MarkerBrush(m.Color), null, new Rect(rect.Right - 2, rect.Y, 2, rect.Height));
                     if (!string.IsNullOrEmpty(m.Name) && rect.Width > 24)
@@ -223,7 +223,7 @@ namespace Fig.App.Views
                         gc.EndFigure(true);
                     }
                     context.DrawGeometry(MarkerBrush(m.Color),
-                        IsMarkerHot(m) ? new Pen(Brushes.White, selected ? 2 : 1.5) : new Pen(new SolidColorBrush(Color.FromArgb(160, 0, 0, 0)), 1), flag);
+                        IsMarkerHot(m) ? PenOf(Brushes.White, selected ? 2 : 1.5) : PenOf(Color.FromArgb(160, 0, 0, 0), 1), flag);
                     if (!string.IsNullOrEmpty(m.Name))
                     {
                         var label = new FormattedText(m.Name, System.Globalization.CultureInfo.CurrentCulture,
@@ -247,7 +247,7 @@ namespace Fig.App.Views
                 if (mx < TrackHeaderWidth || mx > Bounds.Width)
                     continue;
                 var selected = Editor.Selection.IsMarkerSelected(m.Id);
-                context.DrawLine(new Pen(MarkerBrush(m.Color), selected ? 2 : 1), new Point(mx, MarkerLaneHeight), new Point(mx, Bounds.Height));
+                context.DrawLine(PenOf(MarkerBrush(m.Color), selected ? 2 : 1), new Point(mx, MarkerLaneHeight), new Point(mx, Bounds.Height));
             }
         }
 
@@ -275,7 +275,7 @@ namespace Fig.App.Views
                     gc.EndFigure(true);
                 }
                 context.DrawGeometry(MarkerBrush(m.Color),
-                    selected ? new Pen(Brushes.White, 1.5) : null, diamond);
+                    selected ? PenOf(Brushes.White, 1.5) : null, diamond);
             }
         }
 

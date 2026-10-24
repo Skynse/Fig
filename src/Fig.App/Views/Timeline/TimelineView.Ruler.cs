@@ -33,7 +33,7 @@ namespace Fig.App.Views
         private void DrawRuler(DrawingContext context, double px, double scroll)
         {
             context.DrawRectangle(RulerBackground, null, new Rect(0, 0, Bounds.Width, RulerHeight));
-            context.DrawLine(new Pen(BorderBrush, 1), new Point(0, RulerHeight), new Point(Bounds.Width, RulerHeight));
+            context.DrawLine(PenOf(BorderBrush, 1), new Point(0, RulerHeight), new Point(Bounds.Width, RulerHeight));
             if (Editor is null)
                 return;
 
@@ -41,9 +41,9 @@ namespace Fig.App.Views
             var showMinor = scale.MinorSec * px >= MinTickSpacingPx;
             var rate = Editor.Document.Rate;
             var visibleEnd = Viewport.VisibleEndTime(Bounds.Width - TrackHeaderWidth);
-            var majorPen = new Pen(RulerMajorBrush, 1);
-            var midPen = new Pen(RulerMidBrush, 1);
-            var minorPen = new Pen(RulerMinorBrush, 1);
+            var majorPen = PenOf(RulerMajorBrush, 1);
+            var midPen = PenOf(RulerMidBrush, 1);
+            var minorPen = PenOf(RulerMinorBrush, 1);
             var baseline = RulerHeight - 1;
 
             var step = scale.MinorSec;
@@ -120,8 +120,8 @@ namespace Fig.App.Views
             if (scale.MinorSec * Viewport.PixelsPerSecond < MinTickSpacingPx * 2)
                 return;
             var visibleEnd = Viewport.VisibleEndTime(Bounds.Width - TrackHeaderWidth);
-            var minorPen = new Pen(LaneGridMinorBrush, 1);
-            var majorPen = new Pen(LaneGridMajorBrush, 1);
+            var minorPen = PenOf(LaneGridMinorBrush, 1);
+            var majorPen = PenOf(LaneGridMajorBrush, 1);
             var step = scale.MinorSec;
             for (var i = (long)Math.Ceiling(Viewport.ScrollTime / step - 1e-9); i * step <= visibleEnd + step; i++)
             {
