@@ -192,6 +192,7 @@ The primary user is a solo creator (hobbyist to semi-professional) who edits sho
 | FR-084 | A transition SHALL be applicable by dragging a catalog entry onto a cut. | P0 | X |
 | FR-085 | Transitions SHALL be selectable, resizable (drag or slider), and removable, all undoable. | P0 | X |
 | FR-086 | The transition catalog SHALL keep growing (wipes, irises, slide, etc.). | P1 | X |
+| FR-086a | A transition SHALL join any mix of video clips, still images and titles at a cut; a still or title holds its picture for as long as the transition needs and keeps its transparency, so tracks below show through it during the blend. | P1 | X |
 | FR-087 | Effect and transition parameters SHALL be typed (Double, Int, Bool, Color, List) with schema-defined ranges, defaults, and choices, and SHALL persist (legacy bare-number params keep loading). | P0 | X |
 | FR-088 | The properties panel SHALL render each effect's parameters as controls generated from its schema (slider, checkbox, color, list) that write through the timeline editor with undo. | P0 | X |
 | FR-089 | The applied effect stack SHALL be visible on the selected clip with per-effect enable/disable and remove controls; adding an effect SHALL be a single self-describing class with no separate registration. | P0 | X |

@@ -58,6 +58,12 @@ namespace Fig.Core.Media
         public int Width { get; set; }
         public int Height { get; set; }
         public byte[] Pixels { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// Sets every pixel's alpha to 255 in place. Video counts as opaque wherever it's drawn, but its frames don't
+        /// promise a full alpha byte; this makes that true before it's mixed with a picture that has real transparency.
+        /// </summary>
+        public void MakeOpaque() => PixelOps.ForceOpaque(this);
     }
 
     /// <summary>

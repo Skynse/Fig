@@ -477,6 +477,44 @@ public class EffectTransitionTests
     }
 
     [Fact]
+    public void ApplyTransitionAtCut_JoinsStillsToStillsAndVideo()
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var track = new Track { Kind = TrackKind.Video, Index = 0 };
+        track.Clips.Add(new ImageClip { Id = "a", SourceId = "img", StartSec = 0, DurSec = 2 });
+        track.Clips.Add(new ImageClip { Id = "b", SourceId = "img", StartSec = 2, DurSec = 2 });
+        track.Clips.Add(new VideoClip { Id = "c", SourceId = "m", StartSec = 4, DurSec = 2 });
+        timeline.Tracks.Add(track);
+        var editor = new TimelineEditor(timeline);
+        var dissolve = TransitionCatalog.Find(TransitionCatalog.CrossDissolve)!;
+
+        Assert.True(editor.ApplyTransitionAtCut("a", "b", dissolve.CreateRef(0.5)));
+        Assert.True(editor.TryApplyTransitionFromSelection("b", dissolve.CreateRef(0.5)));
+
+        Assert.Equal(2, editor.EnumerateTransitions(track).Count());
+        Assert.NotNull(track.Clips[1].TransitionIn);
+        Assert.NotNull(track.Clips[2].TransitionIn);
+        Assert.Equal(4.0, editor.GetMaxTransitionDuration("a", "b"), 6);   // only the clips' lengths limit a still
+    }
+
+    [Fact]
+    public void ApplyTransitionAtCut_JoinsTitles()
+    {
+        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
+        var track = new Track { Kind = TrackKind.Video, Index = 0 };
+        track.Clips.Add(new TextClip { Id = "t1", Text = "One", StartSec = 0, DurSec = 1 });
+        track.Clips.Add(new TextClip { Id = "t2", Text = "Two", StartSec = 1, DurSec = 1 });
+        track.Clips.Add(new ImageClip { Id = "img", SourceId = "img", StartSec = 2, DurSec = 2 });
+        timeline.Tracks.Add(track);
+        var editor = new TimelineEditor(timeline);
+        var dissolve = TransitionCatalog.Find(TransitionCatalog.CrossDissolve)!;
+
+        Assert.True(editor.ApplyTransitionAtCut("t1", "t2", dissolve.CreateRef(0.3)));
+        Assert.True(editor.ApplyTransitionAtCut("t2", "img", dissolve.CreateRef(0.3)));
+        Assert.Equal(2, editor.EnumerateTransitions(track).Count());
+    }
+
+    [Fact]
     public void ApplyTransitionAtCut_SetsBothEdges_AndUndo()
     {
         var timeline = new TimelineModel { Rate = FrameRate.Common(30) };

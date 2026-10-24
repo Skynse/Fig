@@ -75,7 +75,9 @@ namespace Fig.App.Views
         {
             if (Editor is null)
                 return default;
-            var y = TrackBottom(Editor.Document.Tracks.Count - 1) + 4;
+            // under the last track, or right under the ruler on a timeline with none yet
+            var count = Editor.Document.Tracks.Count;
+            var y = (count == 0 ? TrackTop(0) : TrackBottom(count - 1)) + 4;
             return new Rect(8, y, HeaderButtonSize, HeaderButtonSize);
         }
 

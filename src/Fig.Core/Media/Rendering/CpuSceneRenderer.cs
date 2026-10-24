@@ -37,12 +37,18 @@ namespace Fig.Core.Media
                     {
                         var outFrame = Prepare(layer.Source, width, height, seen, rented);
                         var inFrame = Prepare(incoming, width, height, seen, rented);
+                        // a still has real transparency; video beside it must count as fully opaque in the blend
+                        var withAlpha = layer.Source.HasAlpha || incoming.HasAlpha;
+                        if (withAlpha && !layer.Source.HasAlpha)
+                            outFrame.MakeOpaque();
+                        if (withAlpha && !incoming.HasAlpha)
+                            inFrame.MakeOpaque();
                         var blended = blender.Blend(outFrame, inFrame, layer.Progress, layer.TransitionParams
                             ?? new Dictionary<string, Fig.Core.Timeline.ParamValue>());
                         if (!ReferenceEquals(blended, outFrame) && !ReferenceEquals(blended, inFrame))
                             rented.Add(blended.Pixels);
                         blended = EffectPipeline.ApplyCalls(blended, layer.Effects, rented);
-                        composites.Add(new CompositeLayer { Frame = blended, Opacity = layer.Opacity });
+                        composites.Add(new CompositeLayer { Frame = blended, Opacity = layer.Opacity, Premultiplied = withAlpha });
                         continue;
                     }
 

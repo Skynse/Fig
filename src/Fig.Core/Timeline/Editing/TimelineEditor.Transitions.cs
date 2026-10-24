@@ -29,12 +29,19 @@ namespace Fig.Core.Timeline
         }
 
         /// <summary>
+        /// True for clips a transition can join: video, still images and titles, in any mix. A drawn layer (a still
+        /// or a title) holds its picture for as long as the transition needs, so only the clips' lengths limit it.
+        /// </summary>
+        public static bool CanTransition(Clip? clip) => clip is VideoClip or ILayerClip;
+
+        /// <summary>
         /// Applies a catalog transition to the cut between two abutting clips
-        /// (outgoing.transitionOut + incoming.transitionIn). Video clips only.
+        /// (outgoing.transitionOut + incoming.transitionIn). Video, image and title clips only.
         /// </summary>
         public bool ApplyTransitionAtCut(string outgoingClipId, string incomingClipId, TransitionRef transition)
         {
-            if (FindClip(outgoingClipId) is not VideoClip left || FindClip(incomingClipId) is not VideoClip right)
+            if (FindClip(outgoingClipId) is not { } left || FindClip(incomingClipId) is not { } right
+                || !CanTransition(left) || !CanTransition(right))
                 return false;
             var requestedDuration = transition.DurationSec;
             var duration = ClampTransitionDuration(left, right, requestedDuration);
@@ -56,14 +63,14 @@ namespace Fig.Core.Timeline
         /// <summary>
         /// Applies <paramref name="transition"/> as transition-out on the selected clip and
         /// transition-in on the next abutting clip on the same track, when one exists.
-        /// Otherwise sets transition-out only. Returns false when the clips are not video
-        /// (transitions only exist between video clips).
+        /// Otherwise sets transition-out only. Returns false when the clips are not video, images or titles
+        /// (transitions only exist between those).
         /// </summary>
         public bool TryApplyTransitionFromSelection(string clipId, TransitionRef transition)
         {
             var clip = FindClip(clipId);
             var track = FindClipTrack(clipId);
-            if (clip is not VideoClip || track is null)
+            if (!CanTransition(clip) || track is null)
                 return false;
 
             var cut = clip.StartSec + clip.DurSec;
@@ -81,11 +88,11 @@ namespace Fig.Core.Timeline
 
             if (next is not null)
             {
-                if (next is not VideoClip)
+                if (!CanTransition(next))
                     return false;
                 return ApplyTransitionAtCut(clip.Id, next.Id, transition);
             }
-            TransitionValidationMessage = "Transitions require an abutting video clip at the cut.";
+            TransitionValidationMessage = "Transitions need a video, image or title clip right after this one.";
             return false;
         }
 
@@ -150,8 +157,8 @@ namespace Fig.Core.Timeline
             var right = FindClip(rightClipId);
             if (left is null || right is null || (left.TransitionOut is null && right.TransitionIn is null))
                 return;
-            if (left is VideoClip leftVideo && right is VideoClip rightVideo)
-                durationSec = ClampTransitionDuration(leftVideo, rightVideo, durationSec);
+            if (CanTransition(left) && CanTransition(right))
+                durationSec = ClampTransitionDuration(left, right, durationSec);
             if (durationSec <= 1e-6)
                 return;
             History.ExecuteCoalescing(new SetTransitionDurationCommand(this, leftClipId, rightClipId, durationSec));
@@ -160,12 +167,13 @@ namespace Fig.Core.Timeline
 
         public double GetMaxTransitionDuration(string leftClipId, string rightClipId)
         {
-            if (FindClip(leftClipId) is not VideoClip left || FindClip(rightClipId) is not VideoClip right)
+            if (FindClip(leftClipId) is not { } left || FindClip(rightClipId) is not { } right
+                || !CanTransition(left) || !CanTransition(right))
                 return 0;
             return ClampTransitionDuration(left, right, double.MaxValue);
         }
 
-        private double ClampTransitionDuration(VideoClip left, VideoClip right, double requested)
+        private double ClampTransitionDuration(Clip left, Clip right, double requested)
         {
             var visibleLimit = 2 * Math.Min(left.DurSec, right.DurSec);
             // Transitions remain usable on fresh, untrimmed clips. Rendering samples real

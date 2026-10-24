@@ -45,7 +45,48 @@ public class ExportSceneTests
             Frame = new DecodedFrame { Width = s.Frame.Width, Height = s.Frame.Height, Pixels = (byte[])s.Frame.Pixels.Clone() },
             Effects = s.Effects,
             Crop = s.Crop,
+            HasAlpha = s.HasAlpha,
         };
+    }
+
+    /// <summary>Draws every layer as the same opaque red picture.</summary>
+    private sealed class RedRasterizer : ILayerRasterizer
+    {
+        public DecodedFrame? Rasterize(Clip clip, int width, int height, double localT)
+        {
+            var pixels = new byte[width * height * 4];
+            for (var i = 0; i < pixels.Length; i += 4)
+                (pixels[i + 2], pixels[i + 3]) = (255, 255);
+            return new DecodedFrame { Width = width, Height = height, Pixels = pixels };
+        }
+
+        public LayerSize? Measure(Clip clip, int width, int height, double localT) => null;
+    }
+
+    [Fact]
+    public void Export_TransitionFromAStill_DrawsTheStillAsItsOutgoingSide()
+    {
+        var (project, timeline, video) = Setup(1.0);
+        video.StartSec = 1.0;
+        var still = new ImageClip { Id = "still", SourceId = "img", StartSec = 0, DurSec = 1.0 };
+        timeline.Tracks[0].Clips.Insert(0, still);
+        var editor = new TimelineEditor(timeline);
+        Assert.True(editor.ApplyTransitionAtCut(still.Id, video.Id, TransitionCatalog.Find(TransitionCatalog.CrossDissolve)!.CreateRef(0.4)));
+
+        var renderer = new RecordingRenderer();
+        var path = Path.Combine(Path.GetTempPath(), $"fig-export-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            new MediaService().RenderTimeline(project, timeline, path, 320, 180, renderer: renderer, layers: new RedRasterizer());
+            var layer = Assert.Single(renderer.Scenes[30].Layers);   // the cut, halfway through the dissolve
+            Assert.Equal(TransitionCatalog.CrossDissolve, layer.TransitionTypeId);
+            Assert.Equal(0.5, layer.Progress, 2);
+            Assert.True(layer.Source.HasAlpha);   // the still keeps its transparency
+            Assert.Equal(255, layer.Source.Frame.Pixels[2]);
+            Assert.NotNull(layer.Incoming);
+            Assert.False(layer.Incoming!.HasAlpha);
+        }
+        finally { File.Delete(path); }
     }
 
     private static (ProjectModel Project, TimelineModel Timeline, VideoClip Clip) Setup(double clipDur = 1.0)

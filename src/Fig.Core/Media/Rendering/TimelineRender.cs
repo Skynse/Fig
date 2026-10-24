@@ -300,20 +300,18 @@ namespace Fig.Core.Media
                 var trackEffects = EffectPipeline.ResolveStack(track.Effects, t);
                 var activeTx = TransitionResolver.FindActive(track, t);
                 if (activeTx is not null
-                    && activeTx.Outgoing is VideoClip outVc
-                    && activeTx.Incoming is VideoClip inVc
                     && TransitionCatalog.Resolve(activeTx.TypeId) is not null
-                    && TryDecodeClip(project, timeline, sources, outVc, t, width, height, out var outFrame, out var outLocal)
-                    && outFrame is not null
-                    && TryDecodeClip(project, timeline, sources, inVc, t, width, height, out var inFrame, out var inLocal)
-                    && inFrame is not null)
+                    && TryTransitionFrame(project, timeline, sources, activeTx.Outgoing, t, width, height, rasterizer, out var outFrame, out var outLocal)
+                    && TryTransitionFrame(project, timeline, sources, activeTx.Incoming, t, width, height, rasterizer, out var inFrame, out var inLocal))
                 {
-                    var outOpacity = ClipFade.EffectiveOpacity(outVc, Math.Clamp(outLocal, 0, outVc.DurSec));
-                    var inOpacity = ClipFade.EffectiveOpacity(inVc, Math.Clamp(inLocal, 0, inVc.DurSec));
+                    var outClip = activeTx.Outgoing;
+                    var inClip = activeTx.Incoming;
+                    var outOpacity = ClipFade.EffectiveOpacity(outClip, Math.Clamp(outLocal, 0, outClip.DurSec));
+                    var inOpacity = ClipFade.EffectiveOpacity(inClip, Math.Clamp(inLocal, 0, inClip.DurSec));
                     layers.Add(new RenderLayer
                     {
-                        Source = SourceFor(outVc, outFrame, outLocal),
-                        Incoming = SourceFor(inVc, inFrame, inLocal),
+                        Source = SourceFor(outClip, outFrame!, outLocal),
+                        Incoming = SourceFor(inClip, inFrame!, inLocal),
                         TransitionTypeId = activeTx.TypeId,
                         Progress = activeTx.Progress01,
                         TransitionParams = activeTx.Params,
@@ -358,13 +356,31 @@ namespace Fig.Core.Media
             return new RenderScene { Width = width, Height = height, Layers = layers };
         }
 
-        private static RenderSource SourceFor(VideoClip clip, DecodedFrame frame, double localT)
+        private static RenderSource SourceFor(Clip clip, DecodedFrame frame, double localT)
             => new()
             {
                 Frame = frame,
                 Effects = EffectPipeline.ResolveStack(clip.Effects, localT),
                 Crop = CropAt(clip, localT),
+                HasAlpha = clip is ILayerClip,
             };
+
+        /// <summary>
+        /// One side of a transition: a video's decoded frame, or a still or title drawn by <paramref name="rasterizer"/> (held
+        /// at its nearest end while the transition runs past it).
+        /// </summary>
+        private bool TryTransitionFrame(ProjectModel project, TimelineModel timeline,
+            Dictionary<string, IVideoFrameSource> sources, Clip clip, double t, int width, int height,
+            ILayerRasterizer? rasterizer, out DecodedFrame? frame, out double localT)
+        {
+            frame = null;
+            localT = t - clip.StartSec;
+            if (clip is ILayerClip)
+                frame = rasterizer?.Rasterize(clip, width, height, Math.Clamp(localT, 0, Math.Max(0, clip.DurSec - 1e-4)));
+            else if (clip is VideoClip video)
+                TryDecodeClip(project, timeline, sources, video, t, width, height, out frame, out localT);
+            return frame is not null;
+        }
 
         /// <summary>The clip's crop at a clip-relative time (automation sampled); none for clips that can't be cropped.</summary>
         public static SceneCrop CropAt(Clip clip, double localT)

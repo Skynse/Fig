@@ -890,7 +890,11 @@ public partial class PreviewViewModel : ViewModelBase
                     return false;
                 layer = new GpuLayer
                 {
-                    Source = new GpuSource { Image = GpuSceneBuilder.ToImage(cpuLayer.Frame) },
+                    Source = new GpuSource
+                    {
+                        Image = GpuSceneBuilder.ToImage(cpuLayer.Frame, cpuLayer.Premultiplied),
+                        HasAlpha = cpuLayer.Premultiplied,
+                    },
                     Opacity = cpuLayer.Opacity,
                 };
                 return true;
@@ -901,12 +905,12 @@ public partial class PreviewViewModel : ViewModelBase
                     FramePool.Return(pixels);
             }
         }
-        if (active.Outgoing is not VideoClip outgoing
-            || active.Incoming is not VideoClip incoming
-            || TransitionCatalog.Resolve(active.TypeId) is null
-            || !TryDecodeClipFrame(outgoing, target, needsSeek, mode, out var outFrame, out var outLocal)
+        var outgoing = active.Outgoing;
+        var incoming = active.Incoming;
+        if (TransitionCatalog.Resolve(active.TypeId) is null
+            || !TryTransitionFrame(outgoing, target, needsSeek, mode, out var outFrame, out var outLocal)
             || outFrame is null
-            || !TryDecodeClipFrame(incoming, target, needsSeek, mode, out var inFrame, out var inLocal)
+            || !TryTransitionFrame(incoming, target, needsSeek, mode, out var inFrame, out var inLocal)
             || inFrame is null
             || outFrame.Width != _targetWidth || outFrame.Height != _targetHeight
             || inFrame.Width != _targetWidth || inFrame.Height != _targetHeight)
@@ -1167,12 +1171,12 @@ public partial class PreviewViewModel : ViewModelBase
         HashSet<byte[]> seen, List<byte[]> rented, out CompositeLayer layer, bool includeTrackEffects = true)
     {
         layer = new CompositeLayer();
-        if (active.Outgoing is not VideoClip outgoing
-            || active.Incoming is not VideoClip incoming
-            || TransitionCatalog.Resolve(active.TypeId) is not { } blender
-            || !TryDecodeClipFrame(outgoing, target, needsSeek, mode, out var outFrame, out var outLocal)
+        var outgoing = active.Outgoing;
+        var incoming = active.Incoming;
+        if (TransitionCatalog.Resolve(active.TypeId) is not { } blender
+            || !TryTransitionFrame(outgoing, target, needsSeek, mode, out var outFrame, out var outLocal)
             || outFrame is null
-            || !TryDecodeClipFrame(incoming, target, needsSeek, mode, out var inFrame, out var inLocal)
+            || !TryTransitionFrame(incoming, target, needsSeek, mode, out var inFrame, out var inLocal)
             || inFrame is null)
             return false;
 
@@ -1182,6 +1186,12 @@ public partial class PreviewViewModel : ViewModelBase
         inFrame = EffectPipeline.ApplyStack(inFrame, incoming.Effects, inLocal, rented);
         outFrame = ApplyCrop(outFrame, outgoing, outLocal, rented);
         inFrame = ApplyCrop(inFrame, incoming, inLocal, rented);
+        // a still has real transparency; video beside it must count as fully opaque in the blend
+        var withAlpha = outgoing is ILayerClip || incoming is ILayerClip;
+        if (withAlpha && outgoing is not ILayerClip)
+            outFrame.MakeOpaque();
+        if (withAlpha && incoming is not ILayerClip)
+            inFrame.MakeOpaque();
 
         var blended = blender.Blend(outFrame, inFrame, active.Progress01, active.Params);
         rented.Add(blended.Pixels);
@@ -1194,8 +1204,25 @@ public partial class PreviewViewModel : ViewModelBase
         {
             Frame = blended,
             Opacity = outOpacity + (inOpacity - outOpacity) * active.Progress01,
+            Premultiplied = withAlpha,
         };
         return true;
+    }
+
+    /// <summary>
+    /// One side of a transition: a video's decoded frame, or a still or title drawn by the layer rasterizer (held at its
+    /// nearest end while the transition runs past it).
+    /// </summary>
+    private bool TryTransitionFrame(Clip clip, double target, bool needsSeek, PreviewDecodeMode mode,
+        out DecodedFrame? frame, out double localT)
+    {
+        frame = null;
+        localT = target - clip.StartSec;
+        if (clip is ILayerClip)
+            frame = Layers?.Rasterize(clip, _targetWidth, _targetHeight, Math.Clamp(localT, 0, Math.Max(0, clip.DurSec - 1e-4)));
+        else if (clip is VideoClip video)
+            return TryDecodeClipFrame(video, target, needsSeek, mode, out frame, out localT);
+        return frame is not null;
     }
 
     private DecodedFrame ApplyCrop(DecodedFrame frame, Clip clip, double localT, List<byte[]> rented)

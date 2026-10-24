@@ -285,7 +285,7 @@ namespace Fig.App.Views
 
         /// <summary>
         /// Resolves a transition target on a video track. A precise drop near a cut wins;
-        /// dropping anywhere on a clip targets that clip's nearest abutting video edge.
+        /// dropping anywhere on a clip targets that clip's nearest abutting video, image or title edge.
         /// This keeps edit-point precision without making the cut a tiny drop target.
         /// </summary>
         private (Clip Left, Clip Right)? FindTransitionCut(Track track, double timeSec)
@@ -300,7 +300,7 @@ namespace Fig.App.Views
                 var left = clips[i];
                 var right = clips[i + 1];
                 var cut = left.StartSec + left.DurSec;
-                if (left is not VideoClip || right is not VideoClip || Math.Abs(right.StartSec - cut) > 1e-3)
+                if (!TimelineEditor.CanTransition(left) || !TimelineEditor.CanTransition(right) || Math.Abs(right.StartSec - cut) > 1e-3)
                     continue;
                 candidates.Add((left, right, cut));
             }
@@ -314,7 +314,7 @@ namespace Fig.App.Views
                 return (nearest.Left, nearest.Right);
 
             var clipUnderPointer = clips.FirstOrDefault(clip =>
-                clip is VideoClip && timeSec >= clip.StartSec && timeSec <= clip.StartSec + clip.DurSec);
+                TimelineEditor.CanTransition(clip) && timeSec >= clip.StartSec && timeSec <= clip.StartSec + clip.DurSec);
             if (clipUnderPointer is null)
                 return null;
 

@@ -79,6 +79,19 @@ namespace Fig.Core.Media
         /// <summary>A channel value rounded and held to 0–255.</summary>
         public static byte ToByte(double v) => (byte)Math.Clamp((int)Math.Round(v), 0, 255);
 
+        /// <summary>Sets every pixel's alpha to 255 in place (see <see cref="DecodedFrame.MakeOpaque"/>).</summary>
+        public static void ForceOpaque(DecodedFrame frame)
+        {
+            var pixels = frame.Pixels;
+            var stride = frame.Width * 4;
+            Rows(frame.Height, y =>
+            {
+                var end = y * stride + stride;
+                for (var i = y * stride + 3; i < end; i += 4)
+                    pixels[i] = 255;
+            });
+        }
+
         /// <summary>Runs <paramref name="row"/> for every scanline, in parallel on larger frames.</summary>
         public static void Rows(int height, Action<int> row)
         {
