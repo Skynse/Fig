@@ -260,8 +260,11 @@ public partial class EditorViewModel : ViewModelBase
 
     public bool DeleteSelection()
     {
+        // on the magnetic main track the clips after slide back into the gap
+        var before = SnapshotClipStarts();
         if (Editor.DeleteSelection() is not { } removed)
             return false;
+        EmitRippleSlides(before);
         Properties.Refresh();
         Preview.RefreshFrame();
         Notify?.Invoke(removed.Count == 1 ? $"Deleted 1 {removed.Noun}" : $"Deleted {removed.Count} {removed.Noun}s");

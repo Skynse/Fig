@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -52,6 +53,7 @@ public partial class EditorView : UserControl
         DataContextChanged += OnDataContextChanged;
         Timeline.PlayheadChanged += OnTimelinePlayheadChanged;
         Timeline.Viewport.Changed += UpdateZoomText;
+        ZoomSlider.ValueChanged += OnZoomSliderChanged;
         UpdateZoomText();
         PreviewHost.ContextMenu = BuildPreviewMenu();
     }
@@ -169,10 +171,26 @@ public partial class EditorView : UserControl
         }
     }
 
+    private bool _syncingZoomSlider;
+
     private void UpdateZoomText()
     {
-        var percent = Timeline.Viewport.PixelsPerSecond / TimelineViewport.DefaultPixelsPerSecond * 100;
-        ZoomText.Text = $"{percent:0}%";
+        var pps = Timeline.Viewport.PixelsPerSecond;
+        ZoomText.Text = $"{pps / TimelineViewport.DefaultPixelsPerSecond * 100:0}%";
+        // the slider runs on a log scale, so each step zooms by the same factor
+        _syncingZoomSlider = true;
+        ZoomSlider.Value = ZoomSlider.Maximum * Math.Log(pps / TimelineViewport.MinPixelsPerSecond)
+                           / Math.Log(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond);
+        _syncingZoomSlider = false;
+    }
+
+    private void OnZoomSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_syncingZoomSlider)
+            return;
+        var pps = TimelineViewport.MinPixelsPerSecond
+                  * Math.Pow(TimelineViewport.MaxPixelsPerSecond / TimelineViewport.MinPixelsPerSecond, e.NewValue / ZoomSlider.Maximum);
+        Timeline.ZoomToPixelsPerSecond(pps);
     }
 
     // ---- workspace layout -------------------------------------------------

@@ -90,10 +90,12 @@ namespace Fig.Core.Timeline
         }
 
         /// <summary>
-        /// Lifts every distinct selected link group, leaving gaps. Does not affect
+        /// Lifts every distinct selected link group, leaving gaps (except on the magnetic main track). Does not affect
         /// unselected clips even if they share the same timeline range.
         /// </summary>
-        public void LiftSelected()
+        public void LiftSelected() => KeepMainTrackClosed(LiftSelectedLeavingGaps);
+
+        private void LiftSelectedLeavingGaps()
         {
             var seeds = SelectedGroupSeeds();
             if (seeds.Count == 0)
@@ -221,6 +223,31 @@ namespace Fig.Core.Timeline
 
         private IReadOnlyList<Clip> SplitGroupsAt(IReadOnlyList<string> seeds, double snapped)
         {
+            var cutCommands = CutGroupsAt(seeds, snapped);
+            if (cutCommands.Count == 0)
+                return Array.Empty<Clip>();
+            var produced = cutCommands.SelectMany(c => c.ProducedClips).ToList();
+
+            // select right halves (+ link groups) so successive beat splits don't require re-clicking
+            var rightIds = new HashSet<string>();
+            foreach (var cut in cutCommands)
+            {
+                if (cut.ProducedClips.Count < 2)
+                    continue;
+                var right = cut.ProducedClips[1];
+                foreach (var member in LinkGroup(right.Id))
+                    rightIds.Add(member.Id);
+            }
+            if (rightIds.Count > 0)
+                Selection.SelectClips(rightIds);
+
+            RaiseChanged();
+            return produced;
+        }
+
+        /// <summary>Cuts the groups of <paramref name="seeds"/> that span <paramref name="snapped"/>, as one undo step. Returns the cuts made.</summary>
+        private List<CutCommand> CutGroupsAt(IReadOnlyList<string> seeds, double snapped)
+        {
             var targets = new List<(Clip Clip, string? SecondGroupId)>();
             var seenGroups = new HashSet<string>();
 
@@ -247,31 +274,13 @@ namespace Fig.Core.Timeline
             }
 
             if (targets.Count == 0)
-                return Array.Empty<Clip>();
+                return new List<CutCommand>();
 
             var commands = targets
                 .Select(t => (IEditCommand)new CutCommand(this, t.Clip.Id, snapped, t.SecondGroupId))
                 .ToArray();
             History.Execute(commands.Length == 1 ? commands[0] : new CompositeCommand(commands));
-
-            var cutCommands = commands.Cast<CutCommand>().ToList();
-            var produced = cutCommands.SelectMany(c => c.ProducedClips).ToList();
-
-            // select right halves (+ link groups) so successive beat splits don't require re-clicking
-            var rightIds = new HashSet<string>();
-            foreach (var cut in cutCommands)
-            {
-                if (cut.ProducedClips.Count < 2)
-                    continue;
-                var right = cut.ProducedClips[1];
-                foreach (var member in LinkGroup(right.Id))
-                    rightIds.Add(member.Id);
-            }
-            if (rightIds.Count > 0)
-                Selection.SelectClips(rightIds);
-
-            RaiseChanged();
-            return produced;
+            return commands.Cast<CutCommand>().ToList();
         }
 
         public void Lift(string clipId)
@@ -360,7 +369,7 @@ namespace Fig.Core.Timeline
 
         public void SetSpeed(string clipId, double speed)
         {
-            speed = Math.Clamp(speed, 0.1, 8.0);
+            speed = Math.Clamp(speed, MinSpeed, MaxSpeed);
             var clip = FindClip(clipId);
             // a clip with a speed curve takes its speed from the curve
             if (clip is null || Math.Abs(clip.Speed - speed) < 1e-6 || ClipTime.HasCurve(clip))

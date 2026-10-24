@@ -9,7 +9,8 @@ public class ClipboardTests
 {
     private static (TimelineEditor Ed, Track Track, VideoClip Clip) Setup()
     {
-        var ed = new TimelineEditor(new TimelineModel { Rate = FrameRate.Common(30) });
+        // these are about overwrite pasting; the main track magnet (which inserts instead) has tests of its own
+        var ed = new TimelineEditor(new TimelineModel { Rate = FrameRate.Common(30), MainTrackMagnet = false });
         var track = ed.AddTrack(TrackKind.Video);
         var clip = new VideoClip { SourceId = "a", StartSec = 1, DurSec = 2, SrcInSec = 0, SrcOutSec = 2 };
         ed.AddClip(track.Id, clip);

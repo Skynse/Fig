@@ -125,6 +125,10 @@ namespace Fig.App.Views
             var clickedClip = _marqueeClickClip;
             _marqueeClickClip = null;
 
+            if (!wasBox && clickedClip is null && !_marqueeAdditive)
+                SelectPressedGap();
+            _pressGap = null;
+
             if (!wasBox && clickedClip is not null)
             {
                 ClickSelectClip(clickedClip, modifiers);

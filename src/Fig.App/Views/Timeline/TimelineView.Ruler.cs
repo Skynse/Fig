@@ -58,8 +58,7 @@ namespace Fig.App.Views
                 if (slot == 0)
                 {
                     context.DrawLine(majorPen, new Point(x, baseline - RulerMajorTickPx), new Point(x, baseline));
-                    var label = new FormattedText(RulerLabel(t, scale, rate), CultureInfo.CurrentCulture,
-                        FlowDirection.LeftToRight, Typeface.Default, 10, RulerTextBrush);
+                    var label = TextOf(RulerLabel(t, scale, rate), 10, RulerTextBrush);
                     context.DrawText(label, new Point(x + 4, MarkerLaneHeight + 2));
                 }
                 else if (showMinor)

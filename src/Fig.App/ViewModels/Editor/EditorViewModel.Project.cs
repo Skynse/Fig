@@ -101,6 +101,7 @@ public partial class EditorViewModel
         Editor.RefreshTrackIndices();
         WireEditorEvents(Editor);
         OnPropertyChanged(nameof(Editor));
+        OnPropertyChanged(nameof(MainTrackMagnet));
         OnPropertyChanged(nameof(SequenceEndSec));
         NotifyProjectRate();
 

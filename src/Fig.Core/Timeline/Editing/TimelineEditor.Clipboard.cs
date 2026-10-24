@@ -32,7 +32,7 @@ namespace Fig.Core.Timeline
             return true;
         }
 
-        /// <summary>Copies the selection, then removes it and leaves a gap.</summary>
+        /// <summary>Copies the selection, then removes it and leaves a gap (closed on the magnetic main track).</summary>
         public bool CutSelected()
         {
             if (!CopySelected())
@@ -56,6 +56,12 @@ namespace Fig.Core.Timeline
             var groups = new Dictionary<string, string>();
             var pasted = new List<Clip>();
             var commands = new List<IEditCommand>();
+            // clips bound for the magnetic main track go in at the nearest cut instead of over what is there
+            var main = MainTrack;
+            var magnetic = IsMagnetic(main);
+            var intoMain = new List<Clip>();
+            var placed = new List<(Clip Clip, Track Track, double Offset)>();
+            Func<bool>? pendingMain = null;
 
             foreach (var entry in _clipboard)
             {
@@ -76,16 +82,47 @@ namespace Fig.Core.Timeline
                 else
                     track = FindTrack(entry.TrackId) ?? EnsureTrack(entry.Kind);
 
-                commands.Add(new OverwriteInsertCommand(this, track.Id, clip, Math.Max(0, atSec + entry.OffsetSec)));
+                placed.Add((clip, track, entry.OffsetSec));
                 pasted.Add(clip);
             }
+
+            if (magnetic && placed.Any(p => p.Track == main))
+            {
+                // everything shifts so the first clip for the main track starts at the cut nearest where it would have
+                var first = placed.Where(p => p.Track == main).Min(p => p.Offset);
+                var order = InTimeOrder(main!);
+                var index = InsertIndex(order, atSec + first);
+                var cut = index == 0 ? 0 : order[index - 1].StartSec + order[index - 1].DurSec;
+                atSec = cut - first;
+                intoMain.AddRange(placed.Where(p => p.Track == main).OrderBy(p => p.Offset).Select(p => p.Clip));
+                order.InsertRange(index, intoMain);
+                foreach (var clip in intoMain)
+                    clip.StartSec = cut;
+                placed.RemoveAll(p => p.Track == main);
+                pendingMain = () =>
+                {
+                    foreach (var clip in intoMain)
+                        InsertClip(main!, clip);
+                    PackTrack(main!, order);
+                    return true;
+                };
+            }
+            foreach (var (clip, track, offset) in placed)
+                commands.Add(new OverwriteInsertCommand(this, track.Id, clip, Math.Max(0, atSec + offset)));
 
             // a group that ended up with a single member is just a clip
             foreach (var single in pasted.Where(c => c.LinkGroupId is not null)
                          .GroupBy(c => c.LinkGroupId).Where(g => g.Count() == 1).SelectMany(g => g))
                 single.LinkGroupId = null;
 
-            History.Execute(new CompositeCommand(commands.ToArray()));
+            using (History.Group())
+            {
+                // the main track makes room first, so what is pasted beside it lands in the room it made
+                if (pendingMain is not null)
+                    EditLayout("Paste", pendingMain);
+                if (commands.Count > 0)
+                    History.Execute(new CompositeCommand(commands.ToArray()));
+            }
             Selection.SelectClips(pasted.Select(c => c.Id));
             RaiseChanged();
             return pasted;

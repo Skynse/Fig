@@ -326,13 +326,7 @@ namespace Fig.App.Views
                 {
                     var buttons = rect.Width >= 110;
                     var textRect = new Rect(rect.X + 8, rect.Y, Math.Max(0, rect.Width - (buttons ? 72 : 14)), RackLabelRow);
-                    var label = new FormattedText(item.Label, System.Globalization.CultureInfo.CurrentCulture,
-                        FlowDirection.LeftToRight, Typeface.Default, 10, Brushes.White)
-                    {
-                        MaxTextWidth = Math.Max(1, textRect.Width),
-                        MaxTextHeight = RackLabelRow,
-                        Trimming = TextTrimming.CharacterEllipsis,
-                    };
+                    var label = TextOf(item.Label, 10, Brushes.White, Math.Max(1, textRect.Width), RackLabelRow, ellipsis: true);
                     context.DrawText(label, new Point(textRect.X, rect.Y + (RackLabelRow - label.Height) / 2));
 
                     if (buttons && item.Effect is not null)

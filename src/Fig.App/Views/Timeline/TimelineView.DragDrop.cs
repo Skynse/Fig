@@ -69,8 +69,8 @@ namespace Fig.App.Views
             if (e.DataTransfer.Contains(MediaFormat))
             {
                 e.DragEffects = DragDropEffects.Copy;
-                _dropPreviewTime = Snap(time);
                 _dropPreviewAsset = e.DataTransfer.TryGetValue(MediaFormat);
+                _dropPreviewTime = MagnetDropTime(track, _dropPreviewAsset, Snap(time));
                 _dropPreviewTrack = track;
                 _dropTimeSec = _dropPreviewTime;
                 _dropEffectClipId = null;
@@ -146,6 +146,16 @@ namespace Fig.App.Views
             e.DragEffects = DragDropEffects.None;
         }
 
+        /// <summary>Where dropped media will start: on the magnetic main track, the cut nearest the pointer.</summary>
+        private double MagnetDropTime(Track? track, MediaAsset? asset, double time)
+        {
+            if (Editor is null || asset is null || asset.Kind == MediaKind.Audio || !Editor.IsMagnetic(track))
+                return time;
+            var order = TimelineEditor.InTimeOrder(track!);
+            var index = TimelineEditor.InsertIndex(order, time);
+            return index == 0 ? 0 : order[index - 1].StartSec + order[index - 1].DurSec;
+        }
+
         private void OnDragLeave(object? sender, DragEventArgs e)
         {
             _externalDragOver = false;
@@ -170,10 +180,10 @@ namespace Fig.App.Views
                 var dropY = e.GetPosition(this).Y;
                 var targetTrack = HitTestTrack(dropY);
 
-                if (targetTrack is not null)
-                    Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
+                if (_editorVm is { } editorVm)
+                    editorVm.PlaceDroppedMedia(asset, targetTrack?.Id, snapped);
                 else
-                    Editor.AddMediaNewTracks(asset, snapped);
+                    Editor.PlaceMedia(asset, targetTrack?.Id, snapped);
 
                 ClearDropPreview();
                 InvalidateVisual();
@@ -198,10 +208,9 @@ namespace Fig.App.Views
                         var asset = await vm.ImportFileAsync(path);
                         if (asset is not null)
                         {
-                            if (targetTrack is not null)
-                                Editor.AddMediaLinked(asset, targetTrack.Id, snapped);
-                            else
-                                Editor.AddMediaNewTracks(asset, snapped);
+                            // several files dropped together go one after another
+                            var placed = vm.PlaceDroppedMedia(asset, targetTrack?.Id, snapped);
+                            snapped = placed.StartSec + placed.DurSec;
                         }
                     }
                 }

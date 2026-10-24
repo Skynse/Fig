@@ -11,8 +11,8 @@ namespace Fig.App.Views
 {
     /// <summary>
     /// What a drag shows and does near the edges. Moving clips leaves a faint outline where they came from, and when
-    /// they can't go where the pointer is (another clip is there) a red ghost shows that spot while they wait at
-    /// the last place they fit. Any drag held near an edge of the timeline scrolls it that way, faster the closer
+    /// they can't go where the pointer is (another clip is there) a dashed ghost shows that spot while they wait at
+    /// the last place they fit; let go there, they go on a track that has room. Any drag held near an edge of the timeline scrolls it that way, faster the closer
     /// the pointer is, and the drag follows as if the pointer had moved.
     /// </summary>
     public partial class TimelineView
@@ -22,8 +22,9 @@ namespace Fig.App.Views
 
         private static readonly IBrush GhostOriginFill = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255));
         private static readonly Pen GhostOriginPen = new(new SolidColorBrush(Color.FromArgb(140, 255, 255, 255)), 1, DashStyle.Dash);
-        private static readonly IBrush GhostBlockedFill = new SolidColorBrush(Color.FromArgb(70, 0xe5, 0x48, 0x4d));
-        private static readonly Pen GhostBlockedPen = new(new SolidColorBrush(Color.FromArgb(220, 0xe5, 0x48, 0x4d)), 1.5);
+        // no room where the pointer is: letting go puts the clips on a track that has room, which the ghost says
+        private static readonly IBrush GhostBlockedFill = new SolidColorBrush(Color.FromArgb(50, 0x5f, 0x9c, 0xf8));
+        private static readonly Pen GhostBlockedPen = new(new SolidColorBrush(Color.FromArgb(220, 0x5f, 0x9c, 0xf8)), 1.5, DashStyle.Dash);
 
         // where the pointer would put the dragged clips (seconds from where they started), and whether they can go there
         private double _ghostDelta;

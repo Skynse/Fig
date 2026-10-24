@@ -24,6 +24,7 @@ public partial class MainWindow : Window
         // key handled, and a handled key never becomes text, so typing "shake" in a search box lost its "k".
         // They are routed here instead, after the focused control has had its chance, and never while typing.
         AddHandler(KeyDownEvent, OnTypableShortcut, RoutingStrategies.Bubble);
+        AddHandler(KeyDownEvent, OnTimelineNavigationKey, RoutingStrategies.Tunnel);
         DataContextChanged += (_, _) => Attach(DataContext as AppViewModel);
     }
 
@@ -123,6 +124,18 @@ public partial class MainWindow : Window
         public bool CanExecute(object? parameter) => !textBoxWants() && inner.CanExecute(parameter);
 
         public void Execute(object? parameter) => inner.Execute(parameter);
+    }
+
+    /// <summary>
+    /// With the timeline focused, Up, Down, Home, End and Page Up / Down are shortcuts (jump between cuts…). They are
+    /// taken on the way in, before the scroll viewer the timeline sits in uses them to scroll.
+    /// </summary>
+    private void OnTimelineNavigationKey(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown)
+            || e.Source is not Visual source || !source.GetSelfAndVisualAncestors().OfType<TimelineView>().Any())
+            return;
+        OnTypableShortcut(sender, e);
     }
 
     private void OnTypableShortcut(object? sender, KeyEventArgs e)

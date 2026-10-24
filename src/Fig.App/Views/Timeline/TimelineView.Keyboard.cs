@@ -59,6 +59,17 @@ namespace Fig.App.Views
 
             if (e.Key == Key.Escape && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
             {
+                // Escape puts the blade away first
+                if (_editorVm is { BladeTool: true } bladeVm)
+                {
+                    bladeVm.BladeTool = false;
+                    _bladeHover = null;
+                    Cursor = Cursor.Default;
+                    InvalidateVisual();
+                    e.Handled = true;
+                    return;
+                }
+                _selectedGap = null;
                 ClearSelection();
                 e.Handled = true;
                 return;
@@ -74,6 +85,12 @@ namespace Fig.App.Views
 
             if (e.Key == Key.Delete || e.Key == Key.Back)
             {
+                // a selected gap closes
+                if (DeleteSelectedGap())
+                {
+                    e.Handled = true;
+                    return;
+                }
                 // whatever is selected knows how to be deleted
                 if (_editorVm?.DeleteSelection() == true || (_editorVm is null && Editor.DeleteSelection() is not null))
                 {

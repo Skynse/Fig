@@ -293,22 +293,34 @@ public partial class EditorViewModel
         NotifyMediaArtifactsChanged();
     }
 
-    /// <summary>Puts a media item on the timeline at the playhead (on a free track, or new ones).</summary>
+    /// <summary>
+    /// Puts a media item on the timeline at the playhead: a video or still into the main track at the nearest cut, a
+    /// sound on an audio track with room. The playhead moves to its end, so adding several puts them in order.
+    /// </summary>
     [RelayCommand]
     private void AddMediaToTimeline(MediaAsset? asset)
     {
         if (asset is null || Editor is null)
             return;
-        var start = Editor.SnapTime(PlayheadTimeSec);
-        var kind = asset.Kind == MediaKind.Audio ? TrackKind.Audio : TrackKind.Video;
-        var free = Editor.Document.Tracks.FirstOrDefault(t => t.Kind == kind
-            && !Editor.WouldOverlapGroup(t.Id, Array.Empty<string>(), start, Math.Max(0.1, asset.DurationSec)));
-        var clip = free is not null
-            ? Editor.AddMediaLinked(asset, free.Id, start)
-            : Editor.AddMediaNewTracks(asset, start);
-        if (clip is not null)
-            Editor.Selection.SelectClips(Editor.LinkGroup(clip.Id).Select(c => c.Id));
-        Notify?.Invoke($"Added {asset.FileName} at the playhead");
+        var trackId = asset.Kind == MediaKind.Audio
+            ? Editor.Document.Tracks.FirstOrDefault(t => t.Kind == TrackKind.Audio)?.Id
+            : Editor.MainTrack?.Id;
+        Clip? clip = null;
+        RunWithRippleSlide(() => clip = Editor.PlaceMedia(asset, trackId, PlayheadTimeSec));
+        Editor.Selection.SelectClips(Editor.LinkGroup(clip!.Id).Select(c => c.Id));
+        SeekFromUser(clip.StartSec + clip.DurSec);
+        Notify?.Invoke($"Added {asset.FileName}");
+    }
+
+    /// <summary>Media dropped on the timeline: placed where it was dropped (see <see cref="TimelineEditor.PlaceMedia"/>), and selected.</summary>
+    public Clip PlaceDroppedMedia(MediaAsset asset, string? trackId, double atSec)
+    {
+        Clip? clip = null;
+        RunWithRippleSlide(() => clip = Editor.PlaceMedia(asset, trackId, atSec));
+        Editor.Selection.SelectClips(Editor.LinkGroup(clip!.Id).Select(c => c.Id));
+        Properties.Refresh();
+        Preview.RefreshFrame();
+        return clip;
     }
 
     [RelayCommand]
