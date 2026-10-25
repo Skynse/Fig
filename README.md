@@ -20,7 +20,7 @@ A simple, open-source video editor for cutting clips, long or short, without the
 ## Motivation
 Fig is a personal project I'm working on to replace Capcut for my simple edits now that I use linux. It already effectively works well for what I need it for, so I do not plan on making this some "replacement" for davinci or adobe premiere. 
 
-I am considering paying for Davinci Resolve Studio for larger projectd since it's a one-time payment. Fig is just a means of learning how non-linear video editors and video+audio compositing works. With this knowledge, I will be able to work on more complex Video/Audio software that are actually unique.
+I am considering paying for Davinci Resolve Studio for larger projects since it's a one-time payment. Fig is just a means of learning how non-linear video editors and video+audio compositing works. With this knowledge, I will be able to work on more complex Video/Audio software that are actually unique.
 
 ![Fig](assets/preview.png)
 
