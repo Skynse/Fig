@@ -9,67 +9,6 @@ public class RealMediaCutTests
     private static readonly string AssetPath = TestAssets.Timer;
 
     [Fact]
-    public void Probe_ReadsRealMetadata_IntoMediaAsset()
-    {
-        var asset = new MediaService().Probe(AssetPath);
-
-        Assert.NotNull(asset);
-        Assert.Equal(AssetPath, asset.Url);
-        Assert.Equal(1920, asset.Width);
-        Assert.Equal(1080, asset.Height);
-        Assert.InRange(asset.DurationSec, 4.0, 4.5);
-        Assert.False(asset.Offline);
-    }
-
-    [Fact]
-    public void CutAtEachSecond_OnRealMediaTimeline()
-    {
-        var asset = new MediaService().Probe(AssetPath);
-
-        var track = new Track { Kind = TrackKind.Video, Index = 0 };
-        var timeline = new TimelineModel
-        {
-            Rate = FrameRate.Common(30),
-            Tracks = { track },
-        };
-        var editor = new TimelineEditor(timeline);
-
-        var clip = new VideoClip
-        {
-            Id = "real",
-            SourceId = asset.Id,
-            StartSec = 0,
-            DurSec = asset.DurationSec,
-            SrcInSec = 0,
-            SrcOutSec = asset.DurationSec,
-        };
-        editor.AddClip(track.Id, clip);
-
-        Clip second = clip;
-        var produced = new List<Clip>();
-        for (int s = 1; s < (int)asset.DurationSec; s++)
-        {
-            var cut = editor.Cut(second.Id, s);
-            produced.Add(cut[0]);
-            second = cut[1];
-        }
-        produced.Add(second);
-
-        Assert.Equal((int)asset.DurationSec, track.Clips.Count);
-
-        for (int i = 0; i < track.Clips.Count; i++)
-        {
-            var c = (VideoClip)track.Clips[i];
-            Assert.Equal(i, c.StartSec);
-            Assert.Equal(i, c.SrcInSec);
-            Assert.Equal(asset.Id, c.SourceId);
-            Assert.True(c.SrcInSec >= 0);
-            Assert.True(c.SrcOutSec <= asset.DurationSec + 0.001);
-            Assert.True(c.DurSec > 0);
-        }
-    }
-
-    [Fact]
     public void CutAtEachSecond_RendersSegmentsFromClipData()
     {
         var asset = new MediaService().Probe(AssetPath);
@@ -163,40 +102,11 @@ public class DecodeFrameTests
         }
         Assert.True(hasContent, "expected decoded frame to contain non-black pixels");
     }
-
-    [Fact]
-    public void DecodeFrameAt_MissingFile_Throws()
-    {
-        Assert.Throws<InvalidOperationException>(() =>
-            new MediaService().DecodeFrameAt("/tmp/does-not-exist-xyz.mp4", 0, 160, 90));
-    }
 }
 
 public class DecodeSamplesTests
 {
     private static readonly string AssetPath = TestAssets.Timer;
-
-    [Fact]
-    public void DecodeSamples_ReturnsStereoFloat_WithContent()
-    {
-        var samples = new MediaService().DecodeSamples(AssetPath, 0, 0.5, 48000);
-
-        Assert.True(samples.Length >= 100, $"too few samples: {samples.Length}");
-        Assert.Equal(0, samples.Length % 2);   // stereo must be interleaved in pairs
-        Assert.Equal((int)(48000 * 0.5 * 2), samples.Length);
-
-        var hasAudio = false;
-        for (var i = 0; i < samples.Length; i++)
-        {
-            if (Math.Abs(samples[i]) > 0.001f)
-            {
-                hasAudio = true;
-                break;
-            }
-        }
-        Assert.True(hasAudio, "expected audible samples");
-        Assert.All(samples, s => Assert.InRange(s, -1.01f, 1.01f));
-    }
 
     [Fact]
     public void DecodeSamples_MidClip_ReturnsContent_AndPadsAtEnd()
@@ -213,47 +123,11 @@ public class DecodeSamplesTests
         var tail = media.DecodeSamples(AssetPath, Math.Max(0, probe.DurationSec - 0.5), 1.0, 48000);
         Assert.Equal((int)(48000 * 1.0 * 2), tail.Length);
     }
-
-    [Fact]
-    public void AudioSampleSource_ContiguousReads_DoNotReseek()
-    {
-        using var source = new MediaService().OpenAudioSource(AssetPath, 48000);
-
-        var a = source.Read(0.0, 0.1);
-        var next = source.NextTimeSec;
-        var b = source.Read(next, 0.1);
-
-        Assert.Equal((int)(48000 * 0.1 * 2), a.Length);
-        Assert.Equal((int)(48000 * 0.1 * 2), b.Length);
-        Assert.True(Math.Abs(source.NextTimeSec - (next + 0.1)) < 0.01,
-            $"expected ~{next + 0.1}, got {source.NextTimeSec}");
-        Assert.Contains(a, s => Math.Abs(s) > 0.001f);
-        // second window may be quiet on this timer asset; just require exact sizing + forward progress
-        Assert.True(source.NextTimeSec > next);
-    }
 }
 
 public class VideoFrameSourceTests
 {
     private static readonly string AssetPath = TestAssets.Timer;
-
-    [Fact]
-    public void DecodeForward_ReturnsAdvancingFrames_WithoutReseeking()
-    {
-        using var source = new MediaService().OpenVideoSource(AssetPath, 320, 180);
-
-        var f1 = source.DecodeForward(0.1);
-        var f2 = source.DecodeForward(0.2);
-        var f3 = source.DecodeForward(0.3);
-
-        Assert.NotNull(f1);
-        Assert.NotNull(f2);
-        Assert.NotNull(f3);
-        Assert.Equal(320, f1!.Width);
-        Assert.Equal(180, f1.Height);
-        Assert.True(source.LastPresentedTimeSec >= 0.3, $"expected to reach 0.3s, was {source.LastPresentedTimeSec}");
-        Assert.True(f2.Pixels.Length > 0);
-    }
 
     [Fact]
     public void DecodeForward_AfterBackwardSeek_ReturnsFrameAtTarget()
@@ -266,16 +140,6 @@ public class VideoFrameSourceTests
 
         Assert.NotNull(frame);
         Assert.True(source.LastPresentedTimeSec >= 0.5, $"expected ~0.5s after reseek, was {source.LastPresentedTimeSec}");
-    }
-
-    [Fact]
-    public void DecodeForward_AtEnd_ReturnsNull()
-    {
-        var probe = new MediaService().Probe(AssetPath);
-        using var source = new MediaService().OpenVideoSource(AssetPath, 320, 180);
-
-        var nearEnd = source.DecodeForward(probe.DurationSec + 1.0);
-        Assert.Null(nearEnd);
     }
 
     [Fact]

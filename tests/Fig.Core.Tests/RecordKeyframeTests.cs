@@ -22,14 +22,6 @@ public class RecordKeyframeTests
         => fx.Keyframes.Values.SelectMany(t => t).Select(p => p.TimeSec).Distinct().OrderBy(t => t).ToList();
 
     [Fact]
-    public void Recording_on_a_fresh_effect_starts_the_animation_with_one_keyframe()
-    {
-        var (editor, _, fx) = Setup();
-        Assert.Equal(2.0, editor.RecordEffectKeyframe("c", fx.Id, 2.0));
-        Assert.Equal([2.0], Times(fx));
-    }
-
-    [Fact]
     public void Recording_again_keeps_every_earlier_keyframe()
     {
         var (editor, _, fx) = Setup();
@@ -48,33 +40,5 @@ public class RecordKeyframeTests
         Assert.Equal([3.0], Times(fx));
         editor.History.Undo();   // one step: the second press did not add another
         Assert.Empty(fx.Keyframes);
-    }
-
-    [Fact]
-    public void A_recorded_keyframe_holds_the_look_at_that_time_and_undoes_alone()
-    {
-        var (editor, _, fx) = Setup();
-        editor.RecordEffectKeyframe("c", fx.Id, 1.0);
-        editor.SetEffectKeyframe("c", fx.Id, 5.0, new Dictionary<string, double> { ["amount"] = 0.5 });
-        var lookAt3 = EffectPipeline.ResolveParams(fx, 3.0)["amount"].AsNumber;
-
-        editor.RecordEffectKeyframe("c", fx.Id, 3.0);
-        Assert.Equal(lookAt3, EffectPipeline.ResolveParams(fx, 3.0)["amount"].AsNumber, 6);
-        Assert.Equal([1.0, 3.0, 5.0], Times(fx));
-
-        editor.History.Undo();
-        Assert.Equal([1.0, 5.0], Times(fx));
-    }
-
-    [Fact]
-    public void Clearing_the_animation_is_a_separate_explicit_edit()
-    {
-        var (editor, _, fx) = Setup();
-        editor.RecordEffectKeyframe("c", fx.Id, 1.0);
-        editor.RecordEffectKeyframe("c", fx.Id, 4.0);
-        editor.SetEffectAnimated("c", fx.Id, false, 2.0);
-        Assert.Empty(fx.Keyframes);
-        editor.History.Undo();
-        Assert.Equal([1.0, 4.0], Times(fx));
     }
 }

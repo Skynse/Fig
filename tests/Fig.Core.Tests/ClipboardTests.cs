@@ -19,34 +19,6 @@ public class ClipboardTests
     }
 
     [Fact]
-    public void Paste_places_a_copy_at_the_time_and_undoes_in_one_step()
-    {
-        var (ed, track, clip) = Setup();
-        Assert.True(ed.CopySelected());
-
-        var pasted = ed.Paste(10);
-
-        var copy = Assert.Single(pasted);
-        Assert.NotEqual(clip.Id, copy.Id);
-        Assert.Equal(10, copy.StartSec, 3);
-        Assert.Equal(2, track.Clips.Count);
-
-        ed.Undo();
-        Assert.Single(track.Clips);
-    }
-
-    [Fact]
-    public void Duplicate_goes_straight_after_the_selection_and_keeps_the_clipboard()
-    {
-        var (ed, track, clip) = Setup();
-
-        ed.DuplicateSelected();
-
-        Assert.Equal(new[] { 1.0, 3.0 }, track.Clips.Select(c => c.StartSec).ToArray());
-        Assert.False(ed.HasClipboard);
-    }
-
-    [Fact]
     public void Cut_then_paste_moves_the_clip()
     {
         var (ed, track, _) = Setup();

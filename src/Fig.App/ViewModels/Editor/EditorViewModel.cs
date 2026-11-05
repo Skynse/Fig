@@ -25,6 +25,7 @@ public enum LibraryPanelTab
     Transitions,
     Effects,
     Markers,
+    Captions,
 }
 
 /// <summary>One vertical library tab (icon + label).</summary>
@@ -67,6 +68,7 @@ public partial class EditorViewModel : ViewModelBase
     public PreviewViewModel Preview { get; }
     public PropertiesViewModel Properties { get; }
     public MarkersPanelViewModel Markers { get; }
+    public CaptionsPanelViewModel CaptionsPanel { get; }
     public BeatMarkersViewModel Beats { get; }
     public PlaybackEngine? Playback { get; private set; }
     private readonly MediaService _mediaService = new();
@@ -153,6 +155,7 @@ public partial class EditorViewModel : ViewModelBase
         Preview.AttachEditor(this);
         Properties = new PropertiesViewModel(this);
         Markers = new MarkersPanelViewModel(this);
+        CaptionsPanel = new CaptionsPanelViewModel(this);
         Beats = new BeatMarkersViewModel(this);
         EffectGraphs.Changed += OnEffectGraphsChanged;
         Media.CollectionChanged += (_, _) =>
@@ -187,8 +190,11 @@ public partial class EditorViewModel : ViewModelBase
         _constructed = true;
     }
 
+    partial void OnPlayheadTimeSecChanged(double value) => CaptionsPanel?.FollowPlayhead(value);
+
     private void WireEditorEvents(TimelineEditor editor)
     {
+        CaptionsPanel?.Refresh();
         editor.TimelineChanged += OnEditorTimelineChanged;
         editor.TimelineChanged += ScheduleAutosave;
         editor.Selection.Changed += OnSelectionChanged;
@@ -216,6 +222,7 @@ public partial class EditorViewModel : ViewModelBase
         Properties.Refresh();
         UpdateSelectionSummary();
         Markers.RefreshSelection();
+        CaptionsPanel.RefreshSelection();
         // the toolbar's clip actions show only while a clip is picked
         OnPropertyChanged(nameof(HasClipSelection));
         OnPropertyChanged(nameof(HasVideoSelection));
@@ -288,6 +295,7 @@ public partial class EditorViewModel : ViewModelBase
         NotifyProjectRate();
         Properties.Refresh();
         Markers.Refresh();
+        CaptionsPanel.Refresh();
         // property edits (opacity/crop) need an immediate preview redraw
         if (!IsPlaying)
             Preview.RefreshFrame();

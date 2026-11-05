@@ -55,7 +55,8 @@ namespace Fig.App.Views
                     continue;
                 }
 
-                c.StartSec = memberStart;
+                // a caption's words stay where they are said
+                ClipTime.MoveStartEdge(c, memberStart);
                 c.DurSec = memberDur;
 
                 if (c.HasSourceRange)

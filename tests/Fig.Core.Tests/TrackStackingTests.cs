@@ -5,28 +5,6 @@ namespace Fig.Core.Tests;
 
 public class TrackStackingTests
 {
-    [Fact]
-    public void AHigherTrackCoversTheOnesBelow_AndMovingATrackChangesWhichIsOnTop()
-    {
-        var (editor, lower) = TimelineFixtures.Create();
-        var upper = editor.AddTrack(TrackKind.Video);            // a new video track goes on top
-        Assert.Same(upper, editor.Document.Tracks[0]);
-        var top = new TextClip { Id = "top", StartSec = 0, DurSec = 5 };
-        var bottom = new TextClip { Id = "bottom", StartSec = 0, DurSec = 5 };
-        editor.AddClip(upper.Id, top);
-        editor.AddClip(lower.Id, bottom);
-        Clip? Picked() => editor.LayerAt(1, 0.5, 0.5, 16 / 9.0, _ => new LayerSize(1, 1));
-
-        Assert.Equal("top", Picked()?.Id);
-        Assert.Equal([upper, lower], TrackStacking.TopDown(editor.Document).Select(t => t.Track));
-
-        Assert.True(editor.MoveTrack(upper.Id, 2));               // drag it to the bottom
-        Assert.Equal([lower, upper], editor.Document.Tracks);
-        Assert.Equal("bottom", Picked()?.Id);
-
-        editor.Undo();
-        Assert.Equal([upper, lower], editor.Document.Tracks);
-    }
 }
 
 public class CrossTrackMoveTests

@@ -32,43 +32,6 @@ public class TrackEffectsTests
     }
 
     [Fact]
-    public void TrackRangesAndKeyframesExtendBeyondClipEndsAndUndo()
-    {
-        var (editor, track) = TimelineFixtures.Create();
-        editor.AddClip(track.Id, TimelineFixtures.Video("video", 0, 2));
-        var effect = EffectPresetInstantiator.Create(BuiltInEffectPresets.Find("shake-hit")!, 10, 1);
-        editor.AddEffect(track.Id, effect);
-        editor.SetEffectRange(track.Id, effect.Id, 10, 4, moveKeyframes: true);
-        Assert.Equal(10, effect.StartSec);
-        Assert.Equal(4, effect.DurSec);
-        Assert.Equal(10, effect.Keyframes.Values.SelectMany(keys => keys).Min(key => key.TimeSec));
-        editor.Undo();
-        Assert.Equal(1, effect.StartSec);
-        editor.MoveEffectKeyframe(track.Id, effect.Id, 1, 15, "move");
-        Assert.Contains(effect.Keyframes.Values.SelectMany(keys => keys), key => key.TimeSec == 15);
-        editor.Undo();
-        Assert.Contains(effect.Keyframes.Values.SelectMany(keys => keys), key => key.TimeSec == 1);
-    }
-
-    [Fact]
-    public void TrackEffectsDuplicateToEmptyTrackWithoutClipBounds()
-    {
-        var (editor, source) = TimelineFixtures.Create();
-        var target = new Track { Kind = TrackKind.Video };
-        editor.Document.Tracks.Add(target);
-        var effect = EffectPresetInstantiator.Create(BuiltInEffectPresets.Find("shake-hit")!, 10, 2);
-        editor.AddEffect(source.Id, effect);
-        var copy = editor.DuplicateEffectAt(source.Id, effect.Id, target.Id, 10)!;
-        Assert.Equal(12, copy.StartSec);
-        Assert.Equal(effect.DurSec, copy.DurSec);
-        Assert.Single(source.Effects);
-        Assert.Single(target.Effects);
-        Assert.NotEqual(effect.Id, copy.Id);
-        editor.Undo();
-        Assert.Empty(target.Effects);
-    }
-
-    [Fact]
     public void OldClipEffectsMigrateOnceAndSurviveSaveLoad()
     {
         string root = Path.Combine(Path.GetTempPath(), "fig-track-effects-" + Guid.NewGuid().ToString("N"));

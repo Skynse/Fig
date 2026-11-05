@@ -340,6 +340,7 @@ public partial class EditorView : UserControl
             _boundVm.Layout.Changed -= ApplyLayout;
             _boundVm.PlaybackAssigned -= OnPlaybackAssigned;
             _boundVm.TimelineZoomRequested -= OnTimelineZoomRequested;
+            _boundVm.CaptionsPanel.CurrentChanged -= OnCurrentCaptionChanged;
             _boundVm = null;
             OnPlaybackAssigned(null);
         }
@@ -353,8 +354,68 @@ public partial class EditorView : UserControl
         ApplyLayout();
         vm.PlaybackAssigned += OnPlaybackAssigned;
         vm.TimelineZoomRequested += OnTimelineZoomRequested;
+        vm.CaptionsPanel.CurrentChanged += OnCurrentCaptionChanged;
         if (vm.Playback is not null)
             WirePlayback(vm.Playback);
+    }
+
+    // ---- the Captions panel ---------------------------------------------------------------
+
+    /// <summary>The caption now playing scrolls into sight, unless one is being typed in.</summary>
+    private void OnCurrentCaptionChanged(CaptionRowViewModel row)
+    {
+        if (this.FindControl<ItemsControl>("CaptionList") is not { IsEffectivelyVisible: true } list)
+            return;
+        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Visual focused && list.IsVisualAncestorOf(focused))
+            return;
+        list.ScrollIntoView(row);
+    }
+
+    private static TextBox? CaptionBox(Control? container)
+        => container?.GetVisualDescendants().OfType<TextBox>().FirstOrDefault();
+
+    private void CaptionText_GotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: CaptionRowViewModel row })
+            _boundVm?.CaptionsPanel.Go(row);
+    }
+
+    /// <summary>Enter goes to the next caption; Shift+Enter breaks the line.</summary>
+    private void CaptionText_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || sender is not TextBox { DataContext: CaptionRowViewModel row } box || _boundVm is null)
+            return;
+        e.Handled = true;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            var caret = box.CaretIndex;
+            box.Text = (box.Text ?? "").Insert(caret, "\n");
+            box.CaretIndex = caret + 1;
+            return;
+        }
+        var rows = _boundVm.CaptionsPanel.Rows;
+        var index = rows.IndexOf(row);
+        if (index < 0 || index + 1 >= rows.Count || this.FindControl<ItemsControl>("CaptionList") is not { } list)
+            return;
+        // the next row may not exist yet (the list is virtualized): bring it in, then focus it once laid out
+        list.ScrollIntoView(index + 1);
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            if (CaptionBox(list.ContainerFromIndex(index + 1)) is { } nextBox)
+            {
+                nextBox.Focus();
+                nextBox.CaretIndex = nextBox.Text?.Length ?? 0;
+            }
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Splits the caption where the cursor is in its text box.</summary>
+    private void CaptionSplit_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { DataContext: CaptionRowViewModel row } button || _boundVm is null)
+            return;
+        var box = button.FindAncestorOfType<Border>() is { } border ? CaptionBox(border) : null;
+        _boundVm.CaptionsPanel.Split(row, box?.CaretIndex ?? 0);
     }
 
     private PlaybackEngine? _wiredPlayback;

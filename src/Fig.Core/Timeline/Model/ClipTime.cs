@@ -160,12 +160,25 @@ namespace Fig.Core.Timeline
             }
         }
 
-        /// <summary>The right half of a cut: keyframes after <paramref name="offset"/>, moved to start at 0.</summary>
+        /// <summary>The right half of a cut: keyframes (and a caption's word timings) after <paramref name="offset"/>, moved to start at 0.</summary>
         public static void KeepAfter(Clip clip, double offset)
         {
+            if (clip is TextClip text)
+                text.Words = TextWords.Shift(text.Words, offset);
             foreach (var key in clip.Keyframes.Keys.ToList())
                 if (clip.Keyframes[key].Count > 0)
                     clip.Keyframes[key] = Shift(key, clip.Keyframes[key], offset);
+        }
+
+        /// <summary>
+        /// Moves a clip's start edge to <paramref name="startSec"/> (a left trim) without moving what is said in it: a
+        /// caption's words, timed from its start, are shifted so they stay where they are spoken. Duration is the caller's.
+        /// </summary>
+        public static void MoveStartEdge(Clip clip, double startSec)
+        {
+            if (clip is TextClip { Words.Count: > 0 } text)
+                text.Words = TextWords.Shift(text.Words, startSec - clip.StartSec);
+            clip.StartSec = startSec;
         }
 
         /// <summary>A deep copy of a clip's keyframes, for undo.</summary>

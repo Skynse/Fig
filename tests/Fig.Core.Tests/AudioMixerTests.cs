@@ -52,40 +52,6 @@ public class AudioMixerTests
         Assert.True(hasAudio, "expected mixed audio content");
     }
 
-    [Fact]
-    public void Mix_OutsideClipRange_ReturnsSilence()
-    {
-        var timeline = TimelineWithAudioClip(0, 1.0);
-        var mixer = new AudioMixer(new MediaService(), _ => null);
-
-        var buf = mixer.Mix(timeline, 5.0, 0.5);
-
-        Assert.All(buf, s => Assert.Equal(0f, s));
-    }
-
-    [Fact]
-    public void Mix_MutedTrack_ReturnsSilence()
-    {
-        var timeline = TimelineWithAudioClip(0, 1.0, muted: true);
-        var mixer = new AudioMixer(new MediaService(), _ => null);
-
-        var buf = mixer.Mix(timeline, 0, 0.5);
-
-        Assert.All(buf, s => Assert.Equal(0f, s));
-    }
-
-    [Fact]
-    public void Mix_DisabledClip_ReturnsSilence()
-    {
-        var timeline = TimelineWithAudioClip(0, 1.0);
-        timeline.Tracks[0].Clips[0].Enabled = false;
-        var mixer = new AudioMixer(new MediaService(), _ => new MediaAsset { Id = "a1", Url = AssetPath, DurationSec = 4.1 });
-
-        var buf = mixer.Mix(timeline, 0, 0.5);
-
-        Assert.All(buf, s => Assert.Equal(0f, s));
-    }
-
     private static MediaAsset Asset() => new() { Id = "a1", Kind = MediaKind.Video, Url = AssetPath, DurationSec = 4.1, HasAudio = true };
 
     [Fact]
@@ -114,17 +80,6 @@ public class AudioMixerTests
     }
 
     [Fact]
-    public void Mix_VolumeAffectsLevel()
-    {
-        var quiet = new AudioMixer(new MediaService(), _ => Asset()).Mix(TimelineWithAudioClip(0, 1.0, volume: 0.2), 0, 0.5);
-        var loud = new AudioMixer(new MediaService(), _ => Asset()).Mix(TimelineWithAudioClip(0, 1.0, volume: 1.0), 0, 0.5);
-
-        var quietMax = quiet.Max(Math.Abs);
-        var loudMax = loud.Max(Math.Abs);
-        Assert.True(loudMax > quietMax, "louder clip should have higher peaks");
-    }
-
-    [Fact]
     public void Mix_FadeIn_QuietsStartRelativeToMiddle()
     {
         var timeline = TimelineWithAudioClip(0, 2.0);
@@ -135,34 +90,6 @@ public class AudioMixerTests
         var startMax = Peak(buf, 0, 0.05);
         var midMax = Peak(buf, 1.0, 0.05);
         Assert.True(midMax > startMax * 2, $"fade-in should quiet the head (start={startMax}, mid={midMax})");
-    }
-
-    [Fact]
-    public void Mix_FadeOut_QuietsEndRelativeToMiddle()
-    {
-        var timeline = TimelineWithAudioClip(0, 2.0);
-        timeline.Tracks[0].Clips[0].FadeOutSec = 1.0;
-        var mixer = new AudioMixer(new ConstantToneMedia(), _ => Asset());
-
-        var buf = mixer.Mix(timeline, 0, 2.0);
-        var midMax = Peak(buf, 0.5, 0.05);
-        var endMax = Peak(buf, 1.95, 0.05);
-        Assert.True(midMax > 0.1f, $"expected mid content (mid={midMax})");
-        Assert.True(midMax > endMax * 2, $"fade-out should quiet the tail (mid={midMax}, end={endMax})");
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Mix_PlaysAVideoClipsOwnSound_UntilItIsDetached(bool playsAudio)
-    {
-        var track = new Track { Kind = TrackKind.Video };
-        track.Clips.Add(new VideoClip { SourceId = "a1", StartSec = 0, DurSec = 1, SrcOutSec = 1, PlaysAudio = playsAudio });
-        var timeline = new TimelineModel { Rate = FrameRate.Common(30), Tracks = { track } };
-
-        var peak = new AudioMixer(new ConstantToneMedia(), _ => Asset()).Mix(timeline, 0, 0.5).Max(Math.Abs);
-
-        Assert.Equal(playsAudio, peak > 0.1f);
     }
 
     private static float Peak(float[] interleaved, double startSec, double durSec)

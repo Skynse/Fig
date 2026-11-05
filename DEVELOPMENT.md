@@ -130,6 +130,18 @@ layer compositor are fragment shaders (SkSL, through Skia). Export uses the same
 
 **Transitions** (`Media/Transitions/Blenders`) are CPU pixel kernels, kept as the reference and the no-GPU fallback; the preview and export draw them with the shaders in `GpuEffects`. To keep a CPU transition cheap: use `PixelOps.LerpBytes` (SIMD blend of a byte range), `PixelOps.ColumnBlend` (same weights on every row: wipe, curtains), and plain `Buffer.BlockCopy` for the parts of a row that are entirely one picture or the other. Only compute per pixel where the picture really changes (the soft band of a wipe, the inside of a swirl).
 
+## Captions
+
+Auto captions (Edit menu, or the library's Text tab) run [Whisper](https://github.com/ggml-org/whisper.cpp) on the CPU through [Whisper.net](https://github.com/sandrohanea/whisper.net), all in `Fig.Core/Captions`.
+
+* **Models are downloaded, never shipped.** `SpeechModels.All` lists the quantized ggml builds (tiny 32 MB, base 60 MB, small 190 MB, large turbo 574 MB) with their Hugging Face URL and SHA-256. The first use downloads to `~/.fig/models/whisper` through a `.part` file, checks the hash and moves it into place. The whisper.cpp runtime itself is about 2.5 MB a platform; `Fig.App.csproj` keeps only the release's own platform.
+* **It listens to the mix.** `SpeechTranscriber.MixForSpeech` renders the timeline (or the selected clips' stretch of it) through `AudioMixer` and brings it down to 16 kHz mono, so cuts, speed and muted tracks are heard as they play. Words come back timed on the timeline (whisper.cpp's one-segment-a-word mode); sound tags such as `[Music]` are dropped.
+* **Captions are text clips.** `CaptionBuilder.Group` makes cues from words (sentence ends, pauses, a word limit, two balanced lines), and `TimelineEditor.AddCaptions` puts them on a new top track as one undo step. Each clip is a `TextClip` with `IsCaption` (what the SRT/TXT export collects, `TimelineEditor.CaptionCues`) and `Words`, timed from the clip start. A cut shifts the right half's words (`ClipTime.KeepAfter`).
+* **The spoken word.** `TextWords` maps the i-th timed word to the i-th whitespace-separated word of the text, so fixing a typo keeps the timing and rewriting the line drops the highlight rather than lighting the wrong word. `TextLayout` makes the lit word a run of its own; the rasterizer's cache key includes it.
+* **Editing captions.** The library's Captions tab (`CaptionsPanelViewModel`) lists a captions track's clips to type into; rows are updated in place on each change so the one being typed in keeps its cursor. `TimelineEditor.SetText` rewrites a caption and retimes its words with `TextWords.Retime`: words still there (matched in order) keep their times and new ones share the time between them, so the spoken word stays lit through any edit. `MergeCaptionWithNext`, `SplitCaption` (before the word at the cursor, cut where that word is said) and `RemoveCaption` swap clips with `ReplaceClipsCommand`; `ReplaceInCaptions` is find and replace. Each is one undo step.
+* **Styling all captions.** While `EditorViewModel.CaptionStyleToAll` is on (the default, remembered), an inspector edit to a caption's look or position, the font, and a gizmo drag reach every caption on its track (`TimelineEditor.WithCaptionTrackmates`). What each caption says stays its own.
+* **Text style.** `TextStyle` has wrap width (a share of the frame width), outline, all capitals and the highlight colour. Each is one entry in `ClipProperties`, so the inspector shows them with no extra code.
+
 ## Releasing a major version
 
 `.github/workflows/release.yml` builds a release when a `vN.0.0` tag is pushed:

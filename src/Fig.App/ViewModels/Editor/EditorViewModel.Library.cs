@@ -31,6 +31,7 @@ public partial class EditorViewModel
         new(LibraryPanelTab.Transitions, "blend", "Transitions"),
         new(LibraryPanelTab.Effects, "wand-sparkles", "Effects"),
         new(LibraryPanelTab.Markers, "flag", "Markers"),
+        new(LibraryPanelTab.Captions, "captions", "Captions"),
     ];
 
     [ObservableProperty]
@@ -40,6 +41,7 @@ public partial class EditorViewModel
     [NotifyPropertyChangedFor(nameof(IsLibraryTransitions))]
     [NotifyPropertyChangedFor(nameof(IsLibraryEffects))]
     [NotifyPropertyChangedFor(nameof(IsLibraryMarkers))]
+    [NotifyPropertyChangedFor(nameof(IsLibraryCaptions))]
     [NotifyPropertyChangedFor(nameof(LibraryPanelTitle))]
     [NotifyPropertyChangedFor(nameof(LibraryPanelCount))]
     private LibraryTabItem? _selectedLibraryTab;
@@ -50,6 +52,7 @@ public partial class EditorViewModel
     public bool IsLibraryTransitions => SelectedLibraryTab?.Tab == LibraryPanelTab.Transitions;
     public bool IsLibraryEffects => SelectedLibraryTab?.Tab == LibraryPanelTab.Effects;
     public bool IsLibraryMarkers => SelectedLibraryTab?.Tab == LibraryPanelTab.Markers;
+    public bool IsLibraryCaptions => SelectedLibraryTab?.Tab == LibraryPanelTab.Captions;
     public string LibraryPanelTitle => SelectedLibraryTab?.Title ?? "Media";
 
     public IReadOnlyList<EffectCatalogEntry> EffectCatalogItems => EffectCatalog.All;
@@ -226,6 +229,9 @@ public partial class EditorViewModel
         // picking a rail tab while the panel is tucked away should show it
         if (value is not null && _constructed)
             Layout.RevealLeft();
+        // the first tab is picked while the editor is still being built, before the panel exists
+        if (CaptionsPanel is { } captions)
+            captions.IsActive = value?.Tab == LibraryPanelTab.Captions;
     }
 
     private void LoadTemplates()

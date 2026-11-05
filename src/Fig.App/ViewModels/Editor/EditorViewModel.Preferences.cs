@@ -36,6 +36,7 @@ public partial class EditorViewModel
             LinkedSelection = p.Editing.LinkedSelection;
             AudioScrub = p.Playback.AudioScrub;
             LoopPlayback = p.Playback.Loop;
+            CaptionStyleToAll = p.Captions.StyleAll;
             if (Preview is not null)
                 Preview.Renderer = p.Rendering.Renderer;
         }

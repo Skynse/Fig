@@ -12,13 +12,16 @@ namespace Fig.Core.Timeline
     {
         public KeyframePoint[]? SpeedKeys { get; init; }
 
+        /// <summary>A caption's word timings: a left trim shifts them, so undoing it has to put them back.</summary>
+        public IReadOnlyList<TimedWord>? Words { get; init; }
+
         /// <summary>The track the clip is on, when captured by the editor: a drag can move a clip to another track.</summary>
         public string? TrackId { get; init; }
 
         public static ClipGeometry Capture(Clip clip) => (clip.HasSourceRange
             ? new ClipGeometry(clip.Id, clip.StartSec, clip.DurSec, clip.SourceIn, clip.SourceOut)
             : new ClipGeometry(clip.Id, clip.StartSec, clip.DurSec, null, null))
-            with { SpeedKeys = ClipTime.Curve(clip)?.ToArray() };
+            with { SpeedKeys = ClipTime.Curve(clip)?.ToArray(), Words = (clip as TextClip)?.Words };
 
         internal void ApplyTo(Clip clip)
         {
@@ -28,12 +31,15 @@ namespace Fig.Core.Timeline
                 ClipFactory.SetSourceRange(clip, i, o);
             if (SpeedKeys is { } keys)
                 clip.Keyframes[AutomationKeys.Speed] = keys.ToList();
+            if (Words is { } words && clip is TextClip text)
+                text.Words = words;
         }
 
         public bool Equals(ClipGeometry other)
             => ClipId == other.ClipId && StartSec == other.StartSec && DurSec == other.DurSec
                && SrcInSec == other.SrcInSec && SrcOutSec == other.SrcOutSec && TrackId == other.TrackId
-               && (SpeedKeys ?? []).SequenceEqual(other.SpeedKeys ?? []);
+               && (SpeedKeys ?? []).SequenceEqual(other.SpeedKeys ?? [])
+               && ReferenceEquals(Words, other.Words);
 
         public override int GetHashCode() => HashCode.Combine(ClipId, StartSec, DurSec, SrcInSec, SrcOutSec);
     }
