@@ -102,6 +102,10 @@ public sealed partial class LayerGizmoViewModel : ViewModelBase, Fig.App.Control
     public void Begin()
     {
         _start = Items.ToDictionary(item => item.ClipId, item => item.Layout);
+        // moving a caption moves every caption on its track, each from where it is
+        foreach (var id in _editor.StyleTargets(_start.Keys.ToList()))
+            if (!_start.ContainsKey(id) && _editor.Editor.FindClipForView(id) is ILayerClip and Clip clip)
+                _start[id] = ClipProperties.LayoutAt(clip, Math.Clamp(_editor.PlayheadTimeSec - clip.StartSec, 0, clip.DurSec));
         _editor.Editor.History.BreakCoalescing();
     }
 

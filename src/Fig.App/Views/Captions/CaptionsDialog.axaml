@@ -1,0 +1,100 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Fig.App.ViewModels"
+        x:Class="Fig.App.Views.CaptionsDialog"
+        x:DataType="vm:CaptionsDialogViewModel"
+        Icon="/Assets/fig.ico"
+        Title="Auto captions"
+        Width="520"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#1D1E20">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.label"><Setter Property="Foreground" Value="#8A8A8A"/><Setter Property="FontSize" Value="12"/></Style>
+        <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="13"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+        <Style Selector="Border.rule"><Setter Property="Height" Value="1"/><Setter Property="Background" Value="#2a2d34"/><Setter Property="Margin" Value="0,2"/></Style>
+        <Style Selector="ListBox.models > ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,4"/></Style>
+    </Window.Styles>
+
+    <StackPanel Margin="24" Spacing="16">
+
+        <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Auto captions" FontSize="15" FontWeight="SemiBold"/>
+                <TextBlock Classes="label" TextWrapping="Wrap"
+                           Text="Listens to the timeline and writes what is said as captions on a track of their own. It runs on this computer; nothing is uploaded."/>
+            </StackPanel>
+            <Button Grid.Column="1" Classes="fig ghost icon" VerticalAlignment="Top" Click="Close_Click"
+                    ToolTip.Tip="Close" AutomationProperties.Name="Close">
+                <TextBlock Text="✕" HorizontalAlignment="Center" Foreground="#C8C8C8"/>
+            </Button>
+        </Grid>
+
+        <!-- ================= Model ================= -->
+        <StackPanel Spacing="8" IsEnabled="{Binding IsIdle}">
+            <TextBlock Classes="section" Text="Speech model"/>
+            <ListBox Classes="models" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}"
+                     Background="Transparent" AutomationProperties.Name="Speech model">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SpeechModelItem">
+                        <Border Background="#232427" CornerRadius="6" Padding="12,8">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                    <TextBlock Classes="label" Text="{Binding Description}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="label" VerticalAlignment="Center" Text="{Binding State}"/>
+                                <Button Grid.Column="2" Classes="fig ghost" Padding="8,2" MinHeight="0" FontSize="11"
+                                        VerticalAlignment="Center" Content="Remove" IsVisible="{Binding IsInstalled}"
+                                        Command="{Binding $parent[ListBox].((vm:CaptionsDialogViewModel)DataContext).DeleteModelCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="Delete the downloaded model to free the space. It downloads again when you next use it."/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Classes="label" TextWrapping="Wrap">
+                <Run Text="Models download once, to "/><Run Text="{Binding ModelsFolder}"/><Run Text="."/>
+            </TextBlock>
+        </StackPanel>
+
+        <Border Classes="rule"/>
+
+        <!-- ================= Options ================= -->
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="10"
+              IsEnabled="{Binding IsIdle}">
+            <TextBlock Classes="label" Text="Language" VerticalAlignment="Center"/>
+            <ComboBox Grid.Column="1" ItemsSource="{x:Static vm:CaptionsDialogViewModel.Languages}"
+                      SelectedIndex="{Binding LanguageIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="Language"/>
+
+            <TextBlock Grid.Row="1" Classes="label" Text="Each caption" VerticalAlignment="Center"/>
+            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{x:Static vm:CaptionsDialogViewModel.Groupings}"
+                      SelectedIndex="{Binding GroupingIndex}" HorizontalAlignment="Stretch" AutomationProperties.Name="Words per caption"/>
+
+            <CheckBox Grid.Row="2" Grid.Column="1" IsChecked="{Binding Translate}" Content="Write the captions in English"
+                      ToolTip.Tip="Whisper translates the speech as it listens."/>
+            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding UseSelection}" IsVisible="{Binding HasSelection}"
+                      Content="Only where the selected clips are"/>
+        </Grid>
+
+        <!-- ================= Progress ================= -->
+        <StackPanel Spacing="6" IsVisible="{Binding IsWorking}">
+            <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" Height="4" MinHeight="4"/>
+        </StackPanel>
+        <TextBlock Classes="label" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding HasStatus}"/>
+
+        <Border Classes="rule"/>
+
+        <Grid ColumnDefinitions="*,Auto,8,Auto">
+            <Button Grid.Column="1" Classes="fig" Width="110" Content="Stop" IsVisible="{Binding IsWorking}"
+                    Command="{Binding StopCommand}"/>
+            <Button Grid.Column="1" Classes="fig" Width="110" Content="Cancel" IsVisible="{Binding IsIdle}"
+                    IsCancel="True" Click="Close_Click"/>
+            <Button Grid.Column="3" Classes="fig primary" MinWidth="160" Content="{Binding GenerateLabel}" IsDefault="True"
+                    Command="{Binding GenerateCommand}"/>
+        </Grid>
+    </StackPanel>
+</Window>

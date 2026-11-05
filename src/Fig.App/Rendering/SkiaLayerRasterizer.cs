@@ -41,11 +41,13 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
             return null;
 
         TextStyle? textStyle = clip is TextClip t ? StyleAt(t, localT) : null;
+        // the caption word being said then, lit
+        var lit = clip is TextClip spoken ? TextWords.ActiveSpan(spoken, localT) : null;
         // where it is then (its position can be keyframed)
         var layout = clip is ILayerClip ? ClipProperties.LayoutAt(clip, localT) : LayerTransform.Default;
         object? key = clip switch
         {
-            TextClip text => (text.Text, textStyle, layout, width, height),
+            TextClip text => (text.Text, textStyle, layout, width, height, lit),
             // an animation's picture changes with time: which frame is part of what is shown
             ImageClip image when _findMedia(image.SourceId) is { Url: { Length: > 0 } url } && LoadImage(url) is { } source
                 => (url, layout, width, height, source.FrameAt(localT)),
@@ -62,7 +64,7 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
 
         var picture = clip switch
         {
-            TextClip text => Draw(width, height, canvas => DrawText(canvas, text, textStyle!, layout, width, height)),
+            TextClip text => Draw(width, height, canvas => DrawText(canvas, text, textStyle!, layout, width, height, lit)),
             ImageClip image => LoadImage(_findMedia(image.SourceId)!.Url) is { } source
                 ? Draw(width, height, canvas => DrawImage(canvas, source[source.FrameAt(localT)], layout, width, height))
                 : null,
@@ -109,7 +111,7 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
 
         var (w, h) = clip switch
         {
-            TextClip text => string.IsNullOrEmpty(text.Text) ? (0f, 0f) : MeasureText(text, textStyle!, height),
+            TextClip text => string.IsNullOrEmpty(text.Text) ? (0f, 0f) : MeasureText(text, textStyle!, width, height),
             ImageClip image => LoadImage(_findMedia(image.SourceId)!.Url) is { } source ? Fit(source[0], width, height) : (0f, 0f),
             _ => (0f, 0f),
         };
@@ -123,9 +125,9 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
         return size;
     }
 
-    private static (float Width, float Height) MeasureText(TextClip text, TextStyle style, int height)
+    private static (float Width, float Height) MeasureText(TextClip text, TextStyle style, int width, int height)
     {
-        using var layout = TextLayout.Of(style, text.Text, height);
+        using var layout = TextLayout.Of(style, text.Text, width, height);
         return layout.Bounds;
     }
 
@@ -157,11 +159,12 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
         canvas.Scale((float)Math.Max(0.01, layout.Scale));
     }
 
-    private static void DrawText(SKCanvas canvas, TextClip clip, TextStyle style, LayerTransform layout, int width, int height)
+    private static void DrawText(SKCanvas canvas, TextClip clip, TextStyle style, LayerTransform layout, int width, int height,
+        (int Start, int Length)? lit)
     {
         if (string.IsNullOrEmpty(clip.Text))
             return;
-        using var block = TextLayout.Of(style, clip.Text, height);
+        using var block = TextLayout.Of(style, clip.Text, width, height, lit);
         var (blockWidth, blockHeight, size) = (block.BlockWidth, block.BlockHeight, block.Size);
 
         canvas.Save();
@@ -176,21 +179,37 @@ public sealed class SkiaLayerRasterizer : ILayerRasterizer
         }
 
         using var paint = new SKPaint { IsAntialias = true, Color = new SKColor(style.Color) };
-        if (style.Shadow)
-            paint.ImageFilter = SKImageFilter.CreateDropShadow(0, size * 0.04f, size * 0.06f, size * 0.06f, new SKColor(0, 0, 0, 170));
-
-        for (var i = 0; i < block.Lines.Count; i++)
-        {
-            var line = block.Lines[i];
-            var x = style.Align switch
+        using var litPaint = new SKPaint { IsAntialias = true, Color = new SKColor(style.HighlightColor) };
+        // the outline goes under the letters; the shadow under whichever is drawn first, so it never falls on the text
+        using var outline = block.Stroke > 0
+            ? new SKPaint
             {
-                TextAlign.Left => -blockWidth / 2,
-                TextAlign.Right => blockWidth / 2 - line.Width,
-                _ => -line.Width / 2,
-            };
-            var y = -blockHeight / 2 + i * block.LineHeight - block.Metrics.Ascent;
-            TextLayout.Draw(canvas, line, x, y, paint);
+                IsAntialias = true, Color = new SKColor(style.OutlineColor), Style = SKPaintStyle.Stroke,
+                StrokeWidth = block.Stroke, StrokeJoin = SKStrokeJoin.Round, StrokeCap = SKStrokeCap.Round,
+            }
+            : null;
+        if (style.Shadow)
+            (outline ?? paint).ImageFilter = SKImageFilter.CreateDropShadow(0, size * 0.04f, size * 0.06f, size * 0.06f, new SKColor(0, 0, 0, 170));
+
+        void Lines(SKPaint basePaint, SKPaint? lit)
+        {
+            for (var i = 0; i < block.Lines.Count; i++)
+            {
+                var line = block.Lines[i];
+                var x = style.Align switch
+                {
+                    TextAlign.Left => -blockWidth / 2,
+                    TextAlign.Right => blockWidth / 2 - line.Width,
+                    _ => -line.Width / 2,
+                };
+                var y = -blockHeight / 2 + i * block.LineHeight - block.Metrics.Ascent;
+                TextLayout.Draw(canvas, line, x, y, basePaint, lit);
+            }
         }
+
+        if (outline is not null)
+            Lines(outline, null);
+        Lines(paint, litPaint);
         canvas.Restore();
     }
 

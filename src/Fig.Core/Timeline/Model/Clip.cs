@@ -155,7 +155,10 @@ namespace Fig.Core.Timeline
         Right,
     }
 
-    /// <summary>How a text clip is set. Size is a share of the frame height, so text looks the same at every resolution.</summary>
+    /// <summary>
+    /// How a text clip is set. Size is a share of the frame height and the wrap width a share of the frame width, so
+    /// text looks the same at every resolution.
+    /// </summary>
     public sealed record TextStyle(
         string FontFamily = "Inter",
         bool Bold = true,
@@ -165,10 +168,23 @@ namespace Fig.Core.Timeline
         TextAlign Align = TextAlign.Center,
         bool Shadow = true,
         bool Background = false,
-        uint BackgroundColor = 0xB0000000)
+        uint BackgroundColor = 0xB0000000,
+        bool Outline = false,
+        uint OutlineColor = 0xFF000000,
+        double OutlinePercent = 12,
+        bool Highlight = false,
+        uint HighlightColor = 0xFFFFD60A,
+        double WrapPercent = 0,
+        bool Uppercase = false)
     {
         public static readonly TextStyle Default = new();
+
+        /// <summary>The look of generated captions: bold, outlined, wrapped short, the spoken word lit.</summary>
+        public static readonly TextStyle Captions = new(SizePercent: 5.5, Shadow: false, Outline: true, Highlight: true, WrapPercent: 80);
     }
+
+    /// <summary>One spoken word of a text clip, timed in seconds from the clip's start.</summary>
+    public sealed record TimedWord(string Text, double StartSec, double EndSec);
 
     public enum ClipKind
     {
@@ -285,6 +301,17 @@ namespace Fig.Core.Timeline
         public string Text { get; set; } = "";
         public TextStyle Style { get; set; } = TextStyle.Default;
         public LayerTransform Layout { get; set; } = LayerTransform.Default;
+
+        /// <summary>
+        /// A caption: written from speech, and what a subtitle export (SRT, TXT) collects.
+        /// </summary>
+        public bool IsCaption { get; set; }
+
+        /// <summary>
+        /// When each word of <see cref="Text"/> is said, for lighting the spoken word (<see cref="TextStyle.Highlight"/>).
+        /// Replaced whole, never changed in place, so clones may share it. Empty for typed text.
+        /// </summary>
+        public IReadOnlyList<TimedWord> Words { get; set; } = [];
     }
 
     /// <summary>A still picture from the library, held for as long as the clip lasts.</summary>

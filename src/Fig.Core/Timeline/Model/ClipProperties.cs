@@ -123,6 +123,38 @@ namespace Fig.Core.Timeline
         public static readonly ClipProperty TextBoxColour = TextStyleProperty(Colour("backgroundColor", "Box", 0xB0000000), "Backing",
             s => ParamValue.OfColor(s.BackgroundColor), (s, v) => s with { BackgroundColor = v.AsColor }, shown: s => s.Background);
 
+        public static readonly ClipProperty TextOutline = TextStyleProperty(Toggle("outline", "Outline"), "Backing",
+            s => ParamValue.OfBool(s.Outline), (s, v) => s with { Outline = v.AsBool });
+        public static readonly ClipProperty TextOutlineColour = TextStyleProperty(Colour("outlineColor", "Outline colour", 0xFF000000), "Backing",
+            s => ParamValue.OfColor(s.OutlineColor), (s, v) => s with { OutlineColor = v.AsColor }, shown: s => s.Outline);
+        public static readonly ClipProperty TextOutlineWidth = TextStyleProperty(Number("outlineWidth", "Outline width", 2, 40, 12, "{0:0}%"), "Backing",
+            s => N(s.OutlinePercent), (s, v) => s with { OutlinePercent = Math.Clamp(v.AsNumber, 2, 40) }, shown: s => s.Outline);
+        public static readonly ClipProperty TextWrap = TextStyleProperty(Number("wrap", "Wrap width", 0, 100, 0, "{0:0}%"), "Layout",
+            s => N(s.WrapPercent), (s, v) => s with { WrapPercent = Math.Clamp(v.AsNumber, 0, 100) });
+        public static readonly ClipProperty TextUppercase = TextStyleProperty(Toggle("uppercase", "All capitals"), "Layout",
+            s => ParamValue.OfBool(s.Uppercase), (s, v) => s with { Uppercase = v.AsBool });
+
+        public static readonly ClipProperty TextHighlight = new()
+        {
+            Def = Toggle("highlight", "Light the spoken word"), Facet = Facet.Text, Group = "Captions",
+            AppliesTo = c => c is TextClip { Words.Count: > 0 },
+            Get = c => ParamValue.OfBool(((TextClip)c).Style.Highlight),
+            Set = (c, v) => ((TextClip)c).Style = ((TextClip)c).Style with { Highlight = v.AsBool },
+        };
+        public static readonly ClipProperty TextHighlightColour = new()
+        {
+            Def = Colour("highlightColor", "Spoken word", 0xFFFFD60A), Facet = Facet.Text, Group = "Captions",
+            AppliesTo = c => c is TextClip { Words.Count: > 0 },
+            Shown = c => ((TextClip)c).Style.Highlight,
+            Get = c => ParamValue.OfColor(((TextClip)c).Style.HighlightColor),
+            Set = (c, v) => ((TextClip)c).Style = ((TextClip)c).Style with { HighlightColor = v.AsColor },
+        };
+        public static readonly ClipProperty IsCaption = new()
+        {
+            Def = Toggle("isCaption", "Include in subtitle export"), Facet = Facet.Text, Group = "Captions",
+            Get = c => ParamValue.OfBool(((TextClip)c).IsCaption), Set = (c, v) => ((TextClip)c).IsCaption = v.AsBool,
+        };
+
         // ---- position (text and still layers) ---------------------------------------------------
 
         private static ClipProperty LayoutProperty(ParamDef def, Func<LayerTransform, double> get, Func<LayerTransform, double, LayerTransform> with) => new()
@@ -217,7 +249,9 @@ namespace Fig.Core.Timeline
         /// <summary>Every property, in inspector order.</summary>
         public static IReadOnlyList<ClipProperty> All { get; } =
         [
-            TextBold, TextItalic, TextAlignment, TextSize, TextColour, TextShadow, TextBox, TextBoxColour,
+            TextBold, TextItalic, TextAlignment, TextSize, TextColour, TextWrap, TextUppercase,
+            TextShadow, TextOutline, TextOutlineColour, TextOutlineWidth, TextBox, TextBoxColour,
+            TextHighlight, TextHighlightColour, IsCaption,
             Opacity, CropLeft, CropRight, CropTop, CropBottom,
             LayoutX, LayoutY, LayoutScale, LayoutRotation,
             Volume, SoundFadeIn, SoundFadeOut,

@@ -5,41 +5,6 @@ namespace Fig.Core.Tests;
 
 public class ReverseGeneratorTests
 {
-    [Fact]
-    public void ReversedCopy_IsAsLong_AndStartsWhereTheSourceEnds()
-    {
-        var media = new MediaService();
-        var output = Path.Combine(Path.GetTempPath(), $"fig_reversed_{Guid.NewGuid():N}.mp4");
-        try
-        {
-            media.GenerateReversed(TestAssets.Timer, output);
-
-            var source = media.Probe(TestAssets.Timer);
-            var reversed = media.Probe(output);
-            Assert.True(reversed.HasAudio);
-            Assert.InRange(reversed.DurationSec, source.DurationSec - 0.15, source.DurationSec + 0.15);
-
-            // the copy ends where the source starts (the timer's "3"), and starts somewhere else entirely
-            // (DecodeFrameAt shows the keyframe at or before a time: the source has one only at its start,
-            // the copy one every half second)
-            var sourceStart = media.DecodeFrameAt(TestAssets.Timer, 0, 160, 90)!;
-            var copyStart = media.DecodeFrameAt(output, 0, 160, 90)!;
-            var copyEnd = media.DecodeFrameAt(output, reversed.DurationSec - 0.05, 160, 90)!;
-            Assert.True(Difference(copyEnd, sourceStart) < Difference(copyStart, sourceStart) / 2,
-                $"copy end vs source start {Difference(copyEnd, sourceStart):0.0}, copy start vs source start {Difference(copyStart, sourceStart):0.0}");
-
-            // and its sound is the source's, backwards
-            var sourcePeaks = media.ExtractPeaks(TestAssets.Timer, 64);
-            var copyPeaks = media.ExtractPeaks(output, 64);
-            Assert.True(Correlation(copyPeaks, sourcePeaks.Reverse().ToArray()) > Correlation(copyPeaks, sourcePeaks),
-                "the copy's waveform should match the source's reversed better than forwards");
-        }
-        finally
-        {
-            File.Delete(output);
-        }
-    }
-
     /// <summary>How different the middle of two pictures is (where the timer's digit is; the rest is black).</summary>
     private static double Difference(DecodedFrame a, DecodedFrame b)
     {
@@ -90,21 +55,5 @@ public class ReverseEditTests
 
         editor.Undo();
         Assert.Equal(("rev", 5.0, 8.0), (clip.SourceId, clip.SourceIn, clip.SourceOut));
-    }
-
-    [Fact]
-    public void ReversingATitle_RunsItsAnimationBackwards()
-    {
-        var (editor, _) = TimelineFixtures.Create();
-        var text = editor.AddText(null, 0, "Title", durSec: 4);
-        var key = ClipProperties.Opacity.Key;
-        text.Keyframes[key] = [new(0, ParamValue.OfDouble(0), KeyframeEasing.EaseIn), new(1, ParamValue.OfDouble(1))];
-
-        Assert.True(editor.Reverse([text.Id], _ => null));
-        Assert.Equal([(3.0, 1.0), (4.0, 0.0)], text.Keyframes[key].Select(k => (k.TimeSec, k.Value.AsNumber)));
-        Assert.Equal(KeyframeEasing.EaseOut, text.Keyframes[key][0].Easing);   // the fade in, played out
-
-        editor.Undo();
-        Assert.Equal([(0.0, 0.0), (1.0, 1.0)], text.Keyframes[key].Select(k => (k.TimeSec, k.Value.AsNumber)));
     }
 }

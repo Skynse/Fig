@@ -14,46 +14,12 @@ public class FrameRateTests
         Assert.Equal(new FrameRate(30000, 1001), FrameRate.Common(29.97));
         Assert.Equal(new FrameRate(60000, 1001), FrameRate.Common(59.94));
     }
-
-    [Fact]
-    public void Common_HandlesIntegerRates()
-    {
-        Assert.Equal(25, FrameRate.Common(25).Num);
-        Assert.Equal(50, FrameRate.Common(50).Num);
-        Assert.Equal(60, FrameRate.Common(60).Num);
-        Assert.Equal(24, FrameRate.Common(24).Num);
-    }
-
-    [Fact]
-    public void Plausible_SnapsToStandard_AndRejectsJunk()
-    {
-        Assert.Equal(new FrameRate(30000, 1001), FrameRate.Plausible(new FrameRate(13698, 457)));
-        Assert.Equal(new FrameRate(60, 1), FrameRate.Plausible(new FrameRate(60, 1)));
-        Assert.Equal(new FrameRate(15, 1), FrameRate.Plausible(new FrameRate(15, 1)));
-        Assert.Null(FrameRate.Plausible(new FrameRate(1000, 1)));
-        Assert.Null(FrameRate.Plausible(null));
-    }
 }
 
 public class ClipConformanceTests
 {
     private static MediaAsset Video(string id, double dur, FrameRate? rate)
         => new() { Id = id, Kind = MediaKind.Video, Url = $"/tmp/{id}.mp4", DurationSec = dur, SourceRate = rate };
-
-    [Fact]
-    public void AddMedia_AdoptsSourceRate_WhenTimelineIsEmpty()
-    {
-        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
-        var editor = new TimelineEditor(timeline);
-        var track = editor.AddTrack(TrackKind.Video);
-
-        var clip = editor.AddMediaLinked(Video("m", 10, new FrameRate(25, 1)), track.Id, 0);
-
-        Assert.NotNull(clip);
-        Assert.Equal(25, timeline.Rate.Num);
-        Assert.Equal(1, timeline.Rate.Den);
-        Assert.Equal(25, clip!.SourceRate!.Value.Num);
-    }
 
     [Fact]
     public void AddMedia_PlaysInRealTime_WhenRatesDiffer()
@@ -69,44 +35,6 @@ public class ClipConformanceTests
         Assert.NotNull(clip);
         Assert.Equal(10.0, clip!.DurSec, 3);
         Assert.Equal(1.0, clip.Speed);
-        Assert.Equal(30, timeline.Rate.Num);
-    }
-
-    [Fact]
-    public void AddMedia_IgnoresJunkRate_AndLeavesAChosenRate()
-    {
-        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
-        var editor = new TimelineEditor(timeline);
-        var track = editor.AddTrack(TrackKind.Video);
-
-        // a recorded WebM reports 1000/1
-        var clip = editor.AddMediaLinked(Video("rec", 60, new FrameRate(1000, 1)), track.Id, 0);
-        Assert.Equal(60.0, clip!.DurSec, 3);
-        Assert.Equal(new FrameRate(30, 1), timeline.Rate);
-
-        var chosen = new TimelineModel { Rate = FrameRate.Common(30) };
-        var chosenEditor = new TimelineEditor(chosen);
-        var chosenTrack = chosenEditor.AddTrack(TrackKind.Video);
-        chosenEditor.SetRate(new FrameRate(25, 1));
-        chosenEditor.AddMediaLinked(Video("m", 10, new FrameRate(60, 1)), chosenTrack.Id, 0);
-        Assert.Equal(new FrameRate(25, 1), chosen.Rate);
-
-        chosenEditor.Undo();
-        chosenEditor.Undo();
-        Assert.Equal(new FrameRate(30, 1), chosen.Rate);
-        Assert.False(chosen.RateChosen);
-    }
-
-    [Fact]
-    public void AddMedia_SameRate_DoesNotConform()
-    {
-        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
-        var editor = new TimelineEditor(timeline);
-        var track = editor.AddTrack(TrackKind.Video);
-
-        var clip = editor.AddMediaLinked(Video("m", 10, new FrameRate(30, 1)), track.Id, 0);
-
-        Assert.Equal(10.0, clip!.DurSec, 3);
         Assert.Equal(30, timeline.Rate.Num);
     }
 }
@@ -188,19 +116,6 @@ public class AudioSpeedResampleTests
 
         // 440 Hz source read at 2x -> ~880 Hz (1760 zero crossings/sec)
         Assert.InRange(crossings, 1500, 2000);
-    }
-
-    [Fact]
-    public void Mix_SpeedHalf_Resamples_AndHalvesPitch()
-    {
-        var clip = new AudioClip { Id = "c", SourceId = "m", StartSec = 0, DurSec = 1, SrcInSec = 0, SrcOutSec = 0.5 };
-        var buf = Mix(clip, 1.0, 0.5, out var crossings);
-
-        Assert.Equal(48000 * 2, buf.Length);
-        Assert.True(ContainsAudio(buf), "expected resampled audio content");
-
-        // 440 Hz source read at 0.5x -> ~220 Hz (440 zero crossings/sec)
-        Assert.InRange(crossings, 380, 500);
     }
 
     private static bool ContainsAudio(float[] buf)

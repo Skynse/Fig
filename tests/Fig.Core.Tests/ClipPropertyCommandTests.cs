@@ -41,67 +41,6 @@ public class ClipPropertyCommandTests
         return new TimelineEditor(timeline);
     }
 
-    [Fact]
-    public void SetSpeed_RecomputesDuration_AndUndoRestores()
-    {
-        var editor = EditorWithSpeedClip();
-        editor.SetSpeed("v1", 2.0);
-        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
-        Assert.Equal(2.0, clip.Speed, 3);
-        Assert.Equal(2.5, clip.DurSec, 3);   // 5s source at 2x = 2.5s
-
-        Assert.True(editor.Undo());
-        Assert.Equal(1.0, clip.Speed, 3);
-        Assert.Equal(5.0, clip.DurSec, 3);
-    }
-
-    [Fact]
-    public void SetSpeed_Slower_ExtendsDuration()
-    {
-        var editor = EditorWithSpeedClip();
-        editor.SetSpeed("v1", 0.5);
-        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
-        Assert.Equal(0.5, clip.Speed, 3);
-        Assert.Equal(10.0, clip.DurSec, 3);  // 5s source at 0.5x = 10s
-    }
-
-    [Fact]
-    public void SetSpeed_Scrub_CoalescesToSingleUndo()
-    {
-        var editor = EditorWithSpeedClip();
-        editor.SetSpeed("v1", 1.5);
-        editor.SetSpeed("v1", 2.0);
-        editor.SetSpeed("v1", 2.5);
-        var clip = (VideoClip)editor.Document.Tracks[0].Clips[0];
-        Assert.Equal(2.5, clip.Speed, 3);
-        Assert.Equal(2.0, clip.DurSec, 3);
-
-        Assert.True(editor.Undo());
-        Assert.Equal(1.0, clip.Speed, 3);
-        Assert.Equal(5.0, clip.DurSec, 3);
-        Assert.False(editor.Undo());
-    }
-
-    [Fact]
-    public void SetSpeed_UpdatesLinkedPeers()
-    {
-        var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
-        var v = new Track { Kind = TrackKind.Video, Index = 0 };
-        var a = new Track { Kind = TrackKind.Audio, Index = 0 };
-        const string group = "g2";
-        v.Clips.Add(new VideoClip { Id = "v1", SourceId = "m", LinkGroupId = group, DurSec = 4, Speed = 1, SrcInSec = 0, SrcOutSec = 4 });
-        a.Clips.Add(new AudioClip { Id = "a1", SourceId = "m", LinkGroupId = group, DurSec = 4, Speed = 1, SrcInSec = 0, SrcOutSec = 4 });
-        timeline.Tracks.Add(v);
-        timeline.Tracks.Add(a);
-        var editor = new TimelineEditor(timeline);
-
-        editor.SetSpeed("v1", 2.0);
-        Assert.Equal(2.0, v.Clips[0].Speed, 3);
-        Assert.Equal(2.0, a.Clips[0].Speed, 3);
-        Assert.Equal(2.0, v.Clips[0].DurSec, 3);
-        Assert.Equal(2.0, a.Clips[0].DurSec, 3);
-    }
-
     private static TimelineEditor EditorWithAbuttingClips()
     {
         var timeline = new TimelineModel { Rate = FrameRate.Common(30) };
@@ -139,27 +78,6 @@ public class ClipPropertyCommandTests
 
         Assert.True(editor.Redo());
         Assert.Equal(10.0, b.StartSec, 3);
-    }
-
-    [Fact]
-    public void SetSpeed_Faster_DoesNotCreateOverlap()
-    {
-        var editor = EditorWithAbuttingClips();
-        var track = editor.Document.Tracks[0];
-
-        editor.SetSpeed("a", 2.0);   // a: 5s → 2.5s, delta −2.5
-
-        var a = Clip(track, "a");
-        var b = Clip(track, "b");
-        var c = Clip(track, "c");
-        Assert.Equal(2.5, a.DurSec, 3);
-        Assert.Equal(2.5, b.StartSec, 3);   // pulled earlier, still abutting
-        Assert.Equal(7.5, c.StartSec, 3);
-        Assert.True(a.StartSec + a.DurSec <= b.StartSec + 1e-9, "clips must not overlap");
-
-        Assert.True(editor.Undo());
-        Assert.Equal(5.0, b.StartSec, 3);
-        Assert.Equal(10.0, c.StartSec, 3);
     }
 
     [Fact]

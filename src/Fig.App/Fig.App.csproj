@@ -27,6 +27,18 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
   </PropertyGroup>
+  <!--
+    Whisper.net.Runtime copies whisper.cpp for every desktop platform into runtimes/; a release keeps only its own
+    (about 2.5 MB). The speech models are not shipped: they download to ~/.fig/models on first use.
+  -->
+  <Target Name="KeepOwnWhisperRuntime" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(RuntimeIdentifier)' != ''">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\', '/').StartsWith('runtimes/'))
+                   And $([System.String]::Copy('%(ResolvedFileToPublish.Filename)').Contains('whisper'))
+                   And !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Replace('\', '/').StartsWith('runtimes/$(RuntimeIdentifier)/'))" />
+    </ItemGroup>
+  </Target>
   <ItemGroup Condition="'$(FfmpegDir)' != ''">
     <None Include="$(FfmpegDir)\*" Link="ffmpeg\%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

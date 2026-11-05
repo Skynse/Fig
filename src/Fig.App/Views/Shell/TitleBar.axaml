@@ -96,6 +96,8 @@
                               IsEnabled="{Binding IsEditing}"/>
                     <MenuItem Header="Export marked _ranges…" Command="{Binding Editor.ExportMarkedRangesCommand}"
                               CommandParameter="{Binding #TitleRoot.Owner}" IsEnabled="{Binding IsEditing}"/>
+                    <MenuItem Header="Export _captions (SRT, TXT)…" Command="{Binding Editor.ExportCaptionsCommand}"
+                              CommandParameter="{Binding #TitleRoot.Owner}" IsEnabled="{Binding IsEditing}"/>
                     <Separator/>
                     <MenuItem Header="_Preferences…" Command="{Binding OpenPreferencesCommand}" InputGesture="{Binding Shortcuts[app.preferences]}"/>
                     <Separator/>
@@ -133,6 +135,9 @@
                     <MenuItem Header="Create ranges from _bookmarks…" Command="{Binding Editor.CreateRangesFromBookmarksCommand}"
                               CommandParameter="{Binding #TitleRoot.Owner}"/>
                     <MenuItem Header="Delete mar_ker" Command="{Binding Editor.DeleteSelectedMarkerCommand}" InputGesture="Shift+Delete"/>
+                    <Separator/>
+                    <MenuItem Header="Auto _captions…" Command="{Binding Editor.GenerateCaptionsCommand}"
+                              CommandParameter="{Binding #TitleRoot.Owner}"/>
                 </MenuItem>
                 <MenuItem Header="_View" IsEnabled="{Binding IsEditing}">
                     <MenuItem Header="_Media panel" Command="{Binding Editor.Layout.ToggleLeftCommand}" ToggleType="CheckBox"

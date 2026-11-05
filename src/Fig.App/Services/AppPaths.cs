@@ -15,6 +15,9 @@ public static class AppPaths
 
     public static string PresetsDir { get; } = Path.Combine(DataDir, "presets");
 
+    /// <summary>Downloaded speech models for captions; never shipped with the app.</summary>
+    public static string SpeechModelsDir { get; } = Path.Combine(DataDir, "models", "whisper");
+
     public static string WorkspaceLayoutPath { get; } = Path.Combine(ConfigDir, "workspace.json");
 
     public static string GestureConfigPath { get; } = Path.Combine(ConfigDir, "gestures.json");

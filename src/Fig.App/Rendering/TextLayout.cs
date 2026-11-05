@@ -12,12 +12,13 @@ namespace Fig.App.Rendering;
 /// <summary>
 /// A title laid out for drawing: its lines, each cut into runs that one font can draw, and each run shaped with
 /// HarfBuzz. A character the chosen font lacks is drawn with a system font that has it, and emoji always use the
-/// colour emoji font, so 😀, 👍🏽, 👨‍👩‍👧, ❤️ and flags come out as one picture each.
+/// colour emoji font, so 😀, 👍🏽, 👨‍👩‍👧, ❤️ and flags come out as one picture each. Lines longer than the style's
+/// wrap width break between words, and the spoken word of a caption is a run of its own, marked lit.
 /// </summary>
 internal sealed class TextLayout : IDisposable
 {
-    /// <summary>One stretch of a line drawn with one font.</summary>
-    public sealed record Run(string Text, SKFont Font, SKShaper Shaper, float Width);
+    /// <summary>One stretch of a line drawn with one font; lit when it is (part of) the word being said.</summary>
+    public sealed record Run(string Text, SKFont Font, SKShaper Shaper, float Width, bool Lit);
 
     /// <summary>One line: its runs, left to right, and their total width.</summary>
     public sealed record Line(IReadOnlyList<Run> Runs, float Width);
@@ -25,10 +26,11 @@ internal sealed class TextLayout : IDisposable
     // typefaces this layout opened (the chosen one and any fallbacks), by family, closed with it
     private readonly Dictionary<string, (SKTypeface Typeface, SKFont Font, SKShaper Shaper)> _faces = new();
 
-    private TextLayout(SKTypeface primary, float size, bool background)
+    private TextLayout(SKTypeface primary, float size, bool background, float stroke)
     {
         Size = size;
         Background = background;
+        Stroke = stroke;
         Primary = Face(primary);
         Primary.Font.GetFontMetrics(out var metrics);
         Metrics = metrics;
@@ -36,6 +38,9 @@ internal sealed class TextLayout : IDisposable
 
     public float Size { get; }
     public bool Background { get; }
+
+    /// <summary>The outline's width in pixels (0: none). It is drawn centred on the glyph edges.</summary>
+    public float Stroke { get; }
     public SKFontMetrics Metrics { get; }
     public IReadOnlyList<Line> Lines { get; private set; } = [];
 
@@ -47,58 +52,116 @@ internal sealed class TextLayout : IDisposable
     public float BlockHeight => LineHeight * Lines.Count;
     public float Pad => Size * 0.3f;
 
-    /// <summary>What the gizmo's box goes round: the text, or the box behind it when there is one.</summary>
+    /// <summary>What the gizmo's box goes round: the text (and its outline), or the box behind it when there is one.</summary>
     public (float Width, float Height) Bounds => Background
         ? (BlockWidth + Pad * 2, BlockHeight + Pad * 1.2f)
-        : (BlockWidth, BlockHeight);
+        : (BlockWidth + Stroke, BlockHeight + Stroke);
 
-    public static TextLayout Of(TextStyle style, string text, int height)
+    /// <summary>
+    /// Lays out <paramref name="text"/> as <paramref name="style"/> sets it on a <paramref name="width"/> ×
+    /// <paramref name="height"/> frame. <paramref name="lit"/> is the spoken word's characters in the displayed text
+    /// (<see cref="TextWords.Display(string, TextStyle)"/>), or null.
+    /// </summary>
+    public static TextLayout Of(TextStyle style, string text, int width, int height, (int Start, int Length)? lit = null)
     {
         var fontStyle = new SKFontStyle(
             style.Bold ? SKFontStyleWeight.Bold : SKFontStyleWeight.Normal,
             SKFontStyleWidth.Normal,
             style.Italic ? SKFontStyleSlant.Italic : SKFontStyleSlant.Upright);
         var primary = SKTypeface.FromFamilyName(style.FontFamily, fontStyle) ?? SKTypeface.Default;
-        var layout = new TextLayout(primary, (float)Math.Max(1, style.SizePercent / 100 * height), style.Background);
-        layout.Lines = text.Replace("\r\n", "\n").Split('\n').Select(line => layout.LayOut(line, fontStyle)).ToList();
+        var size = (float)Math.Max(1, style.SizePercent / 100 * height);
+        var layout = new TextLayout(primary, size, style.Background, style.Outline ? size * (float)(style.OutlinePercent / 100) : 0);
+        var maxWidth = style.WrapPercent > 0 ? (float)(style.WrapPercent / 100 * width) : float.PositiveInfinity;
+
+        var display = TextWords.Display(text, style);
+        var lines = new List<Line>();
+        var offset = 0;
+        foreach (var paragraph in display.Split('\n'))
+        {
+            foreach (var (start, length) in layout.Wrap(paragraph, maxWidth, fontStyle))
+                lines.Add(layout.LayOut(display, offset + start, length, fontStyle, lit));
+            offset += paragraph.Length + 1;
+        }
+        layout.Lines = lines;
         return layout;
     }
 
-    /// <summary>Draws one line with its left end at <paramref name="x"/> and its baseline at <paramref name="y"/>.</summary>
-    public static void Draw(SKCanvas canvas, Line line, float x, float y, SKPaint paint)
+    /// <summary>
+    /// Draws one line with its left end at <paramref name="x"/> and its baseline at <paramref name="y"/>, the lit
+    /// runs with <paramref name="litPaint"/> when given.
+    /// </summary>
+    public static void Draw(SKCanvas canvas, Line line, float x, float y, SKPaint paint, SKPaint? litPaint = null)
     {
         foreach (var run in line.Runs)
         {
-            canvas.DrawShapedText(run.Shaper, run.Text, x, y, SKTextAlign.Left, run.Font, paint);
+            canvas.DrawShapedText(run.Shaper, run.Text, x, y, SKTextAlign.Left, run.Font, run.Lit && litPaint is not null ? litPaint : paint);
             x += run.Width;
         }
     }
 
-    private Line LayOut(string line, SKFontStyle style)
+    /// <summary>
+    /// The lines a paragraph breaks into, as ranges of it: as many words as fit in <paramref name="maxWidth"/> a line.
+    /// A paragraph that fits is one line as typed; a word wider than a whole line gets a line to itself.
+    /// </summary>
+    private List<(int Start, int Length)> Wrap(string paragraph, float maxWidth, SKFontStyle style)
+    {
+        if (float.IsPositiveInfinity(maxWidth) || Width(paragraph, style) <= maxWidth)
+            return [(0, paragraph.Length)];
+        var words = TextWords.Spans(paragraph);
+        if (words.Count == 0)
+            return [(0, paragraph.Length)];
+
+        var lines = new List<(int, int)>();
+        var first = 0;
+        for (var i = 1; i <= words.Count; i++)
+        {
+            var start = words[first].Start;
+            if (i < words.Count)
+            {
+                var candidate = paragraph[start..(words[i].Start + words[i].Length)];
+                if (Width(candidate, style) <= maxWidth)
+                    continue;
+            }
+            var end = words[i - 1].Start + words[i - 1].Length;
+            lines.Add((start, end - start));
+            first = i;
+        }
+        return lines;
+    }
+
+    private float Width(string text, SKFontStyle style) => LayOut(text, 0, text.Length, style, null).Width;
+
+    /// <summary>Shapes <paramref name="length"/> characters of <paramref name="text"/> from <paramref name="start"/> into runs.</summary>
+    private Line LayOut(string text, int start, int length, SKFontStyle style, (int Start, int Length)? lit)
     {
         var runs = new List<Run>();
-        var text = new StringBuilder();
+        var pending = new StringBuilder();
         (SKTypeface Typeface, SKFont Font, SKShaper Shaper)? current = null;
+        var currentLit = false;
 
         void Flush()
         {
-            if (current is not { } face || text.Length == 0)
+            if (current is not { } face || pending.Length == 0)
                 return;
-            var shaped = text.ToString();
-            runs.Add(new Run(shaped, face.Font, face.Shaper, face.Shaper.Shape(shaped, face.Font).Width));
-            text.Clear();
+            var shaped = pending.ToString();
+            runs.Add(new Run(shaped, face.Font, face.Shaper, face.Shaper.Shape(shaped, face.Font).Width, currentLit));
+            pending.Clear();
         }
 
         // whole graphemes, so an emoji with its skin tone, joiners or keycap never splits across fonts
+        var line = text.Substring(start, length);
         var graphemes = StringInfo.GetTextElementEnumerator(line);
         while (graphemes.MoveNext())
         {
             var grapheme = graphemes.GetTextElement();
+            var at = start + graphemes.ElementIndex;
+            var isLit = lit is { } w && at >= w.Start && at < w.Start + w.Length;
             var face = FaceFor(grapheme, style);
-            if (current is { } open && open.Typeface != face.Typeface)
+            if (current is { } open && (open.Typeface != face.Typeface || isLit != currentLit))
                 Flush();
             current = face;
-            text.Append(grapheme);
+            currentLit = isLit;
+            pending.Append(grapheme);
         }
         Flush();
         return new Line(runs, runs.Sum(r => r.Width));

@@ -19,6 +19,7 @@ namespace Fig.App.Services
         public ExportPreferences Export { get; set; } = new();
         public RenderingPreferences Rendering { get; set; } = new();
         public KeyboardPreferences Keyboard { get; set; } = new();
+        public CaptionPreferences Captions { get; set; } = new();
 
         /// <summary>Keys this build doesn't know about (written by a newer one); kept so saving doesn't erase them.</summary>
         [JsonExtensionData]
@@ -34,6 +35,7 @@ namespace Fig.App.Services
             Rendering ??= new();
             Keyboard ??= new();
             Keyboard.Shortcuts ??= new();
+            Captions ??= new();
             if (!Enum.IsDefined(Rendering.Renderer))
                 Rendering.Renderer = RendererChoice.Automatic;
 
@@ -75,6 +77,20 @@ namespace Fig.App.Services
         /// <summary>The H.264 encoder: a GPU one when there is one (Automatic), or a named one, or the CPU.</summary>
         [JsonConverter(typeof(JsonStringEnumConverter<Fig.Core.Media.VideoEncoderChoice>))]
         public Fig.Core.Media.VideoEncoderChoice Encoder { get; set; } = Fig.Core.Media.VideoEncoderChoice.Automatic;
+    }
+
+    /// <summary>What the captions dialog last used.</summary>
+    public sealed class CaptionPreferences
+    {
+        /// <summary>The speech model's id (<see cref="Fig.Core.Captions.SpeechModels.All"/>).</summary>
+        public string Model { get; set; } = "base";
+        /// <summary>The language spoken, as a Whisper code, or "auto".</summary>
+        public string Language { get; set; } = "auto";
+        public bool Translate { get; set; }
+        /// <summary>Which of <see cref="Fig.Core.Captions.CaptionGrouping.Choices"/>.</summary>
+        public int Grouping { get; set; } = 1;
+        /// <summary>A style change to one caption restyles every caption on its track (the text stays its own).</summary>
+        public bool StyleAll { get; set; } = true;
     }
 
     /// <summary>What draws the preview and export frames.</summary>

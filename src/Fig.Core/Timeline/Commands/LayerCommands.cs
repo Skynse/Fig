@@ -200,3 +200,31 @@ namespace Fig.Core.Timeline
         }
     }
 }
+
+namespace Fig.Core.Timeline
+{
+    /// <summary>
+    /// Takes clips off a track and puts others on it, as one undo step: a merge (two captions out, one in) or a split
+    /// (one out, two in). The clips put on are new objects, so undo puts the very clips taken off back.
+    /// </summary>
+    public sealed class ReplaceClipsCommand(TimelineEditor editor, string trackId, string description,
+        IReadOnlyList<Clip> remove, IReadOnlyList<Clip> add) : IEditCommand
+    {
+        public string Description => description;
+
+        public void Execute() => Swap(remove, add);
+
+        public void Undo() => Swap(add, remove);
+
+        public void Redo() => Execute();
+
+        private void Swap(IReadOnlyList<Clip> off, IReadOnlyList<Clip> on)
+        {
+            var track = editor.FindTrack(trackId) ?? throw new InvalidOperationException($"Track '{trackId}' not found");
+            foreach (var clip in off)
+                editor.RemoveClip(track, clip);
+            foreach (var clip in on)
+                editor.InsertClip(track, clip);
+        }
+    }
+}

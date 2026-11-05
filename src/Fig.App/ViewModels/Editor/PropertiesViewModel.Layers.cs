@@ -69,8 +69,7 @@ public partial class PropertiesViewModel
             var p = property;
             var target = new KeyedParamTarget(_editor, KeyframeHostRef.OfClip(primaryId), p.Key, p.Keyable,
                 readBase: () => FindClip(primaryId) is { } clip ? p.Get(clip) : p.Def.DefaultValue(),
-                writeBase: value => _editor.Editor.SetClipProperty(
-                    _editor.Editor.EditTargets(SelectedClipIds, p.Facet), p, value, _editor.PlayheadTimeSec),
+                writeBase: value => _editor.Editor.SetClipProperty(Targets(p), p, value, _editor.PlayheadTimeSec),
                 writeHandlesKeys: true);
             var editor = ParamEditorViewModel.For(p.Def, target, p.Icon);
             if (p.Shown is { } shown)
@@ -78,6 +77,18 @@ public partial class PropertiesViewModel
             group.Editors.Add(editor);
         }
         RefreshProperties();
+    }
+
+    /// <summary>
+    /// The clips an edit of <paramref name="property"/> reaches: the selection (and what is linked to it), and, for a
+    /// caption's look or position while styling all, the other captions on its track.
+    /// </summary>
+    private IReadOnlyList<string> Targets(ClipProperty property)
+    {
+        var targets = _editor.Editor.EditTargets(SelectedClipIds, property.Facet);
+        return property.Facet is Facet.Text or Facet.Layout && property != ClipProperties.IsCaption
+            ? _editor.StyleTargets(targets)
+            : targets;
     }
 
     /// <summary>Re-reads every property editor at the playhead.</summary>
@@ -102,11 +113,13 @@ public partial class PropertiesViewModel
     /// to them), as one undo step; a slider drag coalesces into it. Each <paramref name="property"/> name must be
     /// unique to its setter: edits coalesce by name.
     /// </summary>
-    private void SetOnSelection<T>(Facet facet, string property, Func<Clip, T> get, Action<Clip, T> set, T value)
+    private void SetOnSelection<T>(Facet facet, string property, Func<Clip, T> get, Action<Clip, T> set, T value,
+        bool style = false)
     {
         if (_suppressApply || !Has(facet))
             return;
-        _editor.Editor.SetClipValue(_editor.Editor.EditTargets(SelectedClipIds, facet), property, get, set, value);
+        var targets = _editor.Editor.EditTargets(SelectedClipIds, facet);
+        _editor.Editor.SetClipValue(style ? _editor.StyleTargets(targets) : targets, property, get, set, value);
         _editor.Preview.RefreshFrame();
     }
 
@@ -119,12 +132,18 @@ public partial class PropertiesViewModel
     }
 
     partial void OnTextValueChanged(string value)
-        => SetOnSelection(Facet.Text, "text", c => ((TextClip)c).Text, (c, v) => ((TextClip)c).Text = v, value);
+    {
+        if (_suppressApply || !Has(Facet.Text))
+            return;
+        // a caption's words are retimed with it, so its spoken word stays lit
+        _editor.Editor.SetText(_editor.Editor.EditTargets(SelectedClipIds, Facet.Text), value);
+        _editor.Preview.RefreshFrame();
+    }
 
     partial void OnFontFamilyValueChanged(string value)
     {
         if (!string.IsNullOrWhiteSpace(value))
             SetOnSelection(Facet.Text, "font", c => ((TextClip)c).Style.FontFamily,
-                (c, v) => ((TextClip)c).Style = ((TextClip)c).Style with { FontFamily = v }, value);
+                (c, v) => ((TextClip)c).Style = ((TextClip)c).Style with { FontFamily = v }, value, style: true);
     }
 }

@@ -281,6 +281,18 @@
             <Setter Property="Background" Value="#222f48"/>
             <Setter Property="BorderBrush" Value="#6ea5ff"/>
         </Style>
+        <Style Selector="Border.caption-row">
+            <Setter Property="Background" Value="{StaticResource CardBg}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Border.caption-row.selected">
+            <Setter Property="Background" Value="{StaticResource AccentSofter}"/>
+        </Style>
+        <Style Selector="Border.caption-row.current">
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+        </Style>
         <Style Selector="Button.swatch">
             <Setter Property="Width" Value="24"/>
             <Setter Property="Height" Value="24"/>
@@ -1409,12 +1421,15 @@
                             </ScrollViewer>
                         </DockPanel>
 
-                        <!-- Transitions catalog -->
+                        <!-- Text: titles and captions -->
                         <DockPanel IsVisible="{Binding IsLibraryText}">
                             <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
                                 <Button Classes="fig primary" HorizontalAlignment="Stretch"
                                         Content="Add text" Command="{Binding AddTextCommand}"
                                         ToolTip.Tip="Add a title at the playhead"/>
+                                <Button Classes="fig" HorizontalAlignment="Stretch"
+                                        Content="Auto captions…" Command="{Binding GenerateCaptionsCommand}"
+                                        ToolTip.Tip="Write what is said on the timeline as captions"/>
                                 <TextBlock Classes="field-label" TextWrapping="Wrap"
                                            Text="Click a style to add it at the playhead, or drag it onto a video track."/>
                             </StackPanel>
@@ -1494,6 +1509,97 @@
                         </DockPanel>
 
                         <!-- Markers: bookmarks and ranges on the sequence, plus markers attached to clips -->
+                        <!-- Captions: every caption of a captions track, to read and fix -->
+                        <DockPanel IsVisible="{Binding IsLibraryCaptions}">
+                            <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,0,0,12">
+                                <Grid ColumnDefinitions="*,8,*">
+                                    <Button Classes="fig primary" Content="Auto captions…" Command="{Binding GenerateCaptionsCommand}"
+                                            ToolTip.Tip="Write what is said on the timeline as captions"/>
+                                    <Button Grid.Column="2" Classes="fig" Content="Export…" Command="{Binding ExportCaptionsCommand}"
+                                            IsEnabled="{Binding CaptionsPanel.HasCaptions}"
+                                            ToolTip.Tip="Save the captions as SRT subtitles or a TXT transcript"/>
+                                </Grid>
+                                <StackPanel Spacing="10" IsVisible="{Binding CaptionsPanel.HasCaptions}">
+                                    <ComboBox ItemsSource="{Binding CaptionsPanel.TrackNames}" SelectedIndex="{Binding CaptionsPanel.TrackIndex}"
+                                              IsVisible="{Binding CaptionsPanel.HasManyTracks}" HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="Captions track"/>
+                                    <CheckBox IsChecked="{Binding CaptionStyleToAll}" Content="Style all captions together"
+                                              ToolTip.Tip="A change to one caption's font, colours, size or position applies to every caption on its track. What each one says stays its own."/>
+                                    <TextBox Text="{Binding CaptionsPanel.FindText}" PlaceholderText="Find in captions"
+                                             AutomationProperties.Name="Find in captions"/>
+                                    <Grid ColumnDefinitions="*,8,Auto" IsVisible="{Binding CaptionsPanel.IsFinding}">
+                                        <TextBox Text="{Binding CaptionsPanel.ReplaceText}" PlaceholderText="Replace with"
+                                                 AutomationProperties.Name="Replace with"/>
+                                        <Button Grid.Column="2" Classes="fig" Content="Replace all" Command="{Binding CaptionsPanel.ReplaceAllCommand}"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding CaptionsPanel.IsFinding}">
+                                        <TextBlock Classes="field-label" Text="{Binding CaptionsPanel.MatchSummary}" VerticalAlignment="Center"/>
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding CaptionsPanel.MatchCase}" Content="Match case"/>
+                                    </Grid>
+                                    <TextBlock Classes="field-label" TextWrapping="Wrap"
+                                               Text="Enter: next caption · Shift+Enter: new line · ✂ splits at the cursor"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Panel>
+                                    <StackPanel IsVisible="{Binding CaptionsPanel.NoCaptions}" Spacing="6" Margin="0,28,0,0">
+                                        <local:StrokeIcon Icon="captions" Width="24" Height="24" HorizontalAlignment="Center"
+                                                          IconBrush="{StaticResource TextFaint}"/>
+                                        <TextBlock Classes="empty-state" Text="No captions yet"/>
+                                        <TextBlock Classes="empty-state" TextWrapping="Wrap"
+                                                   Text="Auto captions listens to the timeline and writes what is said."/>
+                                    </StackPanel>
+                                    <!-- virtualized: only the rows on screen exist, however long the video -->
+                                    <ItemsControl x:Name="CaptionList" ItemsSource="{Binding CaptionsPanel.Rows}">
+                                        <ItemsControl.Template>
+                                            <ControlTemplate>
+                                                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                                    <ItemsPresenter/>
+                                                </ScrollViewer>
+                                            </ControlTemplate>
+                                        </ItemsControl.Template>
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CaptionRowViewModel">
+                                                <Border Classes="caption-row" Classes.current="{Binding IsCurrent}"
+                                                        Classes.selected="{Binding IsSelected}" Margin="0,0,0,6" Padding="6,4,6,8">
+                                                    <StackPanel Spacing="4">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                                            <Button Classes="fig ghost" Padding="4,2" MinHeight="0" HorizontalAlignment="Left"
+                                                                    Command="{Binding $parent[ItemsControl].((vm:EditorViewModel)DataContext).CaptionsPanel.GoCommand}"
+                                                                    CommandParameter="{Binding}" ToolTip.Tip="Go to this caption">
+                                                                <TextBlock Text="{Binding Time}" Classes="field-label"/>
+                                                            </Button>
+                                                            <Button Grid.Column="1" Classes="fig ghost" Width="26" Height="24" MinHeight="0" Padding="5"
+                                                                    Click="CaptionSplit_Click" ToolTip.Tip="Split at the cursor"
+                                                                    AutomationProperties.Name="Split caption">
+                                                                <local:StrokeIcon Icon="scissors" Width="13" Height="13"/>
+                                                            </Button>
+                                                            <Button Grid.Column="2" Classes="fig ghost" Width="26" Height="24" MinHeight="0" Padding="5"
+                                                                    Command="{Binding $parent[ItemsControl].((vm:EditorViewModel)DataContext).CaptionsPanel.MergeWithNextCommand}"
+                                                                    CommandParameter="{Binding}" ToolTip.Tip="Merge with the next caption"
+                                                                    AutomationProperties.Name="Merge with next caption">
+                                                                <local:StrokeIcon Icon="merge" Width="13" Height="13"/>
+                                                            </Button>
+                                                            <Button Grid.Column="3" Classes="fig ghost" Width="26" Height="24" MinHeight="0" Padding="5"
+                                                                    Command="{Binding $parent[ItemsControl].((vm:EditorViewModel)DataContext).CaptionsPanel.DeleteCommand}"
+                                                                    CommandParameter="{Binding}" ToolTip.Tip="Delete this caption"
+                                                                    AutomationProperties.Name="Delete caption">
+                                                                <local:StrokeIcon Icon="trash-2" Width="13" Height="13"/>
+                                                            </Button>
+                                                        </Grid>
+                                                        <TextBox Classes="caption-text" Text="{Binding Text}" TextWrapping="Wrap" AcceptsReturn="False"
+                                                                 KeyDown="CaptionText_KeyDown" GotFocus="CaptionText_GotFocus"
+                                                                 AutomationProperties.Name="Caption text"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                            </Panel>
+                        </DockPanel>
+
                         <DockPanel x:Name="MarkerPanelRoot" Focusable="True" IsVisible="{Binding IsLibraryMarkers}">
                             <Button DockPanel.Dock="Bottom" Classes="fig primary" Margin="0,12,0,0"
                                     Content="Export marked ranges"
