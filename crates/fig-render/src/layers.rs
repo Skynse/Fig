@@ -12,8 +12,8 @@ use fig_fx::Frame;
 use fig_timeline::{Clip, ClipBody, LayerTransform, TextAlign, TextBody, TextStyle, properties, text_words};
 use swash::zeno::Command;
 use tiny_skia::{
-    BlendMode, Color, FillRule, FilterQuality, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect, Stroke,
-    Transform,
+    BlendMode, Color, FillRule, FilterQuality, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect,
+    Stroke, Transform,
 };
 
 /// A layer's unscaled size, in frame heights (so a full-height square in a 16:9 frame is 1 × 1).
@@ -102,7 +102,14 @@ impl TextBlock {
 
 /// Lays out a title as `style` sets it on a `width` × `height` frame. `lit` is the spoken word's bytes in the
 /// displayed text.
-fn lay_out(fonts: &mut Fonts, text: &str, style: &TextStyle, width: usize, height: usize, lit: Option<std::ops::Range<usize>>) -> TextBlock {
+fn lay_out(
+    fonts: &mut Fonts,
+    text: &str,
+    style: &TextStyle,
+    width: usize,
+    height: usize,
+    lit: Option<std::ops::Range<usize>>,
+) -> TextBlock {
     let size = (style.size_percent / 100.0 * height as f64).max(1.0) as f32;
     let line_height = size * 1.21;
     let display = text_words::display(text, style);
@@ -199,21 +206,41 @@ fn draw_color_glyph(fonts: &mut Fonts, g: &Glyph, target: &mut Pixmap, t: Transf
         *dst = c.premultiply();
     }
     let at = Transform::from_translate(g.x + image.placement.left as f32, g.y - image.placement.top as f32);
-    target.draw_pixmap(0, 0, pm.as_ref(), &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() }, t.pre_concat(at), None);
+    target.draw_pixmap(
+        0,
+        0,
+        pm.as_ref(),
+        &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() },
+        t.pre_concat(at),
+        None,
+    );
 }
 
-fn draw_text(fonts: &mut Fonts, target: &mut Pixmap, body: &TextBody, style: &TextStyle, layout: &LayerTransform, lit: Option<std::ops::Range<usize>>) {
+fn draw_text(
+    fonts: &mut Fonts,
+    target: &mut Pixmap,
+    body: &TextBody,
+    style: &TextStyle,
+    layout: &LayerTransform,
+    lit: Option<std::ops::Range<usize>>,
+) {
     let (width, height) = (target.width() as usize, target.height() as usize);
     let block = lay_out(fonts, &body.text, style, width, height, lit);
     let t = place(layout, width, height);
     if style.background {
         let pad = block.pad();
-        let rect = Rect::from_xywh(-block.width / 2.0 - pad, -block.height / 2.0 - pad * 0.6, block.width + pad * 2.0, block.height + pad * 1.2);
+        let rect = Rect::from_xywh(
+            -block.width / 2.0 - pad,
+            -block.height / 2.0 - pad * 0.6,
+            block.width + pad * 2.0,
+            block.height + pad * 1.2,
+        );
         if let Some(path) = rect.and_then(|r| rounded_rect(r, block.size * 0.2)) {
             target.fill_path(&path, &paint(style.background_color), FillRule::Winding, t, None);
         }
     }
-    let paths: Vec<(Option<tiny_skia::Path>, bool)> = block.glyphs.iter().map(|g| (glyph_path(fonts, g), g.lit)).collect();
+    let paths: Vec<(Option<tiny_skia::Path>, bool)> =
+        block.glyphs.iter().map(|g| (glyph_path(fonts, g), g.lit)).collect();
     let outline = (block.stroke > 0.0).then(|| Stroke {
         width: block.stroke,
         line_join: LineJoin::Round,
@@ -339,9 +366,11 @@ impl LayerImage {
             Some(pm)
         };
         let animated: Option<Vec<image::Frame>> = match format {
-            image::ImageFormat::Gif => {
-                image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&bytes)).ok()?.into_frames().collect_frames().ok()
-            }
+            image::ImageFormat::Gif => image::codecs::gif::GifDecoder::new(std::io::Cursor::new(&bytes))
+                .ok()?
+                .into_frames()
+                .collect_frames()
+                .ok(),
             image::ImageFormat::WebP => {
                 let d = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(&bytes)).ok()?;
                 if d.has_animation() { d.into_frames().collect_frames().ok() } else { None }
@@ -443,7 +472,14 @@ impl LayerRasterizer {
 
     /// A text or still clip drawn at a moment of it, transparent, premultiplied BGRA, frame-sized. `path` is an image
     /// clip's file.
-    pub fn rasterize(&self, clip: &Clip, path: Option<&str>, width: usize, height: usize, local_t: f64) -> Option<Arc<Frame>> {
+    pub fn rasterize(
+        &self,
+        clip: &Clip,
+        path: Option<&str>,
+        width: usize,
+        height: usize,
+        local_t: f64,
+    ) -> Option<Arc<Frame>> {
         if width == 0 || height == 0 {
             return None;
         }
@@ -471,7 +507,11 @@ impl LayerRasterizer {
                         let t = place(&layout, width, height)
                             .pre_translate(-w / 2.0, -h / 2.0)
                             .pre_scale(w / src.width() as f32, h / src.height() as f32);
-                        let paint = PixmapPaint { quality: FilterQuality::Bilinear, blend_mode: BlendMode::SourceOver, opacity: 1.0 };
+                        let paint = PixmapPaint {
+                            quality: FilterQuality::Bilinear,
+                            blend_mode: BlendMode::SourceOver,
+                            opacity: 1.0,
+                        };
                         pm.draw_pixmap(0, 0, src.as_ref(), &paint, t, None);
                     }),
                 )
@@ -498,7 +538,14 @@ impl LayerRasterizer {
 
     /// The size of what the layer draws before its layout scales and turns it, in frame heights (the gizmo's box).
     /// None when there is nothing to draw.
-    pub fn measure(&self, clip: &Clip, path: Option<&str>, width: usize, height: usize, local_t: f64) -> Option<LayerSize> {
+    pub fn measure(
+        &self,
+        clip: &Clip,
+        path: Option<&str>,
+        width: usize,
+        height: usize,
+        local_t: f64,
+    ) -> Option<LayerSize> {
         if width == 0 || height == 0 {
             return None;
         }
@@ -521,7 +568,8 @@ impl LayerRasterizer {
             },
             _ => (0.0, 0.0),
         };
-        let size = (w > 0.0 && h > 0.0).then(|| LayerSize { width: w as f64 / height as f64, height: h as f64 / height as f64 });
+        let size = (w > 0.0 && h > 0.0)
+            .then(|| LayerSize { width: w as f64 / height as f64, height: h as f64 / height as f64 });
         let mut c = self.caches.lock().unwrap();
         if c.sizes.len() > 256 {
             c.sizes.clear();

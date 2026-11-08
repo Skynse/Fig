@@ -24,7 +24,12 @@ fn main() {
     if let Some(t) = boxed.as_text_mut() {
         t.text = "Lower third\nRole".into();
         t.words.clear();
-        t.style = TextStyle { size_percent: 4.5, background: true, align: fig_timeline::TextAlign::Left, ..TextStyle::default() };
+        t.style = TextStyle {
+            size_percent: 4.5,
+            background: true,
+            align: fig_timeline::TextAlign::Left,
+            ..TextStyle::default()
+        };
         t.layout = LayerTransform { center_x: 0.3, center_y: 0.2, ..Default::default() };
     }
     clip.id = "a".into();

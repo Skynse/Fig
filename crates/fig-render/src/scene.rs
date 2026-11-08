@@ -29,7 +29,8 @@ impl SceneCrop {
         }
         let r = |v: f64| v.round_ties_even() as i64;
         let (x, y) = (r(self.left * width as f64), r(self.top * height as f64));
-        let (w, h) = (r((1.0 - self.left - self.right) * width as f64), r((1.0 - self.top - self.bottom) * height as f64));
+        let (w, h) =
+            (r((1.0 - self.left - self.right) * width as f64), r((1.0 - self.top - self.bottom) * height as f64));
         (w >= 1 && h >= 1).then_some((x.max(0) as usize, y.max(0) as usize, w as usize, h as usize))
     }
 }
@@ -75,8 +76,15 @@ pub struct RenderScene {
 pub trait SceneSources {
     /// The picture of a video clip showing `source_sec` of its file, frame-sized. `span_sec` is how much of the file
     /// one project frame covers there (for frame blending and motion blur).
-    fn video(&mut self, clip: &Clip, asset: &MediaAsset, source_sec: f64, span_sec: f64, width: usize, height: usize)
-    -> Option<Arc<Frame>>;
+    fn video(
+        &mut self,
+        clip: &Clip,
+        asset: &MediaAsset,
+        source_sec: f64,
+        span_sec: f64,
+        width: usize,
+        height: usize,
+    ) -> Option<Arc<Frame>>;
 
     /// A text or still clip drawn at a moment of it, transparent, premultiplied, frame-sized.
     fn layer(&mut self, clip: &Clip, width: usize, height: usize, local_t: f64) -> Option<Arc<Frame>>;
@@ -200,7 +208,11 @@ pub fn render(scene: &RenderScene) -> Frame {
 
 /// A layer's picture after its effects, transition and track effects; with whether it is premultiplied, and the crop
 /// still to apply (a crop the compositor can do while it scales).
-fn prepare(layer: &RenderLayer, w: usize, h: usize) -> (Option<Arc<Frame>>, bool, Option<(usize, usize, usize, usize)>) {
+fn prepare(
+    layer: &RenderLayer,
+    w: usize,
+    h: usize,
+) -> (Option<Arc<Frame>>, bool, Option<(usize, usize, usize, usize)>) {
     let src = &layer.source;
     if src.frame.width != w || src.frame.height != h || layer.opacity <= 0.0 {
         return (None, false, None);
