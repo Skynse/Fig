@@ -88,3 +88,21 @@ fn the_automatic_encoder_falls_back_to_one_that_opens() {
     let info = probe_out(&out);
     assert!(info.contains("h264,180,320,15"), "{info}");
 }
+
+#[test]
+fn a_reversed_copy_plays_backwards() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/segments/segment_1.mp4");
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("rev.mp4");
+    fig_media::reverse::reverse(&path, &out, &mut |_| {}, &|| false).unwrap();
+    let src = fig_media::probe::probe(&path).unwrap();
+    let rev = fig_media::probe::probe(&out).unwrap();
+    assert!((src.duration_sec - rev.duration_sec).abs() < 0.1, "{} vs {}", src.duration_sec, rev.duration_sec);
+    // the copy's first frame is the source's last
+    let (w, h) = (64, 64);
+    let last = fig_media::artifacts::frame_at(&path, src.duration_sec - 0.01, w, h).unwrap();
+    let first = fig_media::artifacts::frame_at(&out, 0.0, w, h).unwrap();
+    let diff: f64 = last.pixels.iter().zip(&first.pixels).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>()
+        / last.pixels.len() as f64;
+    assert!(diff < 8.0, "mean difference {diff}");
+}
