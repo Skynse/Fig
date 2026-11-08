@@ -40,6 +40,8 @@ pub struct VideoSource {
     out_h: usize,
     fit_w: u32,
     fit_h: u32,
+    /// How far the picture turns for showing, clockwise (phones record on their side).
+    rotation: i32,
     off_x: usize,
     off_y: usize,
     /// Half a source frame. A frame is shown for a time when it is the nearest one: containers round frame times
@@ -112,7 +114,11 @@ impl VideoSource {
         } else {
             f64::INFINITY
         };
-        let (sw, sh) = (decoder.width().max(1) as f64, decoder.height().max(1) as f64);
+        let rotation = crate::probe::rotation(&st);
+        let (mut sw, mut sh) = (decoder.width().max(1) as f64, decoder.height().max(1) as f64);
+        if rotation % 180 == 90 {
+            std::mem::swap(&mut sw, &mut sh);
+        }
         let scale = (width as f64 / sw).min(height as f64 / sh);
         let fit_w = ((sw * scale).round() as u32).max(1);
         let fit_h = ((sh * scale).round() as u32).max(1);
@@ -126,6 +132,7 @@ impl VideoSource {
             out_h: height,
             fit_w,
             fit_h,
+            rotation,
             off_x: (width - fit_w as usize) / 2,
             off_y: (height - fit_h as usize) / 2,
             half_frame_sec,
@@ -346,21 +353,37 @@ impl VideoSource {
         if sw == 0 || sh == 0 {
             return self.last_frame.clone();
         }
+        // scaled the way the file stores it, then turned upright
+        let (tw, th) = if self.rotation % 180 == 90 { (self.fit_h, self.fit_w) } else { (self.fit_w, self.fit_h) };
         if self.scaler.as_ref().is_none_or(|(f, s)| *f != format || s.input().width != sw || s.input().height != sh) {
-            let ctx =
-                scaling::Context::get(format, sw, sh, Pixel::BGRA, self.fit_w, self.fit_h, scaling::Flags::BILINEAR)
-                    .ok()?;
+            let ctx = scaling::Context::get(format, sw, sh, Pixel::BGRA, tw, th, scaling::Flags::BILINEAR).ok()?;
             self.scaler = Some((format, ctx));
         }
         let mut fit = ff::frame::Video::empty();
         self.scaler.as_mut().unwrap().1.run(&self.pending, &mut fit).ok()?;
         let mut out = Frame::new(self.out_w, self.out_h);
         out.pixels.chunks_exact_mut(4).for_each(|p| p[3] = 255);
-        let (stride, row) = (fit.stride(0), self.fit_w as usize * 4);
+        let stride = fit.stride(0);
         let data = fit.data(0);
-        for y in 0..self.fit_h as usize {
+        let (fw, fh) = (self.fit_w as usize, self.fit_h as usize);
+        let (tw, th) = (tw as usize, th as usize);
+        for y in 0..fh {
             let dst = ((y + self.off_y) * self.out_w + self.off_x) * 4;
-            out.pixels[dst..dst + row].copy_from_slice(&data[y * stride..y * stride + row]);
+            let row = &mut out.pixels[dst..dst + fw * 4];
+            if self.rotation == 0 {
+                row.copy_from_slice(&data[y * stride..y * stride + fw * 4]);
+                continue;
+            }
+            for x in 0..fw {
+                // the stored pixel that lands at (x, y) once turned clockwise
+                let (sx, sy) = match self.rotation {
+                    90 => (y, th - 1 - x),
+                    180 => (tw - 1 - x, th - 1 - y),
+                    _ => (tw - 1 - y, x),
+                };
+                let i = sy * stride + sx * 4;
+                row[x * 4..x * 4 + 4].copy_from_slice(&data[i..i + 4]);
+            }
         }
         let out = Arc::new(out);
         // blending: the frame on screen becomes the previous one

@@ -1,7 +1,13 @@
 //! Media files through FFmpeg: reading what is in them, decoding pictures and sound, making filmstrips, proxies,
 //! waveforms and reversed copies, mixing the timeline's sound, and exporting.
 
+pub mod artifacts;
 mod audio;
+pub mod encode;
+pub mod export;
+pub mod mixer;
+pub mod probe;
+mod sources;
 mod video;
 
 use std::path::Path;
@@ -9,6 +15,7 @@ use std::sync::Once;
 
 pub use audio::AudioSource;
 pub use ffmpeg_next;
+pub use sources::MediaSources;
 pub use video::{DecodeMode, VideoSource};
 
 #[derive(Debug, thiserror::Error)]
