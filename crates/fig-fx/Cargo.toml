@@ -7,3 +7,9 @@ edition.workspace = true
 fig-timeline = { path = "../fig-timeline" }
 indexmap.workspace = true
 rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

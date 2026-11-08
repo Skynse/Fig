@@ -7,7 +7,9 @@
 
 pub mod effects;
 pub mod frame;
+pub mod graph;
 mod params;
+pub mod presets;
 pub mod transitions;
 
 pub use frame::Frame;

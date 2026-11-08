@@ -132,6 +132,10 @@ dependencies = [
  "fig-timeline",
  "indexmap",
  "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
