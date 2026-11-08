@@ -4,8 +4,8 @@
 use std::fs;
 use std::path::Path;
 
-use fig_core::project::{Project, ProjectStore, migrations};
-use fig_core::timeline::{
+use fig_project::{Project, ProjectStore, migrations};
+use fig_timeline::{
     AudioBody, Clip, ClipBody, ClipKind, FrameRate, FrameShape, KeyframeEasing, ParamValue, TextStyle, Timeline, Track,
     TrackKind, VideoBody,
 };

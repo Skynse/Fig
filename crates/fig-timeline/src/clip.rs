@@ -487,10 +487,17 @@ impl Clip {
         }
     }
 
-    /// A copy with a new id. Everything else, effects, markers and keyframes included, is copied as it is.
+    /// A copy with a new id, its effects and markers with new ids too. Everything else is copied as it is.
     /// (`clone()` keeps the id, for undo snapshots.)
     pub fn duplicate(&self) -> Clip {
-        Clip { id: new_id(), ..self.clone() }
+        let mut copy = Clip { id: new_id(), ..self.clone() };
+        for e in &mut copy.effects {
+            e.id = new_id();
+        }
+        for m in &mut copy.markers {
+            m.id = new_id();
+        }
+        copy
     }
 }
 

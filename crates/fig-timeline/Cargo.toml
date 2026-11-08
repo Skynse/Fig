@@ -1,5 +1,5 @@
 [package]
-name = "fig-core"
+name = "fig-timeline"
 version = "0.1.0"
 edition.workspace = true
 
@@ -10,7 +10,3 @@ indexmap.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 bitflags.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
-tempfile = "3"

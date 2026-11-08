@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::serde_util::{Metadata, new_id};
-use crate::timeline::{Facet, FrameRate, Selectable, SelectionGroup, SelectionKey};
+use crate::{Facet, FrameRate, Selectable, SelectionGroup, SelectionKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum ProxyStatus {

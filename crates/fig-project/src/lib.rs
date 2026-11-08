@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 pub use store::*;
 
-use crate::media::MediaAsset;
-use crate::serde_util::{Metadata, datetime, new_id};
-use crate::timeline::{EffectGraph, Timeline};
+use fig_timeline::MediaAsset;
+use fig_timeline::serde_util::{Metadata, datetime, new_id};
+use fig_timeline::{EffectGraph, Timeline};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]

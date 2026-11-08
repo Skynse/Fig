@@ -1,8 +1,6 @@
 //! The speed-curve maths, against the same cases as the C# `SpeedCurveTests`.
 
-use fig_core::timeline::{
-    Clip, KeyframeEasing, KeyframePoint, ParamValue, VideoBody, automation_keys, clip_time, split,
-};
+use fig_timeline::{Clip, KeyframeEasing, KeyframePoint, ParamValue, VideoBody, automation_keys, clip_time, split};
 
 fn key(t: f64, speed: f64, easing: KeyframeEasing) -> KeyframePoint {
     KeyframePoint::eased(t, ParamValue::Double(speed), easing)

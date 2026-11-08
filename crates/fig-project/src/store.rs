@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, FixedOffset};
 
 use super::{Project, migrations, paths};
-use crate::serde_util::{datetime, new_id, new_id_n};
-use crate::timeline::Timeline;
+use fig_timeline::Timeline;
+use fig_timeline::serde_util::{datetime, new_id, new_id_n};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

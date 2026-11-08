@@ -2,10 +2,8 @@
 
 /// Effects saved by earlier versions, brought to their current form.
 pub mod effects {
-    use crate::project::Project;
-    use crate::timeline::{
-        EffectInstance, KeyframeEasing, KeyframeMap, KeyframePoint, ParamMap, ParamValue, TrackKind,
-    };
+    use crate::Project;
+    use fig_timeline::{EffectInstance, KeyframeEasing, KeyframeMap, KeyframePoint, ParamMap, ParamValue, TrackKind};
 
     /// The short-lived "Zoom region" effect, now a Transform with two keyframes.
     pub const LEGACY_ZOOM_REGION: &str = "zoomRegion";
@@ -99,8 +97,8 @@ pub mod effects {
 pub mod embedded_audio {
     use std::collections::{HashMap, HashSet};
 
-    use crate::project::Project;
-    use crate::timeline::{Clip, ClipBody, Timeline, TrackKind, automation_keys};
+    use crate::Project;
+    use fig_timeline::{Clip, ClipBody, Timeline, TrackKind, automation_keys};
 
     pub const VERSION: i32 = 1;
 
@@ -209,7 +207,7 @@ pub mod embedded_audio {
 /// played at `speed × source rate / rate`. Clips now play in real time, so that factor moves into `Clip::speed` and
 /// every clip keeps its place, length and sound.
 pub mod real_time_media {
-    use crate::project::Project;
+    use crate::Project;
 
     pub const VERSION: i32 = 2;
 

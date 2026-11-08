@@ -1,0 +1,9 @@
+[package]
+name = "fig-fx"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+fig-timeline = { path = "../fig-timeline" }
+indexmap.workspace = true
+rayon.workspace = true
