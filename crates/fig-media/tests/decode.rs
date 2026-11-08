@@ -57,3 +57,18 @@ fn audio_reads_contiguous_chunks_at_full_length() {
     let past = a.read(1_000.0, 0.1);
     assert!(past.iter().all(|s| *s == 0.0));
 }
+
+#[test]
+fn importing_makes_a_thumbnail_and_finalizing_a_filmstrip_and_peaks() {
+    let dir = tempfile::tempdir().unwrap();
+    let lib = fig_media::library::Library::new(dir.path());
+    let mut project = fig_project::Project::default();
+    let path = asset("assets/3 seconds timer [fxqE27gIZcc].webm");
+    let id = lib.import(&mut project, &path).unwrap();
+    assert_eq!(lib.import(&mut project, &path).unwrap(), id); // the same file is found again
+    let a = project.media.iter_mut().find(|m| m.id == id).unwrap();
+    assert!(a.thumbnail.as_deref().is_some_and(|t| std::path::Path::new(t).exists()));
+    lib.finalize(a);
+    assert!(a.filmstrip_frame_count >= 8 && a.filmstrip.is_some());
+    assert!(a.waveform_peaks.as_ref().is_some_and(|p| p.iter().any(|v| *v > 0.01)));
+}

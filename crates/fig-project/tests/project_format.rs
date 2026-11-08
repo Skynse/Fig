@@ -205,3 +205,27 @@ fn an_older_project_keeps_retimed_clips_playing_as_they_did() {
     assert_eq!(project.format_version, Project::CURRENT_FORMAT_VERSION);
     assert_eq!(migrations::real_time_media::migrate(&mut project), 0);
 }
+
+#[test]
+fn a_package_carries_the_project_and_its_media() {
+    let root = tempfile::tempdir().unwrap();
+    let store = ProjectStore::new(root.path().join("projects"));
+    let id = store.create_project("Packed").unwrap();
+    let mut p = store.load_project(&id).unwrap().unwrap();
+    let outside = root.path().join("clip.mp4");
+    fs::write(&outside, b"footage").unwrap();
+    p.media.push(fig_timeline::MediaAsset {
+        id: "m".into(),
+        url: outside.to_string_lossy().into(),
+        ..Default::default()
+    });
+    p.media.push(fig_timeline::MediaAsset { id: "gone".into(), url: "/nowhere/lost.mp4".into(), ..Default::default() });
+    let pkg = root.path().join("out.figpck");
+    let result = store.pack(&p, &pkg, &mut |_| {}).unwrap();
+    assert_eq!((result.files, result.missing.clone()), (1, vec!["lost.mp4".to_string()]));
+    let new_id = store.unpack(&pkg, &mut |_| {}).unwrap();
+    let opened = store.load_project(&new_id).unwrap().unwrap();
+    let m = opened.find_media("m").unwrap();
+    assert!(m.url.ends_with("media/clip.mp4"), "{}", m.url);
+    assert_eq!(fs::read(&m.url).unwrap(), b"footage");
+}

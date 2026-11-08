@@ -6,6 +6,7 @@ mod audio;
 pub mod beats;
 pub mod encode;
 pub mod export;
+pub mod library;
 pub mod mixer;
 pub mod probe;
 pub mod reverse;

@@ -1,12 +1,15 @@
 //! Projects: what is saved, where, and how older saves are brought up to date.
 
 pub mod migrations;
+mod package;
 mod paths;
 mod store;
+pub mod templates;
 
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
+pub use package::*;
 pub use store::*;
 
 use fig_timeline::MediaAsset;

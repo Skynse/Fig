@@ -7,6 +7,7 @@ edition.workspace = true
 fig-timeline = { path = "../fig-timeline" }
 fig-fx = { path = "../fig-fx" }
 fig-render = { path = "../fig-render" }
+fig-project = { path = "../fig-project" }
 ffmpeg-next = "9"
 rayon.workspace = true
 thiserror.workspace = true
