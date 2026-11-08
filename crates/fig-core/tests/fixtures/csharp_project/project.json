@@ -1,0 +1,405 @@
+{
+  "Id": "Fixture_35ecfc7b",
+  "Name": "Fixture",
+  "AppVersion": "1.0",
+  "FormatVersion": 2,
+  "CreatedAt": "2026-11-08T11:53:17.6386031-06:00",
+  "UpdatedAt": "2026-11-08T11:53:17.7812829-06:00",
+  "Thumbnail": null,
+  "Media": [
+    {
+      "Id": "m1",
+      "Kind": "Video",
+      "Url": "media/a.mp4",
+      "Hash": "",
+      "DurationSec": 10,
+      "Width": 1080,
+      "Height": 1920,
+      "Thumbnail": null,
+      "Filmstrip": null,
+      "FilmstripFrameWidth": 0,
+      "FilmstripFrameHeight": 0,
+      "FilmstripFrameCount": 0,
+      "FilmstripFrameIntervalSec": 0,
+      "HasAudio": true,
+      "SourceRate": {
+        "Num": 30000,
+        "Den": 1001,
+        "Fps": 29.97002997002997,
+        "FramesPerSecond": 29
+      },
+      "ProxyUrl": null,
+      "ProxyStatus": "None",
+      "ReverseOf": null,
+      "Offline": false,
+      "Tags": [
+        "x"
+      ],
+      "SourceStartSec": 0,
+      "Metadata": {}
+    },
+    {
+      "Id": "m2",
+      "Kind": "Image",
+      "Url": "/elsewhere/b.png",
+      "Hash": "",
+      "DurationSec": 0,
+      "Width": 0,
+      "Height": 0,
+      "Thumbnail": null,
+      "Filmstrip": null,
+      "FilmstripFrameWidth": 0,
+      "FilmstripFrameHeight": 0,
+      "FilmstripFrameCount": 0,
+      "FilmstripFrameIntervalSec": 0,
+      "HasAudio": false,
+      "SourceRate": null,
+      "ProxyUrl": null,
+      "ProxyStatus": "None",
+      "ReverseOf": null,
+      "Offline": false,
+      "Tags": [],
+      "SourceStartSec": 0,
+      "Metadata": {}
+    }
+  ],
+  "Timelines": [
+    {
+      "Id": "77631e29-06d3-4817-981c-536318de26dd",
+      "Name": null,
+      "Rate": {
+        "Num": 30,
+        "Den": 1,
+        "Fps": 30,
+        "FramesPerSecond": 30
+      },
+      "RateChosen": false,
+      "Shape": "Tall",
+      "Revision": 0,
+      "IsAutosave": false,
+      "Tracks": [
+        {
+          "Id": "tr1",
+          "Kind": "Video",
+          "Index": 0,
+          "Name": null,
+          "Visible": true,
+          "Muted": false,
+          "Effects": [
+            {
+              "Id": "e1",
+              "TypeId": "blur",
+              "Enabled": true,
+              "Order": 0,
+              "StartSec": 0,
+              "DurSec": 2,
+              "Params": {
+                "radius": {
+                  "kind": "int",
+                  "value": 4
+                },
+                "on": {
+                  "kind": "bool",
+                  "value": true
+                },
+                "tint": {
+                  "kind": "color",
+                  "value": 4279312947
+                },
+                "mode": {
+                  "kind": "list",
+                  "value": 2
+                }
+              },
+              "Keyframes": {}
+            }
+          ],
+          "Clips": [
+            {
+              "kind": "video",
+              "Kind": "Video",
+              "SourceId": "m1",
+              "SrcInSec": 1,
+              "SrcOutSec": 5,
+              "PlaysAudio": true,
+              "BlendFrames": false,
+              "MotionBlur": 0.5,
+              "AudioFadeInSec": 0,
+              "AudioFadeOutSec": 0,
+              "CropL": 0.1,
+              "CropT": 0,
+              "CropR": 0,
+              "CropB": 0,
+              "HasCrop": true,
+              "Id": "v1",
+              "LinkGroupId": null,
+              "Enabled": true,
+              "SourceRate": null,
+              "StartSec": 0,
+              "DurSec": 4,
+              "Speed": 1,
+              "Volume": 1,
+              "Opacity": 1,
+              "FadeInSec": 0,
+              "FadeOutSec": 0,
+              "Effects": [],
+              "TransitionIn": null,
+              "TransitionOut": {
+                "TypeId": "crossfade",
+                "DurationSec": 0.4,
+                "Params": {
+                  "softness": {
+                    "kind": "double",
+                    "value": 0.3
+                  }
+                }
+              },
+              "Markers": [
+                {
+                  "Id": "cm",
+                  "Name": "hit",
+                  "StartSec": 0.5,
+                  "DurSec": 0,
+                  "Color": "#ffd60a",
+                  "IncludeInExport": true,
+                  "OutputName": null,
+                  "Metadata": null
+                }
+              ],
+              "Keyframes": {
+                "opacity": [
+                  {
+                    "TimeSec": 0,
+                    "Value": {
+                      "kind": "double",
+                      "value": 0
+                    },
+                    "Easing": "Linear"
+                  },
+                  {
+                    "TimeSec": 1,
+                    "Value": {
+                      "kind": "double",
+                      "value": 1
+                    },
+                    "Easing": "EaseInOut"
+                  }
+                ]
+              },
+              "Metadata": {}
+            }
+          ],
+          "Markers": [],
+          "Metadata": {}
+        },
+        {
+          "Id": "tr2",
+          "Kind": "Video",
+          "Index": 1,
+          "Name": null,
+          "Visible": true,
+          "Muted": false,
+          "Effects": [],
+          "Clips": [
+            {
+              "kind": "text",
+              "Kind": "Text",
+              "Text": "hello world",
+              "Style": {
+                "FontFamily": "Inter",
+                "Bold": true,
+                "Italic": false,
+                "SizePercent": 5.5,
+                "Color": 4294967295,
+                "Align": "Center",
+                "Shadow": false,
+                "Background": false,
+                "BackgroundColor": 2952790016,
+                "Outline": true,
+                "OutlineColor": 4278190080,
+                "OutlinePercent": 12,
+                "Highlight": true,
+                "HighlightColor": 4294956554,
+                "WrapPercent": 80,
+                "Uppercase": false
+              },
+              "Layout": {
+                "CenterX": 0.5,
+                "CenterY": 0.8,
+                "Scale": 1.2,
+                "Rotation": 5
+              },
+              "IsCaption": true,
+              "Words": [
+                {
+                  "Text": "hello",
+                  "StartSec": 0,
+                  "EndSec": 0.4
+                },
+                {
+                  "Text": "world",
+                  "StartSec": 0.5,
+                  "EndSec": 0.9
+                }
+              ],
+              "Id": "t1",
+              "LinkGroupId": null,
+              "Enabled": true,
+              "SourceRate": null,
+              "StartSec": 1,
+              "DurSec": 2,
+              "Speed": 1,
+              "Volume": 1,
+              "Opacity": 1,
+              "FadeInSec": 0,
+              "FadeOutSec": 0,
+              "Effects": [],
+              "TransitionIn": null,
+              "TransitionOut": null,
+              "Markers": [],
+              "Keyframes": {},
+              "Metadata": {}
+            },
+            {
+              "kind": "image",
+              "Kind": "Image",
+              "SourceId": "m2",
+              "Layout": {
+                "CenterX": 0.5,
+                "CenterY": 0.5,
+                "Scale": 1,
+                "Rotation": 0
+              },
+              "CropL": 0,
+              "CropT": 0,
+              "CropR": 0,
+              "CropB": 0,
+              "Id": "i1",
+              "LinkGroupId": null,
+              "Enabled": true,
+              "SourceRate": null,
+              "StartSec": 0,
+              "DurSec": 5,
+              "Speed": 1,
+              "Volume": 1,
+              "Opacity": 1,
+              "FadeInSec": 0,
+              "FadeOutSec": 0,
+              "Effects": [],
+              "TransitionIn": null,
+              "TransitionOut": null,
+              "Markers": [],
+              "Keyframes": {},
+              "Metadata": {}
+            }
+          ],
+          "Markers": [],
+          "Metadata": {}
+        },
+        {
+          "Id": "tr3",
+          "Kind": "Audio",
+          "Index": 0,
+          "Name": null,
+          "Visible": true,
+          "Muted": true,
+          "Effects": [],
+          "Clips": [
+            {
+              "kind": "audio",
+              "Kind": "Audio",
+              "SourceId": "m1",
+              "SrcInSec": 0,
+              "SrcOutSec": 4,
+              "Id": "a1",
+              "LinkGroupId": "g",
+              "Enabled": true,
+              "SourceRate": null,
+              "StartSec": 0,
+              "DurSec": 4,
+              "Speed": 1,
+              "Volume": 0.5,
+              "Opacity": 1,
+              "FadeInSec": 0,
+              "FadeOutSec": 0,
+              "Effects": [],
+              "TransitionIn": null,
+              "TransitionOut": null,
+              "Markers": [],
+              "Keyframes": {},
+              "Metadata": {}
+            }
+          ],
+          "Markers": [],
+          "Metadata": {}
+        }
+      ],
+      "MainTrackMagnet": true,
+      "SongBpm": 120,
+      "GlobalStartSec": 0,
+      "Markers": [
+        {
+          "Id": "mk",
+          "Name": "range",
+          "StartSec": 1,
+          "DurSec": 2,
+          "Color": "#ffd60a",
+          "IncludeInExport": true,
+          "OutputName": "out",
+          "Metadata": null
+        }
+      ],
+      "Metadata": {}
+    }
+  ],
+  "Export": {
+    "Width": 1920,
+    "Height": 1080,
+    "Fps": 30,
+    "Codec": "h264"
+  },
+  "EffectGraphs": [
+    {
+      "Id": "gr",
+      "Name": "Untitled effect",
+      "SchemaVersion": 1,
+      "UpdatedAt": "2026-11-08T17:53:17.7807163Z",
+      "Nodes": [
+        {
+          "Id": "n1",
+          "PrimitiveId": "blur",
+          "EffectTypeId": null,
+          "Params": {},
+          "Bypass": false,
+          "X": 3,
+          "Y": 0
+        }
+      ],
+      "Edges": [
+        {
+          "FromNodeId": "n1",
+          "FromPort": "out",
+          "ToNodeId": "o",
+          "ToPort": "in"
+        }
+      ],
+      "Promoted": [
+        {
+          "Key": "k",
+          "Label": "",
+          "Targets": [
+            {
+              "NodeId": "n1",
+              "Param": "radius",
+              "Scale": 1
+            }
+          ],
+          "Min": null,
+          "Max": null,
+          "Default": null
+        }
+      ]
+    }
+  ],
+  "Metadata": {}
+}

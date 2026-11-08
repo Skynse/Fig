@@ -373,3 +373,6 @@ local.properties
 
 # Directory Build overrides for local setups
 Directory.Build.Override.props
+
+# Rust
+/target/
