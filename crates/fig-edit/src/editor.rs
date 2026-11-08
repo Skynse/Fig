@@ -178,34 +178,20 @@ impl TimelineEditor {
 
     pub fn undo(&mut self) -> bool {
         self.live = None;
-        let current = std::mem::take(&mut self.doc);
-        match self.history.undo(current) {
-            Ok(previous) => {
-                self.doc = previous;
-                self.after_history();
-                true
-            }
-            Err(current) => {
-                self.doc = current;
-                false
-            }
+        let done = self.history.undo(&mut self.doc);
+        if done {
+            self.after_history();
         }
+        done
     }
 
     pub fn redo(&mut self) -> bool {
         self.live = None;
-        let current = std::mem::take(&mut self.doc);
-        match self.history.redo(current) {
-            Ok(next) => {
-                self.doc = next;
-                self.after_history();
-                true
-            }
-            Err(current) => {
-                self.doc = current;
-                false
-            }
+        let done = self.history.redo(&mut self.doc);
+        if done {
+            self.after_history();
         }
+        done
     }
 
     /// After undo or redo: the selection keeps only what still exists.

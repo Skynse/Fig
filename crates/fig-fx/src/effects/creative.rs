@@ -255,6 +255,8 @@ fn camera_shake(f: &Frame, p: &ParamSet, t: f64) -> Option<Frame> {
     if amount == 0.0 {
         return None;
     }
+    // 6.28, not τ: the shake has always been tuned to it
+    #[allow(clippy::approx_constant)]
     let dx = amount * ((t * speed * 6.28).sin() + 0.4 * (t * speed * 13.7).sin()) / 1.4;
     let dy = amount * ((t * speed * 8.1 + 1.0).sin() + 0.4 * (t * speed * 17.3).sin()) / 1.4;
     let zoom = 1.0 + amount * 5.0;

@@ -7,6 +7,7 @@ use fig_timeline::{Facet, Selectable, SelectionGroup, SelectionKey};
 
 /// What is selected, by kind.
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Selected {
     Clip(fig_timeline::Clip),
     Track(fig_timeline::Track),

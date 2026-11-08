@@ -414,7 +414,7 @@ impl TimelineEditor {
         let hold_id = hold.id.clone();
         self.edit(|e| {
             if spans(Some(&video), at) {
-                e.split_groups_quietly(&[video.id.clone()], at);
+                e.split_groups_quietly(std::slice::from_ref(&video.id), at);
             }
             let ti = e.doc().tracks.iter().position(|t| t.id == track).unwrap();
             if magnetic {

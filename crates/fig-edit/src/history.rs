@@ -105,25 +105,18 @@ impl History {
         }
     }
 
-    /// Steps back: the timeline before the last edit, given the timeline as it is now (kept for redo).
-    pub fn undo(&mut self, current: Timeline) -> Result<Timeline, Timeline> {
-        match self.undo.pop() {
-            Some(step) => {
-                self.redo.push(current);
-                Ok(step.before)
-            }
-            None => Err(current),
-        }
+    /// Steps back: puts the timeline as it was before the last edit in `doc`, keeping the current one for redo.
+    pub fn undo(&mut self, doc: &mut Timeline) -> bool {
+        let Some(step) = self.undo.pop() else { return false };
+        self.redo.push(std::mem::replace(doc, step.before));
+        true
     }
 
-    pub fn redo(&mut self, current: Timeline) -> Result<Timeline, Timeline> {
-        match self.redo.pop() {
-            Some(after) => {
-                self.undo.push(Step { before: current, key: None });
-                Ok(after)
-            }
-            None => Err(current),
-        }
+    pub fn redo(&mut self, doc: &mut Timeline) -> bool {
+        let Some(after) = self.redo.pop() else { return false };
+        let before = std::mem::replace(doc, after);
+        self.undo.push(Step { before, key: None });
+        true
     }
 
     /// Forgets every step.

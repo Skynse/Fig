@@ -2,6 +2,9 @@
 //!
 //! One CPU implementation, parallel over rows, serves both the preview and export, so they always match.
 
+// per-channel loops read better indexed
+#![allow(clippy::needless_range_loop)]
+
 pub mod effects;
 pub mod frame;
 mod params;
