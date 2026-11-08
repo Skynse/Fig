@@ -1,6 +1,7 @@
 //! Projects: what is saved, where, and how older saves are brought up to date.
 
 pub mod migrations;
+pub mod otio;
 mod package;
 mod paths;
 mod store;
