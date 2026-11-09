@@ -2,6 +2,7 @@
 
 mod actions;
 mod app;
+mod beats;
 mod chrome;
 mod commands;
 mod desktop;

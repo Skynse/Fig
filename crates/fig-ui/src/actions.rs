@@ -417,36 +417,10 @@ fn finish_reverse(app: &mut AppState, ids: &[String]) {
 }
 
 /// Finds the beats of the selected clip's sound and shows them as a preview to apply.
+/// Analyzes the selected clip's beats and opens the Beats flyout to tune them.
 pub fn analyze_beats(app: &mut AppState) {
-    let Some(e) = app.editor.as_mut() else { return };
-    let Some(clip) = e.ed.selection.selected_clip_ids().into_iter().find_map(|id| e.ed.find_clip(&id).cloned()) else {
-        e.say("Select a clip with sound first");
-        return;
-    };
-    let Some(asset) = clip.media_id().and_then(|id| e.find_media(id)).cloned().filter(|a| a.has_audio) else {
-        e.say("That clip has no sound to find beats in");
-        return;
-    };
-    e.say("Listening for beats…");
-    let (start, dur) = (clip.source_in(), clip.source_out() - clip.source_in());
-    crate::app::spawn(
-        move || fig_media::beats::analyze(std::path::Path::new(&asset.url), start, Some(dur)).map_err(|e| e.to_string()),
-        move |app, result| {
-            let Some(e) = app.editor.as_mut() else { return };
-            match result {
-                Ok(analysis) => {
-                    let times: Vec<f64> = analysis
-                        .select(0.5, false)
-                        .into_iter()
-                        .map(|src| fig_timeline::clip_time::local_at(&clip, src))
-                        .filter(|t| *t >= 0.0 && *t <= clip.dur_sec)
-                        .collect();
-                    let n = times.len();
-                    e.ed.set_beat_preview(&clip.id, &times);
-                    e.say(format!("{n} beats found · Beats ▸ Apply to keep them"));
-                }
-                Err(err) => crate::toasts::show(app, format!("Couldn't analyze the beats: {err}")),
-            }
-        },
-    );
+    if let Some(e) = app.editor.as_mut() {
+        e.beats.open = true;
+    }
+    crate::beats::analyze(app);
 }

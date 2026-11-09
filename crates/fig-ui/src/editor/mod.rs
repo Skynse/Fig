@@ -69,6 +69,8 @@ pub struct Editor {
     pub volume: f32,
     pub muted: bool,
     pub tool: Tool,
+    /// The beat-marker session under the Beats button.
+    pub beats: crate::beats::BeatSession,
     pub tl: crate::timeline::TimelineView,
     pub panels: Panels,
     pub library: crate::library::LibraryState,
@@ -137,6 +139,7 @@ impl Editor {
             volume: 1.0,
             muted: false,
             tool: Tool::Select,
+            beats: crate::beats::BeatSession::new(),
             tl: crate::timeline::TimelineView::new(prefs),
             panels: Panels::from_workspace(workspace),
             library: crate::library::LibraryState::new(),

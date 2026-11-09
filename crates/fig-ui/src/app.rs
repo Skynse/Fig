@@ -325,6 +325,9 @@ impl AppState {
             changed = true;
         }
         crate::inspector::sync(self);
+        if let Some(e) = self.editor.as_mut() {
+            crate::beats::check(e);
+        }
         if self.playback.is_playing() {
             tx.wake_after(std::time::Duration::from_millis(16));
         }
@@ -374,6 +377,9 @@ pub fn view(app: &AppState, cx: &mut Cx<AppState>) -> El {
     }
     if let Some(dialog) = app.dialog.as_ref() {
         root = root.child(crate::dialogs::overlay(app, dialog, &t));
+    }
+    if let Some(f) = app.editor.as_ref().and_then(|e| crate::beats::flyout(app, e, &t)) {
+        root = root.child(f);
     }
     if let Some(menu) = crate::menu::overlay(app, &t) {
         root = root.child(menu);

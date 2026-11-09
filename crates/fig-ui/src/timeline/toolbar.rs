@@ -240,22 +240,10 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(widgets::icon_button(&icons::ROWS_3, 13.0, 30.0, t).help("Fit tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::FitTracks, tx)))
         .child(widgets::icon_button(&icons::UNFOLD_VERTICAL, 13.0, 30.0, t).help("Taller tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::TallerTracks, tx)))
         .child(
-            widgets::button("Beats", Kind::Normal, t).key("tl.beats").h(28.0).help("Mark the beats of the selected clip").on_press(|s: &mut AppState| {
-                let items = vec![
-                    Item::new("Analyze beats for markers", |s, _| crate::actions::analyze_beats(s)),
-                    Item::new("Apply previewed beats", |s, _| {
-                        if let Some(e) = s.editor.as_mut() {
-                            let n = e.ed.commit_beat_preview().len();
-                            e.say(format!("{n} beat markers added"));
-                        }
-                    }),
-                    Item::new("Discard preview", |s, _| {
-                        if let Some(e) = s.editor.as_mut() {
-                            e.ed.clear_beat_preview();
-                        }
-                    }),
-                ];
-                crate::menu::open_below(s, "tl.beats", items);
+            widgets::button(crate::beats::button_label(e), Kind::Normal, t).key("tl.beats").h(28.0).help("Preview beat or kick markers, then apply them").on_press(|s: &mut AppState| {
+                if let Some(e) = s.editor.as_mut() {
+                    e.beats.open = !e.beats.open;
+                }
             }),
         )
         .child(widgets::icon_button(&icons::ELLIPSIS, 15.0, 30.0, t).key("tl.more").on_press(|s: &mut AppState| {
