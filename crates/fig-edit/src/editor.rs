@@ -705,6 +705,13 @@ impl TimelineEditor {
 
     /// Sets the speed of a clip and its link group; each keeps the part of its file it plays, so its length changes,
     /// and later clips on its track move out of the way. A clip with a speed curve takes its speed from the curve.
+    /// Remembers the song's tempo for the project's timeline (the tempo match starts from it next time).
+    pub fn set_song_bpm(&mut self, bpm: Option<f64>) {
+        if self.doc().song_bpm != bpm {
+            self.edit(|ed| ed.doc_mut().song_bpm = bpm);
+        }
+    }
+
     pub fn set_speed(&mut self, clip_id: &str, speed: f64) {
         let speed = speed.clamp(MIN_SPEED, MAX_SPEED);
         let Some(clip) = self.find_clip(clip_id) else { return };

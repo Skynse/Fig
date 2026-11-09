@@ -26,6 +26,18 @@ pub struct InspectorState {
     pub marker_name: Option<(String, TextEdit)>,
     /// The effect picked in the Effects tab.
     pub effect: Option<String>,
+    /// The tempo match, while open: the song's and the clip's BPM being typed, and half/double time allowed.
+    pub tempo: Option<Tempo>,
+}
+
+pub struct Tempo {
+    pub song: TextEdit,
+    pub clip: TextEdit,
+    pub half_or_double: bool,
+}
+
+fn bpm(text: &str) -> Option<f64> {
+    text.trim().trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == ' ').trim().replace(',', ".").parse().ok()
 }
 
 const TABS: [(Facet, &str, &rune::Icon); 11] = [
@@ -459,7 +471,79 @@ fn speed_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
             }
         }
     });
-    let mut c = col().w_full().gap(8.0).pt(10.0).child(widgets::heading("Retime", t));
+    let mut c = col().w_full().gap(8.0).pt(10.0).child(
+        row()
+            .w_full()
+            .gap(6.0)
+            .center_y()
+            .child(widgets::heading("Retime", t).grow(1.0))
+            .child(widgets::button("BPM", if e.inspector.tempo.is_some() { Kind::Primary } else { Kind::Ghost }, t).h(24.0).help("Set the speed from a song's tempo and the clip's own beat").on_press(|s: &mut AppState| {
+                let Some(e) = s.editor.as_mut() else { return };
+                e.inspector.tempo = match e.inspector.tempo.take() {
+                    Some(_) => None,
+                    None => {
+                        let song = e.doc().song_bpm.map_or(String::new(), |b| format!("{b}"));
+                        Some(Tempo { song: TextEdit::new(song), clip: TextEdit::new(""), half_or_double: true })
+                    }
+                };
+            }))
+            .child(widgets::button("Reset", Kind::Ghost, t).h(24.0).help("Play at normal speed (1.00×)").on_press({
+                let ids = ids.clone();
+                move |s: &mut AppState| {
+                    if let Some(e) = s.editor.as_mut() {
+                        e.ed.set_speeds(&ids, 1.0);
+                        e.ed.break_coalescing();
+                    }
+                }
+            })),
+    );
+    if let Some(tempo) = e.inspector.tempo.as_ref().filter(|_| !curve) {
+        let matched = bpm(&tempo.song.text).zip(bpm(&tempo.clip.text)).and_then(|(s, c)| fig_edit::TempoMatch::new(s, c, tempo.half_or_double));
+        let label = match &matched {
+            None => "Enter both tempos".to_string(),
+            Some(m) if m.describe().is_empty() => format!("Set speed to {:.2}×", m.speed),
+            Some(m) => format!("Set speed to {:.2}× ({})", m.speed, m.describe()),
+        };
+        let field = |edit: &TextEdit, hint: &str, pick: fn(&mut AppState) -> &mut TextEdit| widgets::text_box(edit, hint, pick, t).w(72.0);
+        let ids = ids.clone();
+        c = c.child(
+            col()
+                .w_full()
+                .padding(10.0)
+                .gap(6.0)
+                .radius(8.0)
+                .fill(t.card_bg)
+                .child(row().w_full().center_y().child(widgets::label("Song BPM", t).grow(1.0)).child(field(&tempo.song, "128", |s| &mut s.editor.as_mut().unwrap().inspector.tempo.as_mut().unwrap().song)))
+                .child(
+                    row()
+                        .w_full()
+                        .center_y()
+                        .child(widgets::label("Clip BPM", t).grow(1.0).help("The beat the clip moves at now: a dancer's steps, a walk"))
+                        .child(field(&tempo.clip, "100", |s| &mut s.editor.as_mut().unwrap().inspector.tempo.as_mut().unwrap().clip)),
+                )
+                .child(widgets::checkbox(tempo.half_or_double, "Allow half / double time", t).help("Land on every other beat, or twice a beat, when that needs a speed nearer 1×").on_press(|s: &mut AppState| {
+                    if let Some(t) = s.editor.as_mut().and_then(|e| e.inspector.tempo.as_mut()) {
+                        t.half_or_double = !t.half_or_double;
+                    }
+                }))
+                .child(widgets::button(label, if matched.is_some() { Kind::Primary } else { Kind::Normal }, t).on_press(move |s: &mut AppState| {
+                    let Some(e) = s.editor.as_mut() else { return };
+                    let Some(tempo) = e.inspector.tempo.as_ref() else { return };
+                    let Some(song) = bpm(&tempo.song.text) else { return };
+                    let Some(m) = bpm(&tempo.clip.text).and_then(|c| fig_edit::TempoMatch::new(song, c, tempo.half_or_double)) else { return };
+                    e.ed.edit(|ed| {
+                        ed.set_song_bpm(Some(song));
+                        ed.set_speeds(&ids, m.speed);
+                    });
+                    e.ed.break_coalescing();
+                    e.say(if ids.len() > 1 {
+                        format!("Matched {} clips to {song} BPM: {:.2}×", ids.len(), m.speed)
+                    } else {
+                        format!("Matched to {song} BPM: {:.2}×", m.speed)
+                    });
+                })),
+        );
+    }
     if curve {
         c = c.child(widgets::note("This clip's speed follows a curve: drag the points on its speed line in the timeline.", t));
     } else {
