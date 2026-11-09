@@ -814,69 +814,179 @@ fn add_preset(app: &mut AppState, preset: &fig_fx::presets::EffectPreset) {
     }
 }
 
-fn markers_tab(e: &Editor, t: &Tokens) -> El {
-    let all = fig_edit::markers::all_markers(e.doc());
-    let mut list = col().w_full().gap(4.0);
-    for loc in all.into_iter().filter(|l| matches(e, &l.marker.name)) {
-        let m = loc.marker.clone();
-        let picked = e.ed.selection.is_marker_selected(&m.id);
-        let at = loc.timeline_sec();
-        let id = m.id.clone();
-        let sub = match &loc.owner {
-            fig_edit::markers::MarkerOwner::Clip(_) => format!("{} · on a clip", e.timecode(at)),
-            _ if m.is_range() => format!("{} – {}", e.timecode(at), e.timecode(at + m.dur_sec)),
-            _ => e.timecode(at),
-        };
-        list = list.child(
-            row()
-                .w_full()
-                .min_h(46.0)
-                .gap(8.0)
-                .radius(6.0)
-                .fill(if picked { hex("#222f48") } else { t.card_bg })
-                .border(1.0, if picked { t.accent } else { Color::TRANSPARENT })
-                .hover(t.card_bg_alt)
-                .center_y()
-                .child(el().w(4.0).h(30.0).ml(6.0).radius(2.0).fill(hex(if m.color.is_empty() { "#ffd60a" } else { &m.color })))
-                .child(col().grow(1.0).min_w(0.0).child(text(m.name.clone()).font(font(12.0, 600.0)).color(t.text_primary).truncate()).child(text(sub).font(font(11.0, 400.0)).color(t.text_muted)))
-                .on_press_tx(move |s: &mut AppState, tx: &mut Tx| {
-                    let mods = tx.mods();
+fn marker_row(e: &Editor, loc: &fig_edit::MarkerLocation, sub: String, t: &Tokens) -> El {
+    let m = loc.marker.clone();
+    let picked = e.ed.selection.is_marker_selected(&m.id);
+    let at = loc.timeline_sec();
+    let (id, menu_id) = (m.id.clone(), m.id.clone());
+    let clip = match &loc.owner {
+        fig_edit::MarkerOwner::Clip(c) => Some(c.clone()),
+        _ => None,
+    };
+    let name = if m.name.trim().is_empty() { if m.is_range() { "Range".into() } else { "Marker".into() } } else { m.name.clone() };
+    row()
+        .w_full()
+        .min_h(46.0)
+        .gap(8.0)
+        .radius(6.0)
+        .fill(if picked { hex("#222f48") } else { t.card_bg })
+        .border(1.0, if picked { t.accent } else { Color::TRANSPARENT })
+        .hover(t.card_bg_alt)
+        .center_y()
+        .child(el().w(4.0).h(30.0).ml(6.0).radius(2.0).fill(hex(if m.color.is_empty() { "#ffd60a" } else { &m.color })))
+        .child(col().grow(1.0).min_w(0.0).child(text(name).font(font(12.0, 600.0)).color(t.text_primary).truncate()).child(text(sub).font(font(11.0, 400.0)).color(t.text_muted).truncate()))
+        .on_press_tx(move |s: &mut AppState, tx: &mut Tx| {
+            let mods = tx.mods();
+            if let Some(e) = s.editor.as_mut() {
+                e.ed.select_marker(&id, mods.cmd, mods.shift, None);
+            }
+            if !mods.cmd && !mods.shift {
+                crate::editor::seek(s, at, false);
+            }
+        })
+        .on_secondary_press(move |s: &mut AppState, p: rune::PointerPress, _tx: &mut Tx| {
+            let Some(e) = s.editor.as_mut() else { return };
+            if !e.ed.selection.is_marker_selected(&menu_id) {
+                e.ed.selection.select_marker(&menu_id);
+            }
+            let (jump, edit) = (menu_id.clone(), menu_id.clone());
+            let mut items = vec![
+                Item::new("Jump to marker", move |s, _| {
                     if let Some(e) = s.editor.as_mut() {
-                        e.ed.select_marker(&id, mods.cmd, mods.shift, None);
+                        e.ed.select_marker(&jump, false, false, None);
                     }
-                    if !mods.cmd && !mods.shift {
-                        crate::editor::seek(s, at, false);
+                    crate::editor::seek(s, at, false);
+                }),
+                Item::new("Edit marker...", move |s, _| {
+                    if let Some(e) = s.editor.as_mut() {
+                        e.ed.select_marker(&edit, false, false, None);
+                        e.inspector.tab = Some(fig_timeline::Facet::MARKER);
+                        e.panels.right_collapsed = false;
                     }
                 }),
+                Item::new("Split video at selected markers", |s, _| split_at_markers(s)),
+                Item::new("Delete selected markers", |s, tx| crate::actions::run(s, crate::commands::Command::DeleteMarker, tx)).danger(),
+            ];
+            if let Some(clip) = clip.clone() {
+                let c2 = clip.clone();
+                items.push(Item::Separator);
+                items.push(Item::new("Clear generated beats on this clip", move |s, _| {
+                    if let Some(e) = s.editor.as_mut() {
+                        e.ed.clear_clip_markers(&clip, true);
+                    }
+                }));
+                items.push(Item::new("Clear all markers on this clip", move |s, _| {
+                    if let Some(e) = s.editor.as_mut() {
+                        e.ed.clear_clip_markers(&c2, false);
+                    }
+                }));
+            }
+            crate::menu::open(s, crate::menu::Popup::at(p.x, p.y, items));
+        })
+}
+
+fn split_at_markers(app: &mut AppState) {
+    if let Some(e) = app.editor.as_mut() {
+        if e.ed.selection.selected_marker_ids().is_empty() {
+            e.say("Select one or more markers first");
+            return;
+        }
+        let n = e.ed.split_video_at_selected_markers();
+        e.say(format!("{n} cut(s) made"));
+    }
+}
+
+fn clock(sec: f64) -> String {
+    let s = sec.max(0.0).round() as i64;
+    format!("{:02}:{:02}", s / 60, s % 60)
+}
+
+fn markers_tab(e: &Editor, t: &Tokens) -> El {
+    let doc = e.doc();
+    let q = e.library.search.text.trim().to_lowercase();
+    let hit = |name: &str, extra: &str| q.is_empty() || name.to_lowercase().contains(&q) || extra.to_lowercase().contains(&q);
+    let (mut sequence, mut on_clips) = (Vec::new(), Vec::new());
+    for loc in fig_edit::markers::all_markers(doc) {
+        let m = &loc.marker;
+        match &loc.owner {
+            fig_edit::MarkerOwner::Timeline if hit(&m.name, "") => {
+                let sub = if m.is_range() { format!("Range · {} → {}", clock(m.start_sec), clock(m.end_sec())) } else { format!("Point · {}", clock(m.start_sec)) };
+                sequence.push((loc.timeline_sec(), marker_row(e, &loc, sub, t)));
+            }
+            fig_edit::MarkerOwner::Track(id) => {
+                let label = crate::timeline::track_name(doc, doc.find_track(id).unwrap_or(&doc.tracks[0]));
+                if hit(&m.name, &label) {
+                    sequence.push((loc.timeline_sec(), marker_row(e, &loc, format!("Track {label} · {}", clock(m.start_sec)), t)));
+                }
+            }
+            fig_edit::MarkerOwner::Clip(id) => {
+                let clip = doc.find_clip(id);
+                let name = clip.and_then(|c| c.media_id()).and_then(|m| e.find_media(m)).map_or("Clip".to_string(), |a| a.file_name().to_string());
+                if hit(&m.name, &name) {
+                    on_clips.push((loc.timeline_sec(), marker_row(e, &loc, format!("{name} · {}", clock(loc.timeline_sec())), t)));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut list = col().w_full().gap(4.0);
+    if sequence.is_empty() && on_clips.is_empty() {
+        list = list.child(
+            col()
+                .w_full()
+                .py(24.0)
+                .gap(4.0)
+                .items_center()
+                .child(text("No markers yet").font(font(12.5, 600.0)).color(t.text_secondary))
+                .child(widgets::note("Press M to bookmark the playhead, or add a range to export a section.", t)),
         );
     }
+    if !sequence.is_empty() {
+        list = list.child(widgets::heading("Sequence markers", t));
+        list = list.children(sequence.into_iter().map(|(_, r)| r));
+    }
+    if !on_clips.is_empty() {
+        list = list.child(widgets::heading("Clip markers", t).pt(8.0));
+        list = list.children(on_clips.into_iter().map(|(_, r)| r));
+        list = list.child(widgets::note("Clip markers move with their clip.", t));
+    }
+    let selected = e.ed.selection.selected_marker_ids().len();
     col()
         .w_full()
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
+        .child(widgets::button("Export marked ranges", Kind::Primary, t).help("Save each range marker as its own video").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::ExportRanges, tx)))
         .child(search(e, "Search markers", t))
         .child(
             row()
                 .gap(6.0)
-                .child(widgets::button("+ Point", Kind::Normal, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::AddMarker, tx)))
-                .child(widgets::button("+ Range", Kind::Normal, t).on_press(|s: &mut AppState| {
+                .child(widgets::button("+ Point", Kind::Normal, t).help("Add a bookmark at the playhead (M)").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::AddMarker, tx)))
+                .child(widgets::button("+ Range", Kind::Normal, t).help("Add a range that starts at the playhead").on_press(|s: &mut AppState| {
                     if let Some(e) = s.editor.as_mut() {
                         let at = e.playhead;
                         let n = e.doc().markers.iter().filter(|m| m.is_range()).count() + 1;
                         e.ed.add_range_marker(at, 2.0, &format!("Range {n}"), "#5f9cf8");
                     }
-                }))
-                .child(widgets::button("Split video at markers", Kind::Ghost, t).on_press(|s: &mut AppState| {
-                    if let Some(e) = s.editor.as_mut() {
-                        let n = e.ed.split_video_at_selected_markers();
-                        e.say(format!("{n} cut(s) made"));
-                    }
                 })),
         )
+        .child(
+            row()
+                .w_full()
+                .gap(6.0)
+                .center_y()
+                .child(text(format!("{selected} selected")).font(font(11.0, 400.0)).color(t.text_muted).grow(1.0))
+                .child(widgets::button("Select all", Kind::Ghost, t).h(24.0).on_press(|s: &mut AppState| {
+                    if let Some(e) = s.editor.as_mut() {
+                        let ids: Vec<String> = fig_edit::markers::all_markers(e.doc()).into_iter().map(|l| l.marker.id).collect();
+                        e.ed.selection.select_markers(ids, None);
+                    }
+                }))
+                .child(widgets::button("Delete selected", Kind::Ghost, t).h(24.0).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::DeleteMarker, tx))),
+        )
+        .child(widgets::button("Split video at markers", Kind::Normal, t).help("Split video on all tracks at selected marker positions. Linked audio follows; all cuts undo together.").on_press(split_at_markers))
         .child(widgets::note("Ctrl-click to toggle · Shift-click for a range · Delete to remove", t))
         .child(scroll(list))
-        .child(widgets::button("Export marked ranges", Kind::Primary, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::ExportRanges, tx)))
 }
 
 fn captions_tab(e: &Editor, t: &Tokens) -> El {
