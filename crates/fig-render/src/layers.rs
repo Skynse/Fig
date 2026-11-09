@@ -162,6 +162,16 @@ fn color(argb: u32) -> Color {
     Color::from_rgba8((argb >> 16) as u8, (argb >> 8) as u8, argb as u8, (argb >> 24) as u8)
 }
 
+/// The font families installed on this machine, sorted, for a font picker.
+pub fn font_families() -> Vec<String> {
+    let fonts = FONTS.lock().unwrap();
+    let mut names: Vec<String> =
+        fonts.system.db().faces().filter_map(|f| f.families.first().map(|(name, _)| name.clone())).collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names.dedup();
+    names
+}
+
 fn paint(argb: u32) -> Paint<'static> {
     let mut p = Paint::default();
     p.set_color(color(argb));

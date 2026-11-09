@@ -1,15 +1,43 @@
-//! The app: routing between Home and the Editor, global overlays (menus, preferences, dialogs,
-//! toasts), and the scene registry the snapshot harness drives.
-//!
-//! This is the Rust counterpart of `AppViewModel` + `MainWindow`: the window has no system
-//! decorations, the title bar is drawn by [`crate::shell`], and the current screen fills the rest.
+//! The app: Home or an open project, the overlays above them (menus, dialogs, Preferences, toasts), and the
+//! background work that reports back to the UI thread.
 
-use rune::{Cx, El, Waker, col, el};
+use std::rc::Rc;
+use std::sync::OnceLock;
 
-use crate::editor_state::EditorState;
-use crate::services::{GestureMap, KeyCombo, Preferences, WorkspaceLayout};
+use rune::{AppHandle, Cx, El, Mods, NativeSurface, TextEdit, Tx, col, el};
+
+use crate::editor::Editor;
 use crate::home::HomeState;
+use crate::menu::Popup;
+use crate::playback::Playback;
+use crate::settings::{GestureMap, Preferences, WorkspaceLayout};
 use crate::theme::Tokens;
+
+static HANDLE: OnceLock<AppHandle<AppState>> = OnceLock::new();
+
+pub fn set_handle(handle: AppHandle<AppState>) {
+    let _ = HANDLE.set(handle);
+}
+
+/// Runs `work` on a worker thread, then `done` with its result on the UI thread.
+pub fn spawn<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    done: impl FnOnce(&mut AppState, T) + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        let result = work();
+        if let Some(handle) = HANDLE.get() {
+            handle.update(move |app, _tx| done(app, result));
+        }
+    });
+}
+
+/// Runs `f` on the UI thread from any thread.
+pub fn later(f: impl FnOnce(&mut AppState) + Send + 'static) {
+    if let Some(handle) = HANDLE.get() {
+        handle.update(move |app, _tx| f(app));
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route {
@@ -17,393 +45,250 @@ pub enum Route {
     Editor,
 }
 
-/// Which title-bar menu is open (one at a time, as the C# menus).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Menu {
-    File,
-    Edit,
-    View,
-    Help,
-}
-
 pub struct AppState {
     pub route: Route,
-    pub title: String,
     pub home: HomeState,
-    pub editor: Option<EditorState>,
-    pub menu: Option<Menu>,
-    pub preferences_open: bool,
-    pub preferences_page: usize,
-    pub dialogs: crate::dialogs::DialogState,
-    pub shortcuts: crate::shortcuts::Shortcuts,
-    pub toasts: crate::toasts::Toasts,
-    /// `~/.fig/preferences.json`, loaded and saved in the C# format.
-    pub preferences: Preferences,
-    /// `~/.fig/config/workspace.json`.
-    pub workspace: WorkspaceLayout,
-    /// `~/.fig/config/gestures.json`.
-    pub gestures: GestureMap,
-    /// The user's shortcut overrides from preferences (`Keyboard.Shortcuts`), pre-parsed.
-    pub shortcut_overrides: Vec<(String, KeyCombo)>,
-    /// The project store the app opens/saves through.
+    pub editor: Option<Editor>,
     pub store: fig_project::ProjectStore,
-    /// Seconds since start from the last poll.
-    pub now: f64,
-    /// Where a window-edge grip started dragging (width, height).
+    pub preferences: Preferences,
+    pub workspace: WorkspaceLayout,
+    pub gestures: GestureMap,
+    pub playback: Playback,
+    pub surface: NativeSurface,
+    pub media: crate::media::MediaCache,
+    /// Measures titles and stills for the preview's handles (the preview thread has its own).
+    pub layers: std::sync::Arc<fig_render::layers::LayerRasterizer>,
+    pub jobs: crate::dialogs::jobs::Jobs,
+    pub popup: Option<Popup>,
+    pub dialog: Option<crate::dialogs::Dialog>,
+    pub preferences_open: Option<crate::preferences::PreferencesState>,
+    pub toasts: crate::toasts::Toasts,
+    pub window_size: (f32, f32),
+    pub mods: Mods,
+    /// The inline field being typed into (a number field's value, a rename), one at a time.
+    pub field_key: Option<String>,
+    pub field_edit: TextEdit,
+    pub field_apply: Option<crate::widgets::OnText>,
+    /// Files dragged over the window right now (for the drop highlight).
+    pub drop_hover: bool,
+    /// Something being dragged from the library (onto the timeline).
+    pub lib_drag: Option<crate::library::LibDrag>,
+    /// A project to create and open on the next poll (asked for from a dialog that has no `Tx`).
+    pub pending_new_project: Option<String>,
+    /// The window's size when an edge grip drag began.
     pub resize_origin: Option<(f32, f32)>,
-    /// Other threads wake the UI through this (decode/export/save workers).
-    pub waker: Option<Waker>,
-    /// Modifiers currently held, for drags that copy (Alt) or constrain (Shift).
-    pub mods: rune::Mods,
 }
 
 impl AppState {
     pub fn new() -> AppState {
-        crate::services::ensure_directories();
+        crate::settings::ensure_directories();
         let preferences = Preferences::load();
-        let workspace = WorkspaceLayout::load();
-        let gestures = GestureMap::load();
-        let shortcut_overrides = shortcut_overrides(&preferences.keyboard.shortcuts);
-        let store = crate::services::project_store();
-        let mut home = HomeState::from_store(&store);
-        if home.projects.is_empty() {
-            // first run: the Home empty state is correct; the editor still shows the demo
-            home.projects.clear();
-        }
+        let store = crate::settings::project_store();
+        let surface = NativeSurface::new();
         AppState {
-            // the C# app opens on Home; a project is opened by the user (or from the store list)
             route: Route::Home,
-            title: "fig".into(),
-            home,
+            home: HomeState::from_store(&store),
             editor: None,
-            menu: None,
-            preferences_open: false,
-            preferences_page: 0,
-            dialogs: crate::dialogs::DialogState::new(),
-            shortcuts: crate::shortcuts::Shortcuts::new(),
-            toasts: crate::toasts::Toasts::new(),
-            preferences,
-            workspace,
-            gestures,
-            shortcut_overrides,
-            store: crate::services::project_store(),
-            now: 0.0,
+            store,
+            workspace: WorkspaceLayout::load(),
+            gestures: GestureMap::load(),
+            playback: Playback::new(surface.clone()),
+            surface,
+            media: crate::media::MediaCache::default(),
+            layers: std::sync::Arc::new(fig_render::layers::LayerRasterizer::new()),
+            jobs: Default::default(),
+            popup: None,
+            dialog: None,
+            preferences_open: None,
+            toasts: Default::default(),
+            window_size: (1200.0, 700.0),
+            mods: Mods::default(),
+            field_key: None,
+            field_edit: TextEdit::new(""),
+            field_apply: None,
+            drop_hover: false,
             resize_origin: None,
-            waker: None,
-            mods: rune::Mods::default(),
+            lib_drag: None,
+            pending_new_project: None,
+            preferences,
         }
     }
 
-    /// The editor, if a project is open. Snapshot scenes call [`editor`](Self::editor), which
-    /// creates the demo sequence they render; product paths check `editor.is_some()` first.
-    pub fn editor(&mut self) -> &mut EditorState {
-        if self.editor.is_none() {
-            let mut demo = EditorState::demo_with_media();
-            demo.project.media.clear();
-            demo.preview = crate::preview::PreviewState::new();
-            let doc = demo.doc().clone();
-            demo.preview.build_thumbnails(&doc);
-            self.editor = Some(demo);
+    pub fn editor(&self) -> Option<&Editor> {
+        self.editor.as_ref()
+    }
+
+    pub fn refresh_home(&mut self) {
+        self.home.reload(&self.store);
+    }
+
+    /// Opens a project from the store (and maximizes the window, as entering the editor does in the C# build).
+    pub fn open_project(&mut self, id: &str, tx: &mut Tx) {
+        let folder = self.store.project_directory(id);
+        match self.store.load_project(id) {
+            Ok(Some(project)) => {
+                self.close_project_quietly();
+                let editor = Editor::open(id.to_string(), folder, project, &self.preferences, &self.workspace);
+                self.editor = Some(editor);
+                self.route = Route::Editor;
+                self.playback.reset_sources();
+                crate::editor::sync_playback(self);
+                crate::editor::seek(self, 0.0, false);
+                crate::media::prepare_project(self);
+                tx.set_title(format!("{} — fig", self.editor.as_ref().map_or("", |e| e.project.name.as_str())));
+                if self.window_size.0 < 1400.0 {
+                    tx.toggle_maximized();
+                }
+            }
+            Ok(None) => crate::toasts::show(self, "That project is gone"),
+            Err(error) => crate::toasts::show(self, format!("Couldn't open the project: {error}")),
         }
-        self.editor.as_mut().expect("editor was just created")
     }
 
-    pub fn has_editor(&self) -> bool {
-        self.editor.is_some()
+    pub fn new_project(&mut self, name: &str, tx: &mut Tx) {
+        let name = if name.trim().is_empty() { "Untitled" } else { name.trim() };
+        match self.store.create_project(name) {
+            Ok(id) => {
+                self.open_project(&id, tx);
+                if let Some(e) = self.editor.as_mut()
+                    && e.doc().tracks.is_empty()
+                {
+                    e.ed.edit(|ed| {
+                        ed.add_track(fig_timeline::TrackKind::Video);
+                        ed.add_track(fig_timeline::TrackKind::Audio);
+                    });
+                }
+            }
+            Err(error) => crate::toasts::show(self, format!("Couldn't create the project: {error}")),
+        }
     }
 
-    /// Re-reads the shortcut overrides after Preferences changed.
-    pub fn reload_shortcuts(&mut self) {
-        self.shortcut_overrides = shortcut_overrides(&self.preferences.keyboard.shortcuts);
+    fn close_project_quietly(&mut self) {
+        if self.playback.is_playing() {
+            self.playback.pause();
+        }
+        if let Some(mut e) = self.editor.take() {
+            if e.is_dirty() {
+                e.commit_to_project();
+                let _ = self.store.save_project(&mut e.project);
+            }
+        }
+        self.dialog = None;
+        self.popup = None;
     }
 
-    /// Mirrors the editor's panel layout into `workspace.json` (as `WorkspaceLayout` does on change).
+    /// Saves and goes back to Home.
+    pub fn close_project(&mut self, tx: &mut Tx) {
+        self.close_project_quietly();
+        self.route = Route::Home;
+        self.refresh_home();
+        tx.set_title("fig");
+    }
+
     pub fn save_workspace(&mut self) {
-        if let Some(editor) = self.editor.as_ref() {
-            self.workspace.left = f64::from(editor.left_frac);
-            self.workspace.right = f64::from(editor.right_frac);
-            self.workspace.timeline = f64::from(editor.timeline_frac);
-            self.workspace.left_collapsed = editor.left_collapsed;
-            self.workspace.right_collapsed = editor.right_collapsed;
+        if let Some(e) = self.editor.as_ref() {
+            self.workspace.left = f64::from(e.panels.left);
+            self.workspace.right = f64::from(e.panels.right);
+            self.workspace.timeline = f64::from(e.panels.timeline);
+            self.workspace.left_collapsed = e.panels.left_collapsed;
+            self.workspace.right_collapsed = e.panels.right_collapsed;
         }
         let _ = self.workspace.save();
     }
 
-    /// Re-reads the project list for Home (after create/save/close, as `HomeViewModel.Refresh`).
-    pub fn refresh_home(&mut self) {
-        self.home = HomeState::from_store(&self.store);
-    }
-
-    /// Closes the open project and returns Home (`ProjectManager.Close`).
-    pub fn close_project(&mut self) {
-        self.editor = None;
-        self.route = Route::Home;
-        self.refresh_home();
-    }
-
-    /// Saves `preferences.json` (after a settings change).
     pub fn save_preferences(&mut self) {
         self.preferences.normalize();
         let _ = self.preferences.save();
-        self.reload_shortcuts();
-    }
-
-    pub fn save_status(&self) -> &'static str {
-        match &self.editor {
-            Some(e) => e.save.status_text(),
-            None => "All changes saved",
+        if let Some(e) = self.editor.as_mut() {
+            e.ed.snap.magnetic = self.preferences.editing.snap;
         }
     }
 
-    /// Opens a project from the store into the editor (`ProjectManager.Open`).
-    pub fn open_project(&mut self, id: &str) -> bool {
-        let folder = self.store.project_directory(id);
-        match self.store.load_project(id) {
-            Ok(Some(project)) => {
-                self.route = Route::Editor;
-                let mut editor = EditorState::open(project, folder);
-                editor.apply_preferences(&self.preferences, &self.workspace);
-                self.editor = Some(editor);
-                true
-            }
-            Ok(None) => {
-                self.toasts.show("That project is gone");
-                false
-            }
-            Err(error) => {
-                self.toasts.show(format!("Couldn't open the project: {error}"));
-                false
-            }
+    /// Before every frame: playback, autosave, expiring toasts and finished jobs. True when the view must redraw.
+    pub fn poll(&mut self, tx: &mut Tx) -> bool {
+        if let Some(name) = self.pending_new_project.take() {
+            self.new_project(&name, tx);
+            return true;
         }
-    }
-
-    /// Creates a new project and opens it (`ProjectManager.Create`).
-    pub fn new_project(&mut self) {
-        match self.store.create_project("Untitled") {
-            Ok(id) => {
-                if self.open_project(&id) {
-                    // a new project starts with a video and an audio track, not a blank canvas
-                    let editor = self.editor();
-                    if editor.doc().tracks.is_empty() {
-                        editor.editor.add_track(fig_timeline::TrackKind::Video);
-                        editor.editor.add_track(fig_timeline::TrackKind::Audio);
-                    }
-                    self.route = Route::Editor;
-                    self.home.projects = HomeState::from_store(&self.store).projects;
-                }
-            }
-            Err(error) => self.toasts.show(format!("Couldn't create the project: {error}")),
+        let mut changed = crate::editor::tick(self);
+        if self.jobs.active() > 0 {
+            tx.wake_after(std::time::Duration::from_millis(250));
+            changed = true;
         }
-    }
-
-    /// Saves the current project; the header's save status reports the result.
-    pub fn save_project(&mut self) {
-        let Some(editor) = self.editor.as_mut() else { return };
-        editor.commit_to_project();
-        match self.store.save_project(&mut editor.project) {
-            Ok(()) => {
-                editor.save = crate::editor_state::SaveState::Saved;
-                self.toasts.show("All changes saved");
-            }
-            Err(error) => {
-                editor.save = crate::editor_state::SaveState::Failed;
-                self.toasts.show(format!("Couldn't save: {error}"));
-            }
+        if matches!(self.dialog, Some(crate::dialogs::Dialog::Captions(_))) {
+            tx.wake_after(std::time::Duration::from_millis(200));
+            changed = true;
         }
-    }
-
-    pub fn set_waker(&mut self, waker: Waker) {
-        self.waker = Some(waker);
-    }
-
-    pub fn is_playing(&self) -> bool {
-        self.editor.as_ref().is_some_and(|e| e.transport.playing)
-    }
-
-    /// One frame of app time: advances playback and ages the toasts. True when the visible frame
-    /// changed (the poll asks for the next one).
-    pub fn tick(&mut self, dt: f64) -> bool {
-        let mut changed = false;
-        let playing = self.is_playing();
-        if let Some(editor) = self.editor.as_mut() {
-            crate::playback::tick(editor, dt);
-            if playing {
-                // keep the monitor following the clock (synchronous decode for now; the
-                // two-pass worker in P3 moves this off the UI thread)
-                let at = editor.playhead;
-                editor.preview.show_at(at);
+        crate::inspector::sync(self);
+        if self.playback.is_playing() {
+            tx.wake_after(std::time::Duration::from_millis(16));
+        }
+        crate::editor::sync_playback(self);
+        crate::editor::autosave(self);
+        if let Some(e) = self.editor.as_mut() {
+            if e.save.changed_at.is_some() || e.save.saving {
+                tx.wake_after(std::time::Duration::from_millis(250));
+            }
+            if e.hint.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= 4) {
+                e.hint = None;
                 changed = true;
             }
+            if e.hint.is_some() {
+                tx.wake_after(std::time::Duration::from_millis(500));
+            }
+            changed |= crate::timeline::input::auto_scroll(e, tx);
         }
-        changed | self.toasts.tick(dt)
-    }
-
-    pub fn window_title(&self) -> String {
-        match &self.editor {
-            Some(e) if self.route == Route::Editor => format!("{} — {}", e.project_name, self.title),
-            _ => self.title.clone(),
+        if self.toasts.any() {
+            changed |= self.toasts.expire();
+            tx.wake_after(std::time::Duration::from_millis(300));
         }
+        changed
     }
 }
 
-// ---------------- scenes ----------------
-
-/// Every screen/state the snapshot harness renders. One scene per file the 1:1 gate compares.
-pub const SCENES: &[(&str, fn(&mut AppState))] = &[
-    ("editor", scene_editor),
-    ("editor-selected", scene_editor_selected),
-    ("home-empty", scene_home_empty),
-    ("home-projects", scene_home_projects),
-    ("preferences", scene_preferences),
-    ("export", scene_export),
-    ("captions", scene_captions),
-    ("bookmarks", scene_bookmarks),
-    ("shortcuts", scene_shortcuts),
-    ("graph", scene_graph),
-    ("preview-media", crate::preview::scene_media),
-    ("library-effects", crate::library::scene_effects),
-    ("library-text", crate::library::scene_text),
-    ("export-jobs", scene_export_jobs),
-    ("toast", scene_toast),
-    ("library-media", scene_library_media),
-    ("editor-context", scene_editor_context),
-];
-
-fn scene_editor(s: &mut AppState) {
-    s.route = Route::Editor;
-    if s.editor.is_none() {
-        s.editor = Some(EditorState::demo_with_media());
-    }
-    if let Some(editor) = s.editor.as_mut() {
-        editor.apply_preferences(&s.preferences, &s.workspace);
-    }
-    s.menu = None;
-    s.preferences_open = false;
-    let e = s.editor();
-    e.playhead = 0.0;
-    e.timeline.scroll = 0.0;
-    e.timeline.pps = 100.0;
-    // the reference render has no media library: keep that panel empty for the comparison.
-    // The monitor keeps its decoded frame (the preview region is masked in the pixel diff), so a
-    // windowed run of this scene drives playback against real frames.
-    e.project.media.clear();
-    let doc = e.doc().clone();
-    e.preview.build_thumbnails(&doc);
-}
-
-fn scene_editor_selected(s: &mut AppState) {
-    scene_editor(s);
-    let e = s.editor();
-    if let Some(track) = e.doc().tracks.first().cloned() {
-        if let Some(clip) = track.clips.first() {
-            e.editor.selection.select_only(&clip.id);
-        }
-    }
-}
-
-fn scene_home_empty(s: &mut AppState) {
-    s.route = Route::Home;
-    s.home.projects.clear();
-}
-
-fn scene_home_projects(s: &mut AppState) {
-    s.route = Route::Home;
-    s.home = HomeState::with_samples(24);
-}
-
-fn scene_preferences(s: &mut AppState) {
-    scene_editor(s);
-    s.preferences_page = 0;
-    s.preferences_open = true;
-}
-
-fn scene_export(s: &mut AppState) {
-    scene_editor(s);
-    s.dialogs.open_export();
-}
-
-fn scene_captions(s: &mut AppState) {
-    scene_editor(s);
-    s.dialogs.open_captions();
-}
-
-fn scene_bookmarks(s: &mut AppState) {
-    scene_editor(s);
-    s.dialogs.open_bookmarks();
-}
-
-fn scene_shortcuts(s: &mut AppState) {
-    scene_editor(s);
-    s.dialogs.open_shortcuts();
-}
-
-fn scene_graph(s: &mut AppState) {
-    scene_editor(s);
-    s.editor().graph_open = true;
-}
-
-fn scene_export_jobs(s: &mut AppState) {
-    scene_editor(s);
-    s.dialogs.open_export_jobs();
-}
-
-fn scene_editor_context(s: &mut AppState) {
-    scene_editor(s);
-    let editor = s.editor();
-    if let Some(clip) = editor.doc().tracks[0].clips.first().cloned() {
-        editor.editor.selection.select_only(&clip.id);
-    }
-    crate::timeline_menu::open(s, 260.0, 70.0, 300.0, 500.0);
-}
-
-fn scene_library_media(s: &mut AppState) {
-    s.route = Route::Editor;
-    s.editor = Some(crate::editor_state::EditorState::demo_with_media());
-}
-
-fn scene_toast(s: &mut AppState) {
-    scene_editor(s);
-    s.toasts.show("Clip copied");
-    s.toasts.show("All changes saved");
-}
-
-// ---------------- view ----------------
-
-pub fn view(state: &AppState, cx: &mut Cx<AppState>) -> El {
+pub fn view(app: &AppState, cx: &mut Cx<AppState>) -> El {
     let t = Tokens::dark();
-    let mut root = col().key("app.root").w_full().h_full().fill(t.surface_bg).child(crate::shell::title_bar(state, &t));
-
-    root = match state.route {
-        Route::Home => root.child(crate::home::view(&state.home, &t)),
-        Route::Editor => match &state.editor {
-            Some(editor) => root.child(crate::editor::view(state, editor, &t, cx)),
-            None => root,
-        },
+    let mut root = col()
+        .key("app.root")
+        .w_full()
+        .h_full()
+        .fill(t.surface_bg)
+        .on_layout(|s: &mut AppState, r: [f32; 4]| s.window_size = (r[2], r[3]))
+        .child(crate::shell::title_bar(app, &t));
+    root = match (app.route, app.editor.as_ref()) {
+        (Route::Editor, Some(editor)) => root.child(crate::editor::view::view(app, editor, &t, cx)),
+        _ => root.child(crate::home::view(app, &t)),
     };
-
-    // overlays, in the C# z-order: menus, preferences card, dialogs, toasts
-    if let Some(context) = &state.editor.as_ref().and_then(|e| e.context_menu.clone()) {
-        root = root
-            .child(crate::shell::menu_scrim(&t))
-            .child(crate::timeline_menu::overlay(state, context.clone(), &t));
+    if let Some(prefs) = app.preferences_open.as_ref() {
+        root = root.child(crate::preferences::overlay(app, prefs, &t));
     }
-    if let Some(menu) = state.menu {
-        root = root
-            .child(crate::shell::menu_scrim(&t))
-            .child(crate::shell::menu_dropdown(state, menu, &t));
+    if let Some(dialog) = app.dialog.as_ref() {
+        root = root.child(crate::dialogs::overlay(app, dialog, &t));
     }
-    if state.preferences_open {
-        root = root.child(crate::preferences::overlay(state, &t));
+    if let Some(menu) = crate::menu::overlay(app, &t) {
+        root = root.child(menu);
     }
-    if state.dialogs.is_open() {
-        root = root.child(crate::dialogs::overlay(state, &t));
+    if let Some(d) = app.lib_drag.as_ref() {
+        root = root.child(crate::library::drag_ghost(d, &t));
     }
-    root.child(crate::toasts::overlay(&state.toasts, &t)).children(crate::chrome::resize_handles())
+    if app.drop_hover {
+        root = root.child(
+            el().absolute(0.0, 0.0)
+                .w_full()
+                .h_full()
+                .border(3.0, t.accent)
+                .fill(t.accent.alpha(0.06))
+                .inert(),
+        );
+    }
+    root.child(crate::toasts::overlay(app, &t))
+        .children(crate::chrome::resize_handles())
+        .on_drop_files(|s: &mut AppState, files: &[std::path::PathBuf], tx: &mut Tx| {
+            s.drop_hover = false;
+            crate::media::drop_files(s, files, None, tx);
+        })
+        .on_drop_hover(|s: &mut AppState, over: bool, _tx: &mut Tx| s.drop_hover = over)
 }
 
-/// Parses the user's changed shortcuts; only those override the built-in handling.
-fn shortcut_overrides(map: &std::collections::BTreeMap<String, String>) -> Vec<(String, KeyCombo)> {
-    map.iter()
-        .filter_map(|(action, gesture)| crate::services::parse_gesture(gesture).map(|combo| (action.clone(), combo)))
-        .collect()
-}
+/// A shared, cheap-to-clone callback used by views that store handlers.
+pub type Handler = Rc<dyn Fn(&mut AppState, &mut Tx)>;

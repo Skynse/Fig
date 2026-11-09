@@ -7,8 +7,16 @@
 
 use rune::{Color, TextStyle};
 
-/// A colour token from the C# theme. Panics on a malformed literal — tokens are compile-time data.
+/// A colour from the C# theme: `#rrggbb`, or `#aarrggbb` with the alpha first as Avalonia writes it. Panics on a
+/// malformed literal (tokens are compile-time data).
 pub fn hex(s: &str) -> Color {
+    let fixed;
+    let s = if s.len() == 9 && s.starts_with('#') {
+        fixed = format!("#{}{}", &s[3..], &s[1..3]);
+        fixed.as_str()
+    } else {
+        s
+    };
     rune::color::hex(s).unwrap_or_else(|| panic!("bad colour token: {s}"))
 }
 

@@ -1,323 +1,298 @@
-//! The Home screen: the project browser (`HomeView.axaml`, inventory §3).
-//!
-//! Reads the real store (`~/.fig/projects`, written by the C# build), shows each project's thumbnail,
-//! relative "last edited" text and duration exactly as `ProjectItemViewModel` formats them, and opens
-//! the project into the editor. New Project creates a real project; there is no synthetic project in
-//! the product.
+//! Home (`HomeView.axaml`): the projects, as a grid or a list, searched and sorted, with New Project and Import
+//! Project (a .figpck package or an OpenTimelineIO file).
 
-use chrono::{DateTime, FixedOffset, Local};
-use fig_project::ProjectSummary;
-use rune::{Align, El, Pixels, col, el, icon, row, text};
+use std::path::PathBuf;
+
+use fig_project::{ProjectStore, ProjectSummary};
+use rune::{Color, Cursor, El, KeyEvent, Pixels, TextEdit, Tx, col, el, icon, row, text};
 
 use crate::app::AppState;
 use crate::icons;
-use crate::theme::{font, Tokens, RADIUS_CARD, RADIUS_CONTROL, RADIUS_PANEL};
+use crate::menu::Item;
+use crate::theme::{Tokens, font, hex};
+use crate::widgets::{self, Kind};
 
-pub struct HomeProject {
-    pub id: String,
-    pub name: String,
-    pub last_edited: String,
-    pub duration: String,
-    pub thumbnail: Option<Pixels>,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    Edited,
+    Name,
+    Duration,
 }
 
 pub struct HomeState {
-    pub projects: Vec<HomeProject>,
-    /// No projects at all (first run): show the create-first state, not "no search results".
-    pub has_none: bool,
+    pub projects: Vec<ProjectSummary>,
+    pub thumbs: Vec<Option<Pixels>>,
+    pub search: TextEdit,
+    pub sort: Sort,
+    pub list: bool,
 }
 
 impl HomeState {
-    pub fn new() -> HomeState {
-        HomeState { projects: Vec::new(), has_none: true }
+    pub fn from_store(store: &ProjectStore) -> HomeState {
+        let mut h = HomeState { projects: Vec::new(), thumbs: Vec::new(), search: TextEdit::new(""), sort: Sort::Edited, list: false };
+        h.reload(store);
+        h
     }
 
-    /// The real project list (`ProjectStore.ListProjects`), most recently updated first.
-    pub fn from_store(store: &fig_project::ProjectStore) -> HomeState {
-        let now = Local::now();
-        let summaries = store.list_projects();
-        let has_none = summaries.is_empty();
-        let projects = summaries
-            .into_iter()
-            .map(|summary| {
-                let thumbnail = summary
-                    .thumbnail
-                    .as_deref()
-                    .map(|thumb| {
-                        let path = std::path::Path::new(thumb);
-                        if path.is_absolute() {
-                            path.to_path_buf()
-                        } else {
-                            summary.folder.join(path)
-                        }
-                    })
-                    .filter(|path| path.exists())
-                    .and_then(|path| crate::services::thumbnail_pixels(&path, 222, 108));
-                HomeProject {
-                    id: summary.id,
-                    name: summary.name,
-                    last_edited: format_last_edited(summary.updated_at, now),
-                    duration: format_duration(summary.duration_sec),
-                    thumbnail,
-                }
+    pub fn reload(&mut self, store: &ProjectStore) {
+        self.projects = store.list_projects();
+        self.thumbs = self
+            .projects
+            .iter()
+            .map(|p| {
+                let path = p.thumbnail.as_ref().map(|t| {
+                    let t = PathBuf::from(t);
+                    if t.is_absolute() { t } else { p.folder.join(t) }
+                })?;
+                crate::settings::thumbnail_pixels(&path, 228, 128)
             })
             .collect();
-        HomeState { projects, has_none }
     }
 
-    /// Deterministic cards for the headless `home-projects` snapshot scene.
-    pub fn with_samples(count: usize) -> HomeState {
-        let names = ["Sweet Apple Pie", "Montage v3", "Sweet Apple Pie", "Montage v3", "City at dusk", "Trailer cut"];
-        let durations = ["0:29", "Empty", "Empty", "0:29", "1:12", "Empty"];
-        let projects = (0..count)
-            .map(|i| HomeProject {
-                id: format!("sample-{i}"),
-                name: names[i % names.len()].to_string(),
-                last_edited: "4 min ago".into(),
-                duration: durations[i % durations.len()].into(),
-                thumbnail: None,
-            })
-            .collect();
-        HomeState { projects, has_none: false }
+    fn visible(&self) -> Vec<usize> {
+        let q = self.search.text.trim().to_lowercase();
+        let mut idx: Vec<usize> = (0..self.projects.len()).filter(|&i| q.is_empty() || self.projects[i].name.to_lowercase().contains(&q)).collect();
+        match self.sort {
+            Sort::Edited => idx.sort_by(|a, b| self.projects[*b].updated_at.cmp(&self.projects[*a].updated_at)),
+            Sort::Name => idx.sort_by_key(|i| self.projects[*i].name.to_lowercase()),
+            Sort::Duration => idx.sort_by(|a, b| self.projects[*b].duration_sec.total_cmp(&self.projects[*a].duration_sec)),
+        }
+        idx
     }
 }
 
-/// `ProjectItemViewModel.FormatDuration`: "Empty", "m:ss" or "h:mm:ss".
-fn format_duration(seconds: f64) -> String {
-    if seconds <= 0.0 {
-        return "Empty".into();
-    }
-    let total = seconds.round() as i64;
-    let (h, m, s) = (total / 3600, total % 3600 / 60, total % 60);
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
-}
-
-/// `ProjectItemViewModel.FormatLastEdited`.
-fn format_last_edited(when: DateTime<FixedOffset>, now: DateTime<Local>) -> String {
-    let age = now.signed_duration_since(when.with_timezone(&Local));
-    if age.num_minutes() < 1 && age.num_seconds() < 60 {
-        return "Just now".into();
-    }
-    if age.num_hours() < 1 {
-        return format!("{} min ago", age.num_minutes().max(1));
-    }
-    let when_local = when.with_timezone(&Local);
-    if when_local.date_naive() == now.date_naive() {
-        return format!("Today, {}", when_local.format("%-I:%M %p"));
-    }
-    if when_local.date_naive() == now.date_naive() - chrono::Duration::days(1) {
-        return "Yesterday".into();
-    }
-    if when_local.format("%Y").to_string() == now.format("%Y").to_string() {
-        when_local.format("%b %-d").to_string()
-    } else {
-        when_local.format("%b %-d, %Y").to_string()
+fn ago(p: &ProjectSummary) -> String {
+    let now = chrono::Utc::now();
+    let secs = (now - p.updated_at.with_timezone(&chrono::Utc)).num_seconds().max(0);
+    match secs {
+        s if s < 60 => "just now".into(),
+        s if s < 3600 => format!("{} min ago", s / 60),
+        s if s < 86_400 => format!("{} h ago", s / 3600),
+        s if s < 7 * 86_400 => format!("{} days ago", s / 86_400),
+        _ => p.updated_at.format("%b %-d, %Y").to_string(),
     }
 }
 
-pub fn view(home: &HomeState, t: &Tokens) -> El {
-    col()
+fn duration(sec: f64) -> String {
+    let s = sec.round() as i64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+pub fn view(app: &AppState, t: &Tokens) -> El {
+    let h = &app.home;
+    let header = row()
         .w_full()
-        .grow(1.0)
-        .min_h(0.0)
-        .padding(24.0)
-        .gap(18.0)
-        .child(header(t))
-        .child(section_header(home, t))
-        .child(grid(home, t))
-        .child(el().grow(1.0))
-        .child(status_bar(t))
-}
-
-fn header(t: &Tokens) -> El {
-    row()
-        .w_full()
-        .h(44.0)
+        .px(24.0)
+        .pt(18.0)
+        .pb(16.0)
+        .gap(16.0)
         .center_y()
-        .child(text("Projects").font(font(20.0, 600.0)).color(t.text_primary))
-        .child(el().grow(1.0))
-        .child(
-            crate::widgets::button("Import Project…", t, false).on_press(|s: &mut AppState| {
-                s.toasts.show("Import a project by opening its folder");
-            }),
-        )
-        .child(el().w(12.0))
-        .child(
-            el().h(32.0)
-                .padding(14.0)
-                .radius(RADIUS_CONTROL)
-                .fill(t.accent_soft)
-                .center()
-                .child(text("+ New Project").font(font(13.0, 600.0)).color(t.text_primary))
-                .on_press(|s: &mut AppState| s.new_project()),
-        )
-}
-
-fn section_header(home: &HomeState, t: &Tokens) -> El {
-    let count = home.projects.len();
-    row()
-        .w_full()
-        .center_y()
-        .child(
+        .child(text("Projects").font(font(16.0, 600.0)).color(t.text_primary).grow(1.0))
+        .child(widgets::button("Import Project…", Kind::Normal, t).w(148.0).on_press_tx(|s: &mut AppState, tx: &mut Tx| import_dialog(s, tx)))
+        .child(widgets::button("+ New Project", Kind::Primary, t).w(148.0).on_press_tx(|s: &mut AppState, _tx: &mut Tx| new_project(s)));
+    let mut root = col().w_full().grow(1.0).min_h(0.0).child(header);
+    if h.projects.is_empty() {
+        return root.child(
             col()
-                .gap(2.0)
-                .child(text("Recent projects").font(font(14.0, 600.0)).color(t.text_primary))
-                .child(
-                    text(if count == 1 { "1 project".to_string() } else { format!("{count} projects") })
-                        .font(font(11.0, 400.0))
-                        .color(t.text_muted),
-                ),
-        )
-        .child(el().grow(1.0))
-        .child(
-            el().w(258.0)
-                .h(32.0)
-                .radius(RADIUS_CONTROL)
-                .fill(t.card_bg)
-                .padding(10.0)
-                .center_y()
-                .child(text("Search projects").font(font(11.0, 400.0)).color(t.text_faint)),
-        )
-        .child(el().w(10.0))
-        .child(
-            el().w(132.0)
-                .h(32.0)
-                .radius(RADIUS_CONTROL)
-                .fill(t.card_bg)
-                .padding(10.0)
-                .center_y()
-                .child(text("Last edited").font(font(12.0, 400.0)).color(t.text_secondary))
-                .child(el().grow(1.0))
-                .child(icon(&icons::CHEVRON_LEFT, 11.0).color(t.text_muted)),
-        )
-        .child(el().w(10.0))
-        .child(
-            el().w(52.0)
-                .h(32.0)
-                .radius(RADIUS_CONTROL)
-                .fill(t.accent_soft)
+                .w_full()
+                .grow(1.0)
                 .center()
-                .child(text("Grid").font(font(12.0, 500.0)).color(t.text_primary)),
-        )
-        .child(
-            el().w(52.0)
-                .h(32.0)
-                .radius(RADIUS_CONTROL)
-                .fill(t.card_bg)
-                .center()
-                .child(text("List").font(font(12.0, 400.0)).color(t.text_secondary)),
-        )
-}
-
-fn grid(home: &HomeState, t: &Tokens) -> El {
-    if home.projects.is_empty() {
-        let title = if home.has_none { "No projects yet" } else { "No projects match" };
-        return col()
-            .w_full()
-            .grow(1.0)
-            .min_h(0.0)
-            .center()
-            .gap(12.0)
-            .child(icon(&icons::FILM, 40.0).color(t.text_faint))
-            .child(text(title).font(font(16.0, 600.0)).color(t.text_secondary))
-            .child(
-                text("Create a project to start cutting clips, or import one.")
-                    .font(font(12.0, 400.0))
-                    .color(t.text_muted),
-            )
-            .child(crate::widgets::button("New Project", t, true).on_press(|s: &mut AppState| s.new_project()));
+                .gap(10.0)
+                .child(icon(&icons::CLAPPERBOARD, 40.0).color(t.text_muted))
+                .child(text("Create your first project").font(font(14.0, 600.0)).color(t.text_primary))
+                .child(text("Start a new edit or import an existing timeline.").font(font(12.5, 400.0)).color(t.text_muted))
+                .child(widgets::button("+ New Project", Kind::Primary, t).on_press(new_project)),
+        );
     }
-    let mut wrap = row().w_full().min_h(0.0).flex_wrap().gap(22.0);
-    for project in &home.projects {
-        wrap = wrap.child(card(project, t));
-    }
-    wrap
-}
-
-fn card(project: &HomeProject, t: &Tokens) -> El {
-    let project_id = project.id.clone();
-    let mut well = col().w(222.0).h(108.0).radius(RADIUS_CARD).fill(t.card_bg);
-    well = match &project.thumbnail {
-        Some(pixels) => well.clip_rounded(RADIUS_CARD).child(el().w_full().h_full().pixels(pixels)),
-        None => well.center().gap(6.0).child(icon(&icons::CLAPPERBOARD, 20.0).color(t.text_muted)).child(
-            text("No preview yet").font(font(11.0, 400.0)).color(t.text_faint),
-        ),
+    let visible = h.visible();
+    let sort_label = match h.sort {
+        Sort::Edited => "Last edited",
+        Sort::Name => "Name",
+        Sort::Duration => "Duration",
     };
-
-    col()
-        .w(222.0)
-        .min_h(190.0)
-        .gap(6.0)
-        .child(
-            el().w(222.0)
-                .h(108.0)
-                .child(well)
-                .child(
-                    icon(&icons::LIST, 14.0)
-                        .color(t.text_muted)
-                        .absolute(198.0, 8.0)
-                        .on_press(|s: &mut AppState| s.toasts.show("Project menu")),
-                ),
-        )
-        .child(
+    let toolbar = row()
+        .w_full()
+        .px(24.0)
+        .pb(16.0)
+        .gap(10.0)
+        .center_y()
+        .child(text("Recent projects").font(font(13.0, 600.0)).color(t.text_primary))
+        .child(text(h.projects.len().to_string()).font(font(12.0, 400.0)).color(t.text_muted).grow(1.0))
+        .child(widgets::text_box(&h.search, "Search projects", |s| &mut s.home.search, t).w(260.0))
+        .child(widgets::dropdown("home.sort", sort_label, t).w(140.0).on_press(|s: &mut AppState| {
+            let items = [(Sort::Edited, "Last edited"), (Sort::Name, "Name"), (Sort::Duration, "Duration")]
+                .into_iter()
+                .map(|(v, l)| Item::new(l, move |s, _| s.home.sort = v))
+                .collect();
+            crate::menu::open_below(s, "home.sort", items);
+        }))
+        .child(widgets::toggle_button(&icons::LAYOUT_GRID, !h.list, 30.0, t).on_press(|s: &mut AppState| s.home.list = false))
+        .child(widgets::toggle_button(&icons::LIST, h.list, 30.0, t).on_press(|s: &mut AppState| s.home.list = true));
+    root = root.child(toolbar);
+    if visible.is_empty() {
+        return root.child(
+            col()
+                .w_full()
+                .grow(1.0)
+                .center()
+                .gap(8.0)
+                .child(text("No projects match your search").font(font(14.0, 600.0)).color(t.text_primary))
+                .child(text("Check the spelling or clear the search.").font(font(12.5, 400.0)).color(t.text_muted))
+                .child(widgets::button("Clear search", Kind::Normal, t).on_press(|s: &mut AppState| s.home.search = TextEdit::new(""))),
+        );
+    }
+    let mut items = if h.list { col().w_full().px(24.0).gap(6.0) } else { row().w_full().px(24.0).flex_wrap().gap(16.0) };
+    for i in visible {
+        let p = &h.projects[i];
+        let id = p.id.clone();
+        let menu_id = p.id.clone();
+        let card = if h.list {
             row()
                 .w_full()
+                .h(60.0)
+                .px(14.0)
+                .gap(12.0)
+                .radius(6.0)
+                .fill(hex("#212328"))
+                .hover(hex("#272a30"))
                 .center_y()
-                .child(text(project.name.clone()).font(font(14.0, 600.0)).color(t.text_primary).truncate())
-                .child(el().grow(1.0))
-                .child(icon(&icons::LIST, 12.0).color(t.text_faint)),
-        )
-        .child(text(format!("Last edited · {}", project.last_edited)).font(font(11.0, 400.0)).color(t.text_muted))
-        .child(text(format!("Duration · {}", project.duration)).font(font(11.0, 400.0)).color(t.text_muted))
-        .on_press(move |s: &mut AppState| {
-            s.open_project(&project_id);
+                .child(icon(&icons::CLAPPERBOARD, 20.0).color(t.text_muted))
+                .child(text(p.name.clone()).font(font(13.0, 600.0)).color(t.text_primary).grow(1.0).truncate())
+                .child(text(ago(p)).font(font(12.0, 400.0)).color(t.text_muted).w(200.0))
+                .child(text(duration(p.duration_sec)).font(font(12.0, 400.0)).color(t.text_muted).w(120.0))
+        } else {
+            let mut thumb = el().w(228.0).h(128.0).radius(14.0).clip_rounded(14.0).fill(t.card_bg).border(2.0, Color::TRANSPARENT).hover(hex("#6ea5ff"));
+            thumb = match h.thumbs.get(i).cloned().flatten() {
+                Some(px) => thumb.child(el().w_full().h_full().pixels_fit(&px, rune::SurfaceFit::Fill)),
+                None => thumb.center().child(icon(&icons::CLAPPERBOARD, 28.0).color(t.text_faint)),
+            };
+            col()
+                .w(228.0)
+                .gap(6.0)
+                .child(thumb)
+                .child(text(p.name.clone()).font(font(13.0, 600.0)).color(t.text_primary).truncate())
+                .child(text(format!("Last edited · {}", ago(p))).font(font(12.0, 400.0)).color(t.text_muted))
+                .child(text(format!("Duration · {}", duration(p.duration_sec))).font(font(12.0, 400.0)).color(t.text_muted))
+        };
+        items = items.child(
+            card.key(format!("home.card.{}", p.id))
+                .cursor(Cursor::Pointer)
+                .on_press_tx(move |s: &mut AppState, tx: &mut Tx| s.open_project(&id, tx))
+                .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| project_menu(s, &menu_id, at.x, at.y)),
+        );
+    }
+    root.child(el().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(items.pb(24.0))).child(
+        row()
+            .w_full()
+            .px(24.0)
+            .py(10.0)
+            .gap(18.0)
+            .child(widgets::note("Click to open", t))
+            .child(widgets::note("Ctrl+N New project", t)),
+    )
+}
+
+fn project_menu(app: &mut AppState, id: &str, x: f32, y: f32) {
+    let (a, b, c, d) = (id.to_string(), id.to_string(), id.to_string(), id.to_string());
+    let items = vec![
+        Item::new("Open project", move |s, tx| s.open_project(&a, tx)),
+        Item::new("Rename", move |s, _| {
+            let current = s.home.projects.iter().find(|p| p.id == b).map(|p| p.name.clone()).unwrap_or_default();
+            let id = b.clone();
+            crate::dialogs::prompt(s, "Rename project", "Project name", &current, "Rename", move |s, name| {
+                if let Err(err) = s.store.rename_project(&id, name.trim()) {
+                    crate::toasts::show(s, format!("Couldn't rename: {err}"));
+                }
+                s.refresh_home();
+            });
+        }),
+        Item::new("Show in folder", move |s, _| {
+            let folder = s.store.project_directory(&c);
+            if let Err(err) = crate::media::reveal(&folder.join("project.json").to_string_lossy()) {
+                crate::toasts::show(s, err);
+            }
+        }),
+        Item::Separator,
+        Item::new("Delete project…", move |s, _| {
+            let name = s.home.projects.iter().find(|p| p.id == d).map(|p| p.name.clone()).unwrap_or_default();
+            let id = d.clone();
+            crate::dialogs::confirm(s, "Delete project", &format!("Delete \u{201c}{name}\u{201d}? Its folder and everything Fig made for it go; your original media files stay."), "Delete", true, move |s| {
+                let _ = s.store.delete_project(&id);
+                s.refresh_home();
+            });
         })
+        .danger(),
+    ];
+    crate::menu::open(app, crate::menu::Popup::at(x, y, items));
 }
 
-fn status_bar(t: &Tokens) -> El {
-    row()
-        .w_full()
-        .h(28.0)
-        .center_y()
-        .child(hint("Enter", "Open project", t))
-        .child(el().w(14.0))
-        .child(text("/").font(font(11.0, 400.0)).color(t.text_faint))
-        .child(el().w(14.0))
-        .child(hint("", "Search", t))
-        .child(el().w(14.0))
-        .child(hint("Ctrl+N", "New project", t))
-        .child(el().grow(1.0))
+fn new_project(app: &mut AppState) {
+    crate::dialogs::prompt(app, "New project", "Project name", "Untitled", "Create", |s, name| {
+        // the dialog's handler has no Tx to open a window state with: the next poll opens it
+        s.pending_new_project = Some(name.to_string());
+    });
 }
 
-fn hint(key: &str, label: &str, t: &Tokens) -> El {
-    row()
-        .gap(6.0)
-        .center_y()
-        .child(text(key).font(font(11.0, 500.0)).color(t.text_secondary))
-        .child(text(label).font(font(11.0, 400.0)).color(t.text_muted))
+fn import_dialog(app: &mut AppState, tx: &mut Tx) {
+    let _ = app;
+    let options = rune::file_dialog::FileDialogOptions { title: "Import Project".into(), ..Default::default() }
+        .filter("Fig package or OpenTimelineIO", &["figpck", "otio"]);
+    tx.open_file(options, |s: &mut AppState, r, tx| {
+        let Ok(Some(path)) = r else { return };
+        if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("otio")) {
+            import_otio(s, &path, tx);
+        } else {
+            import_package(s, path);
+        }
+    });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Unpacks a .figpck into a new project, in the background, then refreshes Home.
+pub fn import_package(app: &mut AppState, path: PathBuf) {
+    let root = app.store.root().to_path_buf();
+    crate::toasts::show(app, "Unpacking the project…");
+    crate::app::spawn(
+        move || ProjectStore::new(root).unpack(&path, &mut |_| {}).map_err(|e| e.to_string()),
+        |s, r| match r {
+            Ok(_) => {
+                s.refresh_home();
+                crate::toasts::show(s, "Project imported");
+            }
+            Err(err) => crate::toasts::show(s, format!("Couldn't import the package: {err}")),
+        },
+    );
+}
 
-    #[test]
-    fn durations_match_the_csharp_formatting() {
-        assert_eq!(format_duration(0.0), "Empty");
-        assert_eq!(format_duration(29.4), "0:29");
-        assert_eq!(format_duration(95.6), "1:36");
-        assert_eq!(format_duration(3661.0), "1:01:01");
+fn import_otio(app: &mut AppState, path: &std::path::Path, tx: &mut Tx) {
+    match fig_project::otio::import_file(path) {
+        Ok(import) => {
+            let name = path.file_stem().map_or("Imported".into(), |s| s.to_string_lossy().into_owned());
+            match app.store.create_project(&name) {
+                Ok(id) => {
+                    let mut project = import.project;
+                    project.id = id.clone();
+                    project.name = name;
+                    if let Err(err) = app.store.save_project(&mut project) {
+                        crate::toasts::show(app, format!("Couldn't save the imported project: {err}"));
+                        return;
+                    }
+                    if !import.warnings.is_empty() {
+                        crate::toasts::show(app, format!("Imported with {} warning(s)", import.warnings.len()));
+                    }
+                    app.open_project(&id, tx);
+                }
+                Err(err) => crate::toasts::show(app, format!("Couldn't create the project: {err}")),
+            }
+        }
+        Err(err) => crate::toasts::show(app, format!("Couldn't read the timeline: {err}")),
     }
+}
 
-    #[test]
-    fn last_edited_matches_the_csharp_labels() {
-        use chrono::TimeZone;
-        let now = Local::now();
-        let just_now = format_last_edited((now - chrono::Duration::seconds(5)).fixed_offset(), now);
-        assert_eq!(just_now, "Just now");
-        let minutes = format_last_edited((now - chrono::Duration::minutes(4)).fixed_offset(), now);
-        assert_eq!(minutes, "4 min ago");
-        let yesterday = format_last_edited((now - chrono::Duration::days(1)).fixed_offset(), now);
-        assert_eq!(yesterday, "Yesterday");
+/// Home's keys: Ctrl+N new project.
+pub fn key(app: &mut AppState, ev: &KeyEvent, _tx: &mut Tx) -> bool {
+    if ev.key == rune::Key::Command('n') {
+        new_project(app);
+        return true;
     }
+    false
 }

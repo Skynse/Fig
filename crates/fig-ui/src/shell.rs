@@ -1,315 +1,216 @@
-//! The shell: the undecorated window's app-drawn title bar and the menu dropdowns.
-//!
-//! The C# window has `WindowDecorations="None"`; `TitleBar.axaml` draws the brand, File/Edit/View/
-//! Help, the save status, the panel toggles, Export and the window buttons, and the strip moves the
-//! window (inventory §1.3–§1.4). Rune draws the same strip and takes the drag with `El::window_drag`.
+//! The title bar (`TitleBar.axaml`): the app icon and menus on the left, the project's name and save status in the
+//! middle, project actions and the window buttons on the right. Empty space drags the window.
 
-use rune::{Tx, col, el, icon, row, text, El};
+use rune::{Color, El, Tx, el, icon, row, text};
 
-use crate::app::{AppState, Menu, Route};
+use crate::app::{AppState, Route};
+use crate::commands::Command;
 use crate::icons;
-use crate::theme::{font, Tokens, TITLEBAR_H};
+use crate::menu::Item;
+use crate::theme::{Tokens, font, hex};
 
-const BRAND_TILE: &str = "#7a3596";
-
-fn menu_label(label: &str, menu: Menu, t: &Tokens) -> El {
-    text(label)
-        .key(format!("menu.{label}"))
-        .font(font(13.0, 400.0))
-        .color(t.text_secondary)
+fn menu_button(name: &'static str, t: &Tokens, build: fn(&AppState) -> Vec<Item>) -> El {
+    let key = format!("menu.{name}");
+    let k = key.clone();
+    el().key(key)
+        .h(30.0)
+        .px(11.0)
+        .radius(8.0)
+        .hover(t.chip_bg)
+        .center()
+        .no_window_drag()
+        .child(text(name).font(font(13.0, 400.0)).color(t.text_secondary))
         .on_press(move |s: &mut AppState| {
-            s.menu = if s.menu == Some(menu) { None } else { Some(menu) };
+            let items = build(s);
+            crate::menu::open_below(s, &k, items);
         })
 }
 
-pub fn title_bar(state: &AppState, t: &Tokens) -> El {
-    let brand = row()
-        .gap(8.0)
+fn file_menu(app: &AppState) -> Vec<Item> {
+    let editing = app.editor.is_some();
+    vec![
+        Item::command(app, "Import…", Command::Import).enabled(editing),
+        Item::command(app, "Save", Command::Save).enabled(editing),
+        Item::command(app, "Save as…", Command::SaveAs).enabled(editing),
+        Item::command(app, "Save as package…", Command::SavePackage).enabled(editing),
+        Item::Separator,
+        Item::command(app, "Export…", Command::Export).enabled(editing),
+        Item::command(app, "Export marked ranges…", Command::ExportRanges).enabled(editing),
+        Item::command(app, "Export captions (SRT, TXT)…", Command::ExportCaptions).enabled(editing),
+        Item::Separator,
+        Item::command(app, "Preferences…", Command::Preferences),
+        Item::command(app, "Close project", Command::CloseProject).enabled(editing),
+        Item::command(app, "Exit", Command::Exit),
+    ]
+}
+
+fn edit_menu(app: &AppState) -> Vec<Item> {
+    let Some(e) = app.editor.as_ref() else { return vec![Item::new("Open a project to edit", |_, _| {}).enabled(false)] };
+    let magnet = e.doc().main_track_magnet;
+    let blade = e.tool == crate::editor::Tool::Blade;
+    vec![
+        Item::command(app, "Undo", Command::Undo).enabled(e.ed.can_undo()),
+        Item::command(app, "Redo", Command::Redo).enabled(e.ed.can_redo()),
+        Item::Separator,
+        Item::command(app, "Cut", Command::Cut),
+        Item::command(app, "Copy", Command::Copy),
+        Item::command(app, "Paste", Command::Paste),
+        Item::command(app, "Duplicate", Command::Duplicate),
+        Item::Separator,
+        Item::command(app, "Split at playhead", Command::Split),
+        Item::command(app, "Split every track", Command::SplitAll),
+        Item::command(app, "Delete before the playhead", Command::TrimStart),
+        Item::command(app, "Delete after the playhead", Command::TrimEnd),
+        Item::command(app, "Freeze frame", Command::Freeze),
+        Item::command(app, "Ripple delete", Command::RippleDelete),
+        Item::command(app, "Lift delete", Command::LiftDelete),
+        Item::command(app, "Enable / disable", Command::ToggleEnabled),
+        Item::command(app, "Group clips", Command::Group),
+        Item::command(app, "Ungroup clips", Command::Ungroup),
+        Item::Separator,
+        Item::command(app, "Main track magnet", Command::Magnet).checked(magnet),
+        Item::command(app, "Blade tool", Command::BladeTool).checked(blade),
+        Item::Separator,
+        Item::command(app, "Add marker at playhead", Command::AddMarker),
+        Item::command(app, "Create ranges from bookmarks…", Command::RangesFromBookmarks),
+        Item::command(app, "Delete marker", Command::DeleteMarker),
+        Item::Separator,
+        Item::command(app, "Auto captions…", Command::AutoCaptions),
+    ]
+}
+
+fn view_menu(app: &AppState) -> Vec<Item> {
+    let Some(e) = app.editor.as_ref() else { return vec![Item::new("Open a project first", |_, _| {}).enabled(false)] };
+    vec![
+        Item::command(app, "Media panel", Command::MediaPanel).checked(!e.panels.left_collapsed),
+        Item::command(app, "Inspector", Command::Inspector).checked(!e.panels.right_collapsed),
+        Item::command(app, "Reset layout", Command::ResetLayout),
+        Item::Separator,
+        Item::command(app, "Audio scrubbing", Command::AudioScrub).checked(e.audio_scrub),
+        Item::command(app, "Loop playback", Command::Loop).checked(e.loop_playback),
+        Item::Separator,
+        Item::command(app, "Zoom to fit sequence", Command::ZoomFit),
+        Item::command(app, "Zoom in", Command::ZoomIn),
+        Item::command(app, "Zoom out", Command::ZoomOut),
+        Item::command(app, "Fit tracks", Command::FitTracks),
+        Item::command(app, "Taller tracks", Command::TallerTracks),
+        Item::command(app, "Shorter tracks", Command::ShorterTracks),
+    ]
+}
+
+fn help_menu(app: &AppState) -> Vec<Item> {
+    vec![Item::command(app, "Keyboard shortcuts", Command::Shortcuts)]
+}
+
+fn bar_button(i: &'static rune::Icon, tip: &str, on: bool, t: &Tokens) -> El {
+    el().w(32.0)
+        .h(32.0)
+        .radius(8.0)
+        .fill(if on { t.accent_softer } else { Color::TRANSPARENT })
+        .hover(t.chip_bg)
+        .center()
+        .no_window_drag()
+        .help(tip.to_string())
+        .child(icon(i, 16.0).color(t.text_secondary))
+}
+
+fn caption(i: &'static rune::Icon, size: f32, close: bool, t: &Tokens) -> El {
+    el().w(42.0)
+        .h(30.0)
+        .radius(8.0)
+        .hover(if close { hex("#d9534f") } else { t.chip_bg })
+        .center()
+        .no_window_drag()
+        .child(icon(i, size).color(t.text_secondary))
+}
+
+pub fn title_bar(app: &AppState, t: &Tokens) -> El {
+    let left = row()
+        .gap(2.0)
+        .pl(12.0)
         .center_y()
         .child(
             el().w(22.0)
                 .h(22.0)
+                .mr(10.0)
                 .radius(6.0)
-                .fill(crate::theme::hex(BRAND_TILE))
-                .child(
-                    rune::canvas(rune::Shape::new().fill(vec![[0.0, 0.0], [7.0, 4.0], [0.0, 8.0]], rune::Color::WHITE))
-                        .absolute(8.0, 7.0)
-                        .w(7.0)
-                        .h(8.0),
-                ),
+                .fill(hex("#7a3596"))
+                .center()
+                .child(text("f").font(font(14.0, 800.0)).color(Color::WHITE)),
         )
-        .child(text("fig").font(font(12.5, 600.0)).color(t.text_primary));
+        .child(menu_button("File", t, file_menu))
+        .child(menu_button("Edit", t, edit_menu))
+        .child(menu_button("View", t, view_menu))
+        .child(menu_button("Help", t, help_menu));
 
-    let menus = row()
-        .gap(18.0)
-        .center_y()
-        .child(menu_label("File", Menu::File, t))
-        .child(menu_label("Edit", Menu::Edit, t))
-        .child(menu_label("View", Menu::View, t))
-        .child(menu_label("Help", Menu::Help, t));
-
-    let center = if state.route == Route::Home {
-        text("fig").font(font(11.0, 400.0)).color(t.text_muted)
-    } else {
-        text(state.save_status()).font(font(11.0, 400.0)).color(t.text_muted)
+    let center = match (app.route, app.editor.as_ref()) {
+        (Route::Editor, Some(e)) => row()
+            .gap(10.0)
+            .center_y()
+            .inert()
+            .child(text(e.project.name.clone()).font(font(13.0, 600.0)).color(t.text_primary).truncate().max_w(360.0))
+            .child(text(e.save.text(e.is_dirty())).font(font(12.0, 400.0)).color(t.text_muted)),
+        _ => row().inert().child(text("fig").font(font(13.0, 400.0)).color(t.text_muted)),
     };
 
-    let toggles = row()
-        .gap(6.0)
-        .center_y()
-        .child(crate::widgets::icon_button(&icons::GRID_2X2, 15.0, t.text_secondary))
-        .child(crate::widgets::icon_button(&icons::LIST, 15.0, t.text_secondary))
-        .child(
-            el().w(34.0)
-                .h(26.0)
-                .radius(6.0)
-                .border(1.0, t.border)
-                .center()
-                .child(icon(&icons::PANEL_LEFT, 15.0).color(if state.editor.as_ref().is_some_and(|e| e.left_collapsed) {
-                    t.text_faint
-                } else {
-                    t.text_secondary
-                }))
-                .on_press(|s: &mut AppState| {
-                    let editor = s.editor();
-                    editor.left_collapsed = !editor.left_collapsed;
-                    s.save_workspace();
-                }),
-        )
-        .child(
-            el().w(34.0)
-                .h(26.0)
-                .radius(6.0)
-                .border(1.0, t.border)
-                .center()
-                .child(icon(&icons::PANEL_RIGHT, 15.0).color(if state.editor.as_ref().is_some_and(|e| e.right_collapsed) {
-                    t.text_faint
-                } else {
-                    t.text_secondary
-                }))
-                .on_press(|s: &mut AppState| {
-                    let editor = s.editor();
-                    editor.right_collapsed = !editor.right_collapsed;
-                    s.save_workspace();
-                }),
-        );
+    let mut right = row().gap(4.0).pr(6.0).center_y();
+    if let (Route::Editor, Some(e)) = (app.route, app.editor.as_ref()) {
+        let active = app.jobs.active();
+        right = right
+            .child(bar_button(&icons::LAYOUT_GRID, "All projects (Ctrl+W)", false, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| s.close_project(tx)))
+            .child(
+                bar_button(&icons::LIST_CHECKS, "Export jobs", false, t)
+                    .children((active > 0).then(|| {
+                        el().absolute(20.0, 3.0)
+                            .min_w(14.0)
+                            .h(14.0)
+                            .px(3.0)
+                            .radius(7.0)
+                            .fill(t.accent)
+                            .center()
+                            .child(text(active.to_string()).font(font(9.0, 700.0)).color(t.on_accent))
+                    }))
+                    .on_press(|s: &mut AppState| s.dialog = Some(crate::dialogs::Dialog::Jobs)),
+            )
+            .child(bar_button(&icons::PANEL_LEFT, "Media panel (Ctrl+1)", !e.panels.left_collapsed, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
+                crate::actions::run(s, Command::MediaPanel, tx)
+            }))
+            .child(bar_button(&icons::PANEL_RIGHT, "Inspector (Ctrl+2)", !e.panels.right_collapsed, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
+                crate::actions::run(s, Command::Inspector, tx)
+            }))
+            .child(
+                row()
+                    .h(32.0)
+                    .px(14.0)
+                    .gap(6.0)
+                    .ml(4.0)
+                    .mr(8.0)
+                    .radius(9.0)
+                    .fill(t.accent)
+                    .hover(hex("#8bb8ff"))
+                    .center()
+                    .no_window_drag()
+                    .child(icon(&icons::UPLOAD, 14.0).color(t.on_accent))
+                    .child(text("Export").font(font(13.0, 600.0)).color(t.on_accent))
+                    .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::Export, tx)),
+            );
+    }
+    right = right
+        .child(caption(&icons::MINUS, 14.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.minimize()))
+        .child(caption(&icons::SQUARE, 12.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized()))
+        .child(caption(&icons::X, 14.0, true, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
+            s.close_project(tx);
+            tx.quit();
+        }));
 
-    let export = el()
-        .key("title.export")
-        .w(86.0)
-        .h(30.0)
-        .radius(8.0)
-        .fill(t.accent)
-        .center()
-        .child(text("Export").font(font(13.0, 600.0)).color(t.on_accent))
-        .on_press(|s: &mut AppState| s.dialogs.open_export());
-
-    let window_buttons = row()
-        .center_y()
-        .child(
-            crate::widgets::icon_button(&icons::MINUS, 13.0, t.text_secondary)
-                .on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.minimize()),
-        )
-        .child(
-            crate::widgets::icon_button(&icons::SQUARE, 11.0, t.text_secondary)
-                .on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized()),
-        )
-        .child(
-            crate::widgets::icon_button(&icons::X, 13.0, t.text_secondary)
-                .on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.close_window()),
-        );
-
-    let mut bar = row()
+    row()
+        .key("titlebar")
         .w_full()
-        .h(TITLEBAR_H)
-        .fill(t.surface_bg)
-        .padding(12.0)
+        .h(crate::theme::TITLEBAR_H)
         .center_y()
         .window_drag()
-        .child(brand)
-        .child(el().w(20.0))
-        .child(menus)
-        .child(el().grow(1.0))
+        .on_double_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized())
+        .child(el().grow(1.0).min_w(0.0).child(left))
         .child(center)
-        .child(el().grow(1.0));
-    if state.route == Route::Editor {
-        bar = bar.child(toggles).child(el().w(12.0)).child(export).child(el().w(8.0));
-    }
-    bar.child(window_buttons)
-}
-
-fn item(label: &str, shortcut: &str, t: &Tokens, action: fn(&mut AppState)) -> El {
-    row()
-        .w_full()
-        .h(30.0)
-        .radius(8.0)
-        .padding(10.0)
-        .center_y()
-        .child(text(label).font(font(13.0, 400.0)).color(t.text_primary))
-        .child(el().grow(1.0))
-        .child(text(shortcut).font(font(11.0, 400.0)).color(t.text_faint))
-        .on_press(move |s: &mut AppState| {
-            action(s);
-            s.menu = None;
-        })
-}
-
-/// A menu item that only applies while a project is open (Home has no timeline to edit).
-fn item_editor(label: &str, shortcut: &str, t: &Tokens, action: fn(&mut AppState)) -> El {
-    row()
-        .w_full()
-        .h(30.0)
-        .radius(8.0)
-        .padding(10.0)
-        .center_y()
-        .child(text(label).font(font(13.0, 400.0)).color(t.text_primary))
-        .child(el().grow(1.0))
-        .child(text(shortcut).font(font(11.0, 400.0)).color(t.text_faint))
-        .on_press(move |s: &mut AppState| {
-            if !s.has_editor() {
-                s.toasts.show("Open a project first");
-            } else {
-                action(s);
-            }
-            s.menu = None;
-        })
-}
-
-fn separator(t: &Tokens) -> El {
-    el().w_full().h(1.0).fill(t.border).padding(0.0).child(el().w_full().h(1.0))
-}
-
-/// The open menu's dropdown, drawn under its title-bar item.
-pub fn menu_dropdown(state: &AppState, menu: Menu, t: &Tokens) -> El {
-    let (x, items): (f32, Vec<El>) = match menu {
-        Menu::File => (
-            60.0,
-            vec![
-                item("New project…", "Ctrl+N", t, |s| {
-                    s.toasts.show("New project");
-                }),
-                item("Open project…", "Ctrl+O", t, |s| {
-                    s.toasts.show("Open project");
-                }),
-                separator(t),
-                item_editor("Save", "Ctrl+S", t, |s| {
-                    let e = s.editor();
-                    e.save = crate::editor_state::SaveState::Saved;
-                    s.toasts.show("All changes saved");
-                }),
-                item_editor("Close project", "Ctrl+W", t, |s| {
-                    s.close_project();
-                }),
-                separator(t),
-                item("Preferences…", "Ctrl+,", t, |s| {
-                    s.preferences_open = true;
-                }),
-                separator(t),
-                item("Quit", "Ctrl+Q", t, |s| {
-                    s.toasts.show("Quit");
-                }),
-            ],
-        ),
-        Menu::Edit => (
-            100.0,
-            vec![
-                item_editor("Undo", "Ctrl+Z", t, |s| {
-                    s.editor().editor.undo();
-                }),
-                item_editor("Redo", "Ctrl+Y", t, |s| {
-                    s.editor().editor.redo();
-                }),
-                separator(t),
-                item_editor("Cut", "Ctrl+X", t, |s| {
-                    s.toasts.show("Cut");
-                }),
-                item_editor("Copy", "Ctrl+C", t, |s| {
-                    s.toasts.show("Copy");
-                }),
-                item_editor("Paste", "Ctrl+V", t, |s| {
-                    s.toasts.show("Paste");
-                }),
-                item_editor("Duplicate", "Ctrl+D", t, |s| {
-                    s.toasts.show("Duplicate");
-                }),
-                separator(t),
-                item_editor("Split at playhead", "Ctrl+B", t, |s| {
-                    let e = s.editor();
-                    if !e.split_at_playhead().is_empty() {
-                        e.save = crate::editor_state::SaveState::Dirty;
-                    }
-                }),
-                item_editor("Delete", "Del", t, |s| {
-                    s.editor().editor.lift_selected();
-                }),
-                separator(t),
-                item_editor("Select all", "Ctrl+A", t, |s| {
-                    s.editor().editor.select_all();
-                }),
-            ],
-        ),
-        Menu::View => (
-            145.0,
-            vec![
-                item_editor("Show media panel", "Ctrl+D1", t, |s| {
-                    let e = s.editor();
-                    e.left_collapsed = !e.left_collapsed;
-                }),
-                item_editor("Show inspector", "Ctrl+D2", t, |s| {
-                    let e = s.editor();
-                    e.right_collapsed = !e.right_collapsed;
-                }),
-                separator(t),
-                item_editor("Zoom in", "Ctrl++", t, |s| {
-                    s.editor().timeline.zoom(1.25);
-                }),
-                item_editor("Zoom out", "Ctrl+-", t, |s| {
-                    s.editor().timeline.zoom(0.8);
-                }),
-                item_editor("Fit sequence", "Shift+Z", t, |s| {
-                    let duration = s.editor().duration_sec();
-                    let width = 1000.0;
-                    s.editor().timeline.fit(duration, width);
-                }),
-                separator(t),
-                item_editor("Preferences…", "Ctrl+,", t, |s| {
-                    s.preferences_open = true;
-                }),
-            ],
-        ),
-        Menu::Help => (
-            190.0,
-            vec![
-                item("Keyboard shortcuts", "?", t, |s| {
-                    s.dialogs.open_shortcuts();
-                }),
-                item("About Fig", "", t, |s| {
-                    s.toasts.show("Fig — a simple open-source video editor");
-                }),
-            ],
-        ),
-    };
-
-    col()
-        .absolute(x, 42.0)
-        .w(240.0)
-        .padding(6.0)
-        .gap(1.0)
-        .fill(crate::theme::hex("#23252b"))
-        .radius(12.0)
-        .border(1.0, crate::theme::hex("#2f323a"))
-        .children(items)
-}
-
-/// A transparent full-window layer under an open menu/dropdown: a press anywhere else closes it.
-pub fn menu_scrim(_t: &Tokens) -> El {
-    el().absolute(0.0, 0.0)
-        .w_full()
-        .h_full()
-        .on_press(|s: &mut AppState| {
-            s.menu = None;
-            if let Some(editor) = s.editor.as_mut() {
-                editor.context_menu = None;
-            }
-        })
+        .child(el().grow(1.0).min_w(0.0).child(row().w_full().justify_end().child(right)))
 }

@@ -761,6 +761,11 @@ impl TimelineEditor {
         });
     }
 
+    /// Names the timeline (its tab); none goes back to "Timeline N".
+    pub fn rename_timeline(&mut self, name: Option<String>) {
+        self.edit(|e| e.doc_mut().name = name);
+    }
+
     pub fn set_frame_shape(&mut self, shape: FrameShape) {
         self.edit(|e| e.doc_mut().shape = shape);
     }

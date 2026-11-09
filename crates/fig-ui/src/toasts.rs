@@ -1,60 +1,51 @@
-//! Toasts: the small bottom-centre messages (`ToastHost.axaml`, inventory §1.5).
-//!
-//! The C# host stacks them over the workspace, each for a few seconds. The port keeps the same
-//! look; timing lands with the shell polish phase.
+//! Toasts: short messages stacked at the top right, each for a few seconds (`ToastHost.axaml`).
 
-use rune::{col, el, text, El};
+use std::time::{Duration, Instant};
 
-use crate::theme::{font, Tokens};
+use rune::{El, col, el, text};
 
-pub struct Toast {
-    pub message: String,
-    /// Seconds of runtime time when it was raised (drives the fade-out once timed).
-    pub born: f64,
-}
+use crate::app::AppState;
+use crate::theme::{Tokens, font, hex};
 
-const TOAST_SECONDS: f64 = 2.8;
+const LIFETIME: Duration = Duration::from_millis(3200);
 
 #[derive(Default)]
 pub struct Toasts {
-    pub items: Vec<Toast>,
-    /// Seconds of app time, advanced by [`tick`](Self::tick).
-    pub clock: f64,
+    items: Vec<(String, Instant)>,
 }
 
 impl Toasts {
-    pub fn new() -> Toasts {
-        Toasts { items: Vec::new(), clock: 0.0 }
-    }
-
-    pub fn show(&mut self, message: impl Into<String>) {
-        self.items.push(Toast { message: message.into(), born: self.clock });
-        if self.items.len() > 4 {
-            self.items.remove(0);
-        }
-    }
-
-    /// Ages the stack; true when a toast expired (the frame must redraw).
-    pub fn tick(&mut self, dt: f64) -> bool {
-        self.clock += dt;
+    /// Drops expired toasts; true when one went (the view must redraw).
+    pub fn expire(&mut self) -> bool {
         let before = self.items.len();
-        let clock = self.clock;
-        self.items.retain(|toast| clock - toast.born < TOAST_SECONDS);
+        self.items.retain(|(_, born)| born.elapsed() < LIFETIME);
         self.items.len() != before
+    }
+
+    pub fn any(&self) -> bool {
+        !self.items.is_empty()
     }
 }
 
-pub fn overlay(toasts: &Toasts, t: &Tokens) -> El {
-    let mut stack = col().absolute(0.0, 0.0).w_full().h_full().justify_end().center_y().padding(18.0).gap(6.0);
-    for toast in &toasts.items {
+pub fn show(app: &mut AppState, message: impl Into<String>) {
+    app.toasts.items.push((message.into(), Instant::now()));
+    if app.toasts.items.len() > 4 {
+        app.toasts.items.remove(0);
+    }
+}
+
+pub fn overlay(app: &AppState, t: &Tokens) -> El {
+    let _ = t;
+    let mut stack = col().absolute(0.0, 0.0).w_full().items_end().pt(62.0).pr(16.0).gap(8.0).inert();
+    for (message, _) in &app.toasts.items {
         stack = stack.child(
-            el().h(30.0)
-                .padding(14.0)
+            el().px(14.0)
+                .py(10.0)
+                .max_w(420.0)
                 .radius(6.0)
-                .fill(crate::theme::hex("#26282d"))
-                .border(1.0, crate::theme::hex("#34373c"))
-                .center()
-                .child(text(toast.message.clone()).font(font(13.0, 400.0)).color(crate::theme::hex("#eeeeee"))),
+                .fill(hex("#2a2a2b"))
+                .border(1.0, hex("#4da3ff"))
+                .child(text(message.clone()).font(font(13.0, 400.0)).color(hex("#eeeeee")).wrap()),
         );
     }
     stack
