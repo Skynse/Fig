@@ -17,7 +17,15 @@ pub type OnName = Rc<dyn Fn(&mut AppState, &str)>;
 
 pub enum Dialog {
     Prompt { title: String, label: String, edit: TextEdit, confirm: String, on_ok: OnName },
-    Confirm { title: String, message: String, confirm: String, danger: bool, on_ok: Rc<dyn Fn(&mut AppState)> },
+    Confirm {
+        title: String,
+        message: String,
+        confirm: String,
+        danger: bool,
+        on_ok: Rc<dyn Fn(&mut AppState)>,
+        /// A third choice beside Cancel and the confirm button (Discard).
+        alt: Option<(String, Rc<dyn Fn(&mut AppState)>)>,
+    },
     Shortcuts,
     Jobs,
     Bookmarks { include_bounds: bool },
@@ -34,7 +42,27 @@ pub fn prompt(app: &mut AppState, title: &str, label: &str, initial: &str, confi
 }
 
 pub fn confirm(app: &mut AppState, title: &str, message: &str, confirm: &str, danger: bool, on_ok: impl Fn(&mut AppState) + 'static) {
-    app.dialog = Some(Dialog::Confirm { title: title.into(), message: message.into(), confirm: confirm.into(), danger, on_ok: Rc::new(on_ok) });
+    app.dialog = Some(Dialog::Confirm { title: title.into(), message: message.into(), confirm: confirm.into(), danger, on_ok: Rc::new(on_ok), alt: None });
+}
+
+/// [`confirm`] with a third choice, drawn as a danger button between Cancel and the confirm button.
+pub fn choose(
+    app: &mut AppState,
+    title: &str,
+    message: &str,
+    confirm: &str,
+    on_ok: impl Fn(&mut AppState) + 'static,
+    alt: &str,
+    on_alt: impl Fn(&mut AppState) + 'static,
+) {
+    app.dialog = Some(Dialog::Confirm {
+        title: title.into(),
+        message: message.into(),
+        confirm: confirm.into(),
+        danger: false,
+        on_ok: Rc::new(on_ok),
+        alt: Some((alt.into(), Rc::new(on_alt))),
+    });
 }
 
 pub fn close(app: &mut AppState) {
@@ -84,11 +112,23 @@ pub fn overlay(app: &AppState, dialog: &Dialog, t: &Tokens) -> El {
                     .on_submit(|s: &mut AppState, _tx: &mut Tx| submit_prompt(s)),
             )
             .child(row().w_full().gap(8.0).justify_end().child(widgets::button("Cancel", Kind::Normal, t).on_press(close)).child(widgets::button(confirm.clone(), Kind::Primary, t).on_press(submit_prompt))),
-        Dialog::Confirm { title, message, confirm, danger, .. } => card(400.0, t)
+        Dialog::Confirm { title, message, confirm, danger, alt, .. } => card(400.0, t)
             .child(title_row(title.clone(), t))
             .child(text(message.clone()).font(font(13.0, 400.0)).color(t.text_secondary).wrap())
             .child(
-                row().w_full().gap(8.0).justify_end().child(widgets::button("Cancel", Kind::Normal, t).on_press(close)).child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(widgets::button("Cancel", Kind::Normal, t).on_press(close))
+                    .children(alt.as_ref().map(|(label, _)| {
+                        widgets::button(label.clone(), Kind::Danger, t).on_press(|s: &mut AppState| {
+                            if let Some(Dialog::Confirm { alt: Some((_, f)), .. }) = s.dialog.take() {
+                                f(s);
+                            }
+                        })
+                    }))
+                    .child(
                     widgets::button(confirm.clone(), if *danger { Kind::Danger } else { Kind::Primary }, t).on_press(|s: &mut AppState| {
                         if let Some(Dialog::Confirm { on_ok, .. }) = s.dialog.take() {
                             on_ok(s);

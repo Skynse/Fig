@@ -17,8 +17,11 @@ pub fn run(app: &mut AppState, command: Command, tx: &mut Tx) {
             return;
         }
         Exit => {
-            app.close_project(tx);
-            tx.quit();
+            if app.editor.is_some() {
+                app.leave_project(true, tx);
+            } else {
+                tx.quit();
+            }
             return;
         }
         Shortcuts => {

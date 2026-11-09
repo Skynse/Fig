@@ -198,10 +198,7 @@ pub fn title_bar(app: &AppState, t: &Tokens) -> El {
     right = right
         .child(caption(&icons::MINUS, 14.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.minimize()))
         .child(caption(&icons::SQUARE, 12.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized()))
-        .child(caption(&icons::X, 14.0, true, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
-            s.close_project(tx);
-            tx.quit();
-        }));
+        .child(caption(&icons::X, 14.0, true, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::Exit, tx)));
 
     row()
         .key("titlebar")

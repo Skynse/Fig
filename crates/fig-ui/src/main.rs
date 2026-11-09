@@ -15,6 +15,7 @@ mod keys;
 mod library;
 mod media;
 mod menu;
+mod overlays;
 mod playback;
 mod preferences;
 mod preview;
@@ -69,6 +70,8 @@ fn main() {
     };
     let app = App::new(spec)
         .on_modifiers(|s: &mut AppState, mods: rune::Mods, _tx: &mut Tx| s.mods = mods)
+        // the window manager's close can't wait for an answer: keep the changes
+        .on_close(|s: &mut AppState, _tx: &mut Tx| s.close_project_quietly())
         .window_options(WindowOptions { borderless: true, min_size: Some((theme::WINDOW_MIN_W, theme::WINDOW_MIN_H)), ..Default::default() });
     app::set_handle(app.handle());
     app.run();

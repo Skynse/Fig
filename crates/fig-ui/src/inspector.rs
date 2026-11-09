@@ -13,7 +13,8 @@ use crate::editor::Editor;
 use crate::icons;
 use crate::menu::Item;
 use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets::{self, Kind};
+use crate::widgets::{self, Kind, OnValue};
+use indexmap::IndexMap;
 
 #[derive(Default)]
 pub struct InspectorState {
@@ -591,9 +592,13 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
                         e.ed.remove_effect(&o2, &id2);
                     }
                 }))
-                .on_press(move |s: &mut AppState| {
-                    if let Some(e) = s.editor.as_mut() {
-                        e.inspector.effect = Some(id3.clone());
+                .on_press({
+                    let owner = owner.clone();
+                    move |s: &mut AppState| {
+                        if let Some(e) = s.editor.as_mut() {
+                            e.inspector.effect = Some(id3.clone());
+                            e.ed.selection.select_effect(&owner, &id3);
+                        }
                     }
                 }),
         );
@@ -604,6 +609,9 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         let start = e.ed.find_clip(&owner).map_or(0.0, |c| c.start_sec);
         let local = e.playhead - start;
         let values = fig_fx::effects::current_numeric_values(fx, local);
+        if fx.type_id == fig_fx::effects::ids::TRANSFORM {
+            c = c.child(camera_card(app, e, &owner, fx, t));
+        }
         let mut card = col().w_full().padding(10.0).gap(4.0).radius(8.0).fill(t.card_bg_alt).child(text(entry.display_name.clone()).font(font(12.0, 600.0)).color(t.accent_text));
         for def in &entry.params {
             let v = values.get(&def.key).copied().unwrap_or(def.default);
@@ -867,4 +875,143 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
                     }
                 })),
         )
+}
+
+/// The Transform effect's camera (`TransformControlsViewModel`): its keyframes at the playhead, zoom and turn, and
+/// the steps a zoom edit is made of. The frame itself is dragged on the preview.
+fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::EffectInstance, t: &Tokens) -> El {
+    use crate::overlays::{edit_time, keyframe_times, set_camera};
+    let origin = e.ed.find_clip(owner).map_or(0.0, |c| c.start_sec);
+    let span = e.ed.find_clip(owner).map_or(f64::INFINITY, |c| c.dur_sec);
+    let time = edit_time(e, fx, origin);
+    let view = fig_fx::effects::transform_view_at(fx, time);
+    let times = keyframe_times(fx);
+    let on_key = times.iter().any(|k| (k - time).abs() < 1e-6);
+    let animated = !times.is_empty();
+    let summary = match times.len() {
+        0 => "Not animated".to_string(),
+        1 => "1 keyframe".to_string(),
+        n => format!("{n} keyframes"),
+    };
+    let hint = if !animated {
+        "The same look throughout the effect. Press the stopwatch to animate it."
+    } else if on_key {
+        "Editing this keyframe. Drag the frame or change a value."
+    } else {
+        "Move the playhead and drag the frame on the preview to add a keyframe there."
+    };
+    let (o, f) = (owner.to_string(), fx.id.clone());
+    let act = move |run: fn(&mut AppState, &str, &str, f64, f64)| {
+        let (o, f) = (o.clone(), f.clone());
+        move |s: &mut AppState| run(s, &o, &f, origin, span)
+    };
+    let step = |forward: bool| {
+        let times = times.clone();
+        move |s: &mut AppState| {
+            let target = if forward { times.iter().find(|k| **k > time + 1e-6) } else { times.iter().rev().find(|k| **k < time - 1e-6) };
+            if let Some(k) = target {
+                crate::editor::seek(s, origin + k, false);
+            }
+        }
+    };
+    let zoom: OnValue = Rc::new(|s: &mut AppState, v: f64, phase: Phase| {
+        if let Some(e) = s.editor.as_mut()
+            && let Some((_, fx, origin)) = crate::overlays::selected_transform(e)
+        {
+            let view = fig_fx::effects::transform_view_at(&fx, edit_time(e, &fx, origin));
+            set_camera(e, view.center_x, view.center_y, v, None);
+            if phase == Phase::Up {
+                e.ed.break_coalescing();
+            }
+        }
+    });
+    let turn: OnValue = Rc::new(|s: &mut AppState, v: f64, phase: Phase| {
+        if let Some(e) = s.editor.as_mut()
+            && let Some((_, fx, origin)) = crate::overlays::selected_transform(e)
+        {
+            let view = fig_fx::effects::transform_view_at(&fx, edit_time(e, &fx, origin));
+            set_camera(e, view.center_x, view.center_y, view.zoom, Some(v));
+            if phase == Phase::Up {
+                e.ed.break_coalescing();
+            }
+        }
+    });
+    let mut card = col()
+        .w_full()
+        .padding(10.0)
+        .gap(6.0)
+        .radius(8.0)
+        .fill(t.card_bg_alt)
+        .child(
+            row()
+                .w_full()
+                .gap(4.0)
+                .center_y()
+                .child(text("Camera").font(font(12.0, 600.0)).color(t.accent_text).grow(1.0))
+                .child(text(summary).font(font(11.0, 400.0)).color(t.text_muted)),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(4.0)
+                .center_y()
+                .child(widgets::toggle_button(&icons::TIMER, animated, 26.0, t).help("Record a keyframe at the playhead. Keyframes you already have stay.").on_press(act(|s, o, f, origin, span| {
+                    if let Some(e) = s.editor.as_mut() {
+                        let at = (e.playhead - origin).clamp(0.0, span);
+                        e.ed.record_effect_keyframe(o, f, at);
+                    }
+                })))
+                .child(widgets::icon_button(&icons::CHEVRON_LEFT, 14.0, 26.0, t).help("Previous keyframe").on_press(step(false)))
+                .child(widgets::toggle_button(&icons::DIAMOND, on_key, 26.0, t).help("Add a keyframe at the playhead, or remove the one here").on_press(act(|s, o, f, origin, _| {
+                    let Some(e) = s.editor.as_mut() else { return };
+                    let Some(fx) = e.ed.find_effect(o, f).cloned() else { return };
+                    let at = edit_time(e, &fx, origin);
+                    if fx.keyframes.is_empty() {
+                        e.ed.record_effect_keyframe(o, f, at);
+                    } else if keyframe_times(&fx).iter().any(|k| (k - at).abs() < 1e-6) {
+                        e.ed.remove_effect_keyframe(o, f, at);
+                    } else {
+                        e.ed.add_effect_keyframe(o, f, at);
+                    }
+                })))
+                .child(widgets::icon_button(&icons::CHEVRON_RIGHT, 14.0, 26.0, t).help("Next keyframe").on_press(step(true)))
+                .child(el().grow(1.0))
+                .child(text(e.timecode(origin + time)).font(mono(11.0, 400.0)).color(t.text_secondary)),
+        )
+        .child(widgets::field_row("Zoom", widgets::number_field("cam.zoom", view.zoom, format!("{:.2}×", view.zoom), 0.01, (1.0, 8.0), zoom, app, t), t))
+        .child(widgets::field_row("Rotation", widgets::number_field("cam.turn", view.rotation_degrees, format!("{:.1}°", view.rotation_degrees), 0.5, (-180.0, 180.0), turn, app, t), t))
+        .child(
+            row()
+                .w_full()
+                .gap(6.0)
+                .child(widgets::button("Back to full frame here", Kind::Normal, t).help("Add a keyframe at the playhead that zooms all the way back out").on_press(act(|s, o, f, origin, _| {
+                    let Some(e) = s.editor.as_mut() else { return };
+                    let Some(fx) = e.ed.find_effect(o, f).cloned() else { return };
+                    let at = edit_time(e, &fx, origin);
+                    let rotation = fig_fx::effects::transform_view_at(&fx, at).rotation_degrees;
+                    if fx.keyframes.is_empty() {
+                        e.ed.set_effect_animated(o, f, true, at);
+                    }
+                    let values: IndexMap<String, f64> = [("centerX", 0.5), ("centerY", 0.5), ("zoom", 1.0), ("rotation", rotation)].into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+                    e.ed.set_effect_keyframe(o, f, at, &values, None);
+                    e.ed.break_coalescing();
+                })))
+                .child(widgets::button("Preview movement", Kind::Normal, t).help("Play the animated stretch").on_press(act(|s, o, f, origin, span| {
+                    let Some(e) = s.editor.as_ref() else { return };
+                    let Some(fx) = e.ed.find_effect(o, f).cloned() else { return };
+                    let times = keyframe_times(&fx);
+                    let from = if times.len() > 1 { times[0] } else { fx.start_sec.unwrap_or(0.0) };
+                    let to = if times.len() > 1 { times[times.len() - 1] } else { from + fx.dur_sec.unwrap_or((span - from).min(5.0)) };
+                    crate::editor::play_range(s, origin + (from - 0.3).max(0.0), origin + (to + 0.3).min(span));
+                }))),
+        );
+    if animated {
+        card = card.child(widgets::button("Clear keyframes", Kind::Ghost, t).help("Remove every keyframe and keep the look at the playhead").on_press(act(|s, o, f, origin, span| {
+            if let Some(e) = s.editor.as_mut() {
+                let at = (e.playhead - origin).clamp(0.0, span);
+                e.ed.set_effect_animated(o, f, false, at);
+            }
+        })));
+    }
+    card.child(widgets::note(hint, t))
 }

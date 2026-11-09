@@ -92,6 +92,7 @@ fn well(app: &AppState, e: &Editor, t: &Tokens) -> El {
         let frame = crate::playback::render::frame_size(e.doc(), e.media());
         let rect = picture_rect(size, frame);
         w = w.children(gizmo(app, e, rect, frame, t));
+        w = w.children(crate::overlays::view(e, rect, t));
     }
     w
 }

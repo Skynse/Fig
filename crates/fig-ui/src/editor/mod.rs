@@ -63,6 +63,8 @@ pub struct Editor {
     /// J/K/L: 0 when not shuttling, else ±1, ±2, ±4, ±8.
     pub shuttle: i32,
     pub loop_playback: bool,
+    /// Playing a stretch (Preview movement): stop here.
+    pub play_until: Option<f64>,
     pub audio_scrub: bool,
     pub volume: f32,
     pub muted: bool,
@@ -130,6 +132,7 @@ impl Editor {
             playhead: 0.0,
             shuttle: 0,
             loop_playback: prefs.playback.loop_playback,
+            play_until: None,
             audio_scrub: prefs.playback.audio_scrub,
             volume: 1.0,
             muted: false,
@@ -279,6 +282,7 @@ pub fn play(app: &mut AppState, rate: f64) {
 pub fn pause(app: &mut AppState) {
     let at = app.playback.pause();
     if let Some(e) = app.editor.as_mut() {
+        e.play_until = None;
         e.shuttle = 0;
         e.playhead = e.snap_frame(at.clamp(0.0, e.duration()));
         e.publish_playhead();
@@ -295,6 +299,20 @@ pub fn toggle_play(app: &mut AppState) {
             e.shuttle = 0;
         }
         play(app, 1.0);
+    }
+}
+
+/// Plays a stretch of the timeline once, then stops at its end.
+pub fn play_range(app: &mut AppState, from: f64, to: f64) {
+    if app.playback.is_playing() {
+        pause(app);
+    }
+    let Some(e) = app.editor.as_mut() else { return };
+    e.playhead = from.max(0.0);
+    e.shuttle = 0;
+    play(app, 1.0);
+    if let Some(e) = app.editor.as_mut() {
+        e.play_until = Some(to);
     }
 }
 
@@ -338,11 +356,11 @@ pub fn tick(app: &mut AppState) -> bool {
     if !playing {
         return false;
     }
-    let end = e.duration();
+    let end = e.play_until.map_or(e.duration(), |u| u.min(e.duration()));
     let mut t = app.playback.position();
     let forward = app.playback.rate() > 0.0;
     if (forward && t >= end) || (!forward && t <= 0.0) {
-        if e.loop_playback && forward && end > 0.0 {
+        if e.loop_playback && forward && end > 0.0 && e.play_until.is_none() {
             e.playhead = 0.0;
             app.playback.seek(0.0, false, false);
             return true;
