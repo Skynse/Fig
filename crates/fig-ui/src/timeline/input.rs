@@ -450,6 +450,9 @@ pub fn on_drag(app: &mut AppState, d: &mut Drag, tx: &mut Tx) {
         Phase::Down => {
             app.popup = None;
             if tx.button() == PointerButton::Middle {
+                if app.gestures.resolve("Middle") != crate::settings::TimelineGesture::Pan {
+                    return;
+                }
                 if let Some(e) = app.editor.as_mut() {
                     e.tl.gesture = Gesture::Pan { scroll0: e.tl.scroll, x0: d.x };
                 }
@@ -1427,20 +1430,27 @@ pub fn hover(app: &mut AppState, x: f32, y: f32, tx: &mut Tx) {
 
 /// The wheel: plain scrolls the lanes, Shift scrolls sideways, Ctrl zooms about the pointer, Alt changes lane height.
 pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
+    use crate::settings::TimelineGesture as G;
     let Some(e) = app.editor.as_mut() else { return false };
     let dy = if w.dy.abs() > w.dx.abs() { w.dy } else { w.dx };
-    if w.mods.cmd {
-        let factor = if dy > 0.0 { ZOOM_STEP } else { 1.0 / ZOOM_STEP };
-        if dy.abs() > 0.0 {
-            e.tl.zoom_at(w.x.max(HEADER_W), factor);
+    // with a modifier the wheel does what gestures.json binds; plain it scrolls the lanes
+    if (w.mods.cmd || w.mods.shift || w.mods.alt) && dy.abs() > 0.0 {
+        match app.gestures.wheel(w.mods.cmd, w.mods.shift, w.mods.alt, dy > 0.0) {
+            G::ZoomIn => e.tl.zoom_at(w.x.max(HEADER_W), ZOOM_STEP),
+            G::ZoomOut => e.tl.zoom_at(w.x.max(HEADER_W), 1.0 / ZOOM_STEP),
+            G::TallerTracks => e.tl.taller(1.2),
+            G::ShorterTracks => e.tl.taller(1.0 / 1.2),
+            G::ScrollHorizontal => e.tl.set_scroll(e.tl.scroll - f64::from(dy / e.tl.pps)),
+            G::ScrollVertical => {
+                let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let max = (content_height(&lanes) - e.tl.height).max(0.0);
+                e.tl.scroll_y = (e.tl.scroll_y - dy).clamp(0.0, max);
+            }
+            _ => return false,
         }
         return true;
     }
-    if w.mods.alt {
-        e.tl.taller(if dy > 0.0 { 1.2 } else { 1.0 / 1.2 });
-        return true;
-    }
-    if w.mods.shift || w.dx.abs() > w.dy.abs() {
+    if w.dx.abs() > w.dy.abs() {
         e.tl.set_scroll(e.tl.scroll - f64::from(dy / e.tl.pps));
         return true;
     }

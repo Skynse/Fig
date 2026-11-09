@@ -377,7 +377,9 @@ impl GestureMap {
                 if binding.pattern.is_empty() {
                     continue;
                 }
-                map.bindings.insert(binding.pattern, TimelineGesture::parse(&binding.gesture));
+                if let Some(pattern) = canonical_pattern(&binding.pattern) {
+                    map.bindings.insert(pattern, TimelineGesture::parse(&binding.gesture));
+                }
             }
         }
         map.migrate_navigation_defaults();
@@ -399,7 +401,7 @@ impl GestureMap {
             ("Middle+Move", TimelineGesture::Pan),
             ("Left+Move", TimelineGesture::MoveClip),
         ] {
-            map.bindings.insert(pattern.into(), gesture);
+            map.bindings.insert(canonical_pattern(pattern).unwrap_or_default(), gesture);
         }
         map
     }
@@ -414,7 +416,19 @@ impl GestureMap {
     }
 
     pub fn resolve(&self, pattern: &str) -> TimelineGesture {
-        self.bindings.get(pattern).copied().unwrap_or(TimelineGesture::None)
+        canonical_pattern(pattern).and_then(|p| self.bindings.get(&p).copied()).unwrap_or(TimelineGesture::None)
+    }
+
+    /// What the wheel does with these modifiers (`TimelineView.OnPointerWheelChanged`).
+    pub fn wheel(&self, ctrl: bool, shift: bool, alt: bool, up: bool) -> TimelineGesture {
+        let mut p = String::new();
+        for (on, name) in [(ctrl, "Ctrl+"), (shift, "Shift+"), (alt, "Alt+")] {
+            if on {
+                p.push_str(name);
+            }
+        }
+        p.push_str(if up { "WheelUp" } else { "WheelDown" });
+        self.resolve(&p)
     }
 
     /// The bindings as `GestureRegistry.Save` writes them.
@@ -431,6 +445,37 @@ impl GestureMap {
             .collect();
         std::fs::write(path, serde_json::to_string_pretty(&list)?)
     }
+}
+
+/// A pointer pattern in `GesturePatternParser.Serialize`'s order ("Ctrl+Shift+WheelUp", "Middle"); "Move" is
+/// implied. None for an unknown token.
+pub fn canonical_pattern(pattern: &str) -> Option<String> {
+    let (mut ctrl, mut shift, mut alt) = (false, false, false);
+    let (mut wheel, mut button) = (None, None);
+    for part in pattern.split('+').map(str::trim).filter(|p| !p.is_empty()) {
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" => ctrl = true,
+            "shift" => shift = true,
+            "alt" => alt = true,
+            "wheel" => wheel = Some("Wheel"),
+            "wheelup" => wheel = Some("WheelUp"),
+            "wheeldown" => wheel = Some("WheelDown"),
+            "left" => button = Some("Left"),
+            "middle" => button = Some("Middle"),
+            "right" => button = Some("Right"),
+            "move" => {}
+            _ => return None,
+        }
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for (on, name) in [(ctrl, "Ctrl"), (shift, "Shift"), (alt, "Alt")] {
+        if on {
+            parts.push(name);
+        }
+    }
+    parts.extend(wheel);
+    parts.extend(button);
+    Some(if parts.is_empty() { "None".into() } else { parts.join("+") })
 }
 
 // ---------------- keyboard gestures (ShortcutCatalog.cs) ----------------
@@ -569,6 +614,14 @@ pub fn display_gesture(gesture: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_patterns_compare_in_one_spelling() {
+        assert_eq!(canonical_pattern("Middle+Move").as_deref(), Some("Middle"));
+        assert_eq!(canonical_pattern("wheelup+alt+ctrl").as_deref(), Some("Ctrl+Alt+WheelUp"));
+        assert_eq!(canonical_pattern("Hyper+Wheel"), None);
+        assert_eq!(GestureMap::defaults().wheel(true, false, false, true), TimelineGesture::ZoomIn);
+    }
 
     const REAL_PREFERENCES: &str = r#"{
       "SchemaVersion": 1,

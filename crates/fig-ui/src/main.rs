@@ -4,6 +4,7 @@ mod actions;
 mod app;
 mod chrome;
 mod commands;
+mod desktop;
 mod dialogs;
 mod editor;
 mod graph;
@@ -45,6 +46,12 @@ fn on_key(app: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--uninstall") {
+        desktop::remove_from_app_menu();
+        return;
+    }
+    desktop::install_crash_log();
+    desktop::on_startup();
     // Wayland reports no file drops to winit 0.30, so Fig runs through XWayland on Linux (where drops work) unless
     // FIG_WAYLAND=1 asks for native Wayland.
     #[cfg(target_os = "linux")]
