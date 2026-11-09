@@ -27,9 +27,20 @@ pub fn run(app: &mut AppState, command: Command, tx: &mut Tx) {
         }
         _ => {}
     }
-    if app.editor.is_none() {
-        return;
+    let Some(e) = app.editor.as_ref() else { return };
+    // edits that can close up a track: the clips they move slide into place
+    let slides = matches!(command, Undo | Redo | Cut | Paste | Duplicate | RippleDelete | Delete | LiftDelete)
+        .then(|| crate::timeline::starts(e.doc()));
+    edit(app, command, tx);
+    if let Some(before) = slides
+        && let Some(e) = app.editor.as_mut()
+    {
+        e.tl.slide_from(&before, e.ed.doc());
     }
+}
+
+fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
+    use Command::*;
     match command {
         Save => editor::save_now(app),
         SaveAs => crate::dialogs::save_as(app, tx),

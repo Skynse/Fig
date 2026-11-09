@@ -237,6 +237,10 @@ impl AppState {
                 tx.wake_after(std::time::Duration::from_millis(500));
             }
             changed |= crate::timeline::input::auto_scroll(e, tx);
+            if e.tl.tick_slides() {
+                tx.wake_after(std::time::Duration::from_millis(16));
+                changed = true;
+            }
         }
         if self.toasts.any() {
             changed |= self.toasts.expire();

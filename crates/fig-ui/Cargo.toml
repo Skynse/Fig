@@ -10,7 +10,7 @@ name = "fig"
 path = "src/main.rs"
 
 [features]
-default = []
+default = ["audio"]
 # Sound through the audio device (cpal). Linux needs the ALSA headers to build it (alsa-lib-devel); without it
 # playback runs on a wall clock, silently.
 audio = ["dep:cpal"]

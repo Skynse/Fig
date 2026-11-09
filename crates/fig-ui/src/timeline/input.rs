@@ -52,11 +52,85 @@ pub enum Gesture {
         to: usize,
         moved: bool,
     },
+    /// A keyframe diamond held: where it is now (from its host's start); a copy lands on release; a speed point also
+    /// drags up and down.
     Keyframe {
-        clip: String,
+        host: fig_edit::KeyframeHostRef,
         from: f64,
         copy: bool,
+        value: bool,
+        gesture: String,
     },
+    Rack(Box<RackDrag>),
+}
+
+/// An effect bar as a drag found it, to move from.
+#[derive(Clone)]
+pub struct BarOrig {
+    owner: String,
+    effect: String,
+    start: f64,
+    dur: f64,
+    /// How far the bar may go: its clip's length, or no limit on a track.
+    limit: f64,
+    keys: fig_timeline::KeyframeMap,
+}
+
+impl BarOrig {
+    fn of(doc: &fig_timeline::Timeline, owner: &str, effect: &str) -> Option<BarOrig> {
+        let fx = fig_edit::effects::owner_effects(doc, owner)?.iter().find(|f| f.id == effect)?;
+        let (start, dur) = (fx.start_sec?, fx.dur_sec?);
+        let limit = doc.find_clip(owner).map_or(f64::INFINITY, |c| c.dur_sec);
+        Some(BarOrig { owner: owner.into(), effect: effect.into(), start, dur, limit, keys: fx.keyframes.clone() })
+    }
+}
+
+/// Slides bars by `delta` from where they were, as one: no bar leaves time zero or the end of its clip.
+fn slide_bars(doc: &mut fig_timeline::Timeline, bars: &[BarOrig], delta: f64) {
+    let mut d = delta;
+    for b in bars {
+        d = d.max(-b.start);
+        if b.limit.is_finite() {
+            d = d.min((b.limit - b.start - b.dur).max(0.0));
+        }
+    }
+    for b in bars {
+        set_bar(doc, b, b.start + d, b.dur, Some(d));
+    }
+}
+
+/// Puts a bar at a range; `shift` moves its keyframes with it from where they were.
+fn set_bar(doc: &mut fig_timeline::Timeline, b: &BarOrig, start: f64, dur: f64, shift: Option<f64>) {
+    let Some(fx) = fig_edit::effects::owner_effects_mut(doc, &b.owner).and_then(|l| l.iter_mut().find(|f| f.id == b.effect)) else {
+        return;
+    };
+    fx.start_sec = Some(start);
+    fx.dur_sec = Some(dur);
+    if let Some(by) = shift {
+        fx.keyframes = b.keys.clone();
+        for keys in fx.keyframes.values_mut() {
+            for k in keys {
+                k.time_sec = (k.time_sec + by).clamp(0.0, b.limit);
+            }
+        }
+    }
+}
+
+/// A rack bar being dragged: its body moves it (and the other selected bars, and the selected clips when it is on a
+/// track), its ends resize it.
+pub struct RackDrag {
+    owner: String,
+    part: RackPart,
+    origin: f64,
+    bar: BarOrig,
+    press_t: f64,
+    x0: f32,
+    /// The other selected bars that slide with it.
+    others: Vec<BarOrig>,
+    /// Selected clips carried along, and where they started.
+    clips: Vec<(String, f64)>,
+    /// A plain click on a bar inside a multi-selection narrows to it when it wasn't dragged.
+    collapse_to: Option<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,6 +178,8 @@ pub struct ClipDrag {
     /// Drawn while blocked: the track the ghost is on and how far it moved.
     pub ghost: Option<(String, f64)>,
     collapse_to: Option<String>,
+    /// Selected effect bars (not on a moving clip) carried along by a move.
+    carry: Vec<BarOrig>,
 }
 
 struct Magnet {
@@ -145,7 +221,7 @@ pub struct CopyDrag {
 pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
     let doc = e.doc();
     let tl = &e.tl;
-    let lanes = lanes(doc, e.media(), tl.scale);
+    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
     let t = tl.t_of(x);
     // markers in the top lane
     if y < MARKER_LANE_H && x > HEADER_W {
@@ -186,6 +262,9 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
     let track = &doc.tracks[ti];
     let lane = lanes[ti];
     if x < HEADER_W {
+        if super::rack::has_rack(track) && super::rack::contains(rack_toggle_rect(&lane), x, cy) {
+            return Hit::Header { track: ti, button: Some(HeaderButton::Rack) };
+        }
         let mid = lane.top + lane.height / 2.0 - HEADER_BUTTON / 2.0;
         for (button, bx) in header_buttons(track) {
             if x >= bx && x <= bx + HEADER_BUTTON && cy >= mid && cy <= mid + HEADER_BUTTON {
@@ -211,13 +290,24 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
             if x < x0 - 1.0 || x > x1 + 1.0 {
                 continue;
             }
+            // speed points on the speed line
+            if let Some(keys) = clip_time::curve(clip) {
+                let band = speed_band(&lane);
+                for k in keys.iter().filter(|k| k.time_sec <= clip.dur_sec + 1e-6) {
+                    let (kx, ky) = (tl.x_of(clip.start_sec + k.time_sec), speed_to_y(band, k.value.as_number()));
+                    if (x - kx).abs() <= SPEED_GRAB && (cy - ky).abs() <= SPEED_GRAB {
+                        let host = fig_edit::KeyframeHostRef::of_speed(&clip.id);
+                        return Hit::Keyframe { host, time: k.time_sec, value: true };
+                    }
+                }
+            }
             // keyframe diamonds on the body's top edge
             let body_top = top + lane.label;
             if (cy - body_top).abs() <= 6.0 {
                 for k in clip_keyframe_times(clip) {
                     let kx = tl.x_of(clip.start_sec + k);
                     if (x - kx).abs() <= 6.0 {
-                        return Hit::Keyframe { clip: clip.id.clone(), time: k };
+                        return Hit::Keyframe { host: fig_edit::KeyframeHostRef::of_clip(&clip.id), time: k, value: false };
                     }
                 }
             }
@@ -248,7 +338,81 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
             return Hit::Clip { track: ti, clip: clip.id.clone(), part };
         }
     }
+    if let Some(h) = hit_rack(e, ti, &lane, x, cy) {
+        return h;
+    }
     Hit::Empty { track: Some(ti), time: t }
+}
+
+/// A bar of a track's racks, or of its clips', under the pointer (`cy` in content coordinates).
+fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> {
+    use super::rack::{self, Owner};
+    let track = &e.doc().tracks[ti];
+    let tl = &e.tl;
+    let open = lane.rack_open;
+    let owners = track.clips.iter().map(|c| (Owner::Clip(c), lane.clip_rack_top())).chain([(Owner::Track(track), lane.track_rack_top())]);
+    for (owner, top) in owners {
+        let x0 = tl.x_of(owner.origin() + tl.slide_offset(owner.id()));
+        for item in rack::items(owner) {
+            let r = rack::bar_rect(&item, x0, top, tl.pps, open);
+            // thin bars get a taller grab area
+            if !rack::contains([r[0] - 4.0, r[1] - 2.0, r[2] + 8.0, r[3] + 4.0], x, cy) {
+                continue;
+            }
+            let in_keys = open && item.effect.is_some() && cy >= r[1] + rack::LABEL_ROW;
+            let mut part = RackPart::Body;
+            if in_keys {
+                part = RackPart::Keys;
+                let fx = item.effect.clone().unwrap_or_default();
+                for &k in &item.keys {
+                    if (x - (x0 + k as f32 * tl.pps)).abs() <= 8.0 {
+                        return Some(Hit::Keyframe { host: fig_edit::KeyframeHostRef::of_effect(owner.id(), &fx), time: k, value: false });
+                    }
+                }
+            } else if item.effect.is_some() {
+                if open && r[2] >= rack::BUTTONS_W {
+                    let [animate, power, remove] = rack::buttons(r);
+                    for (b, p) in [(animate, RackPart::Animate), (power, RackPart::Power), (remove, RackPart::Remove)] {
+                        if rack::contains(b, x, cy) {
+                            return Some(Hit::Rack { track: ti, owner: owner.id().to_string(), item, part: p });
+                        }
+                    }
+                }
+                let edge = (r[2] / 3.0).clamp(3.0, 8.0);
+                if (x - r[0]).abs() <= edge {
+                    part = RackPart::Left;
+                } else if (x - (r[0] + r[2])).abs() <= edge {
+                    part = RackPart::Right;
+                }
+            }
+            return Some(Hit::Rack { track: ti, owner: owner.id().to_string(), item, part });
+        }
+    }
+    None
+}
+
+/// The clip whose speed line passes near a point, and the time on it (from the clip's start).
+fn speed_line_at(e: &Editor, x: f32, cy: f32) -> Option<(String, f64)> {
+    let doc = e.doc();
+    let tl = &e.tl;
+    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
+    for (ti, track) in doc.tracks.iter().enumerate() {
+        let band = speed_band(&lanes[ti]);
+        if cy < band.0 - SPEED_GRAB || cy > band.0 + band.1 + SPEED_GRAB {
+            continue;
+        }
+        for clip in track.clips.iter().filter(|c| clip_time::has_curve(c)) {
+            let (x0, x1) = (tl.x_of(clip.start_sec), tl.x_of(clip.end_sec()));
+            if x < x0 || x > x1 {
+                continue;
+            }
+            let local = f64::from((x - x0) / tl.pps);
+            if (cy - speed_to_y(band, clip_time::speed_at(clip, local))).abs() <= SPEED_GRAB {
+                return Some((clip.id.clone(), local));
+            }
+        }
+    }
+    None
 }
 
 /// The times (from the clip's start) its own keyframes are at, any property.
@@ -306,6 +470,15 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut T
     prepare_snap(e, &prefs);
     e.tl.gap = None;
     let target = hit(e, x, y);
+    if clicks >= 2
+        && matches!(target, Hit::Clip { .. })
+        && let Some((clip, local)) = speed_line_at(e, x, e.tl.content_y(y))
+    {
+        let at = e.ed.find_clip(&clip).map_or(0.0, |c| c.start_sec);
+        let local = (e.ed.snap_time(at + local) - at).max(0.0);
+        e.ed.add_keyframe(&fig_edit::KeyframeHostRef::of_speed(&clip), local);
+        return;
+    }
     let t = e.tl.t_of(x).max(0.0);
     match target {
         Hit::Marker { id, grab } => {
@@ -352,6 +525,10 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut T
                     e.ed.edit(|ed| ed.remove_track(&tr.id));
                     e.tl.track_selected = None;
                 }
+                Some(HeaderButton::Rack) => {
+                    let (open, scale) = (e.tl.folds.is_open(&tr.id, e.tl.scale), e.tl.scale);
+                    e.tl.folds.set_open(&tr.id, scale, !open);
+                }
                 None => {
                     e.tl.track_selected = Some(tr.id.clone());
                     e.ed.selection.replace(fig_timeline::SelectionKey::new(fig_timeline::SelectionGroup::Track, &tr.id));
@@ -371,13 +548,29 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut T
             e.ed.begin_live();
             e.tl.gesture = Gesture::Transition { key, cut, max };
         }
-        Hit::Keyframe { clip, time } => {
-            e.ed.selection.select_only(&clip);
-            let at = e.ed.find_clip(&clip).map_or(0.0, |c| c.start_sec) + time;
+        Hit::Keyframe { host, time, value } => {
+            use fig_timeline::{SelectionGroup, SelectionKey};
+            // double-click a speed point: back to 1×
+            if value && clicks >= 2 {
+                e.ed.set_keyframe_value(&host, fig_timeline::automation_keys::SPEED, time, 1.0, None);
+                return;
+            }
+            let owner = match &host.effect_id {
+                Some(fx) => {
+                    e.inspector.effect = Some(fx.clone());
+                    e.inspector.tab = Some(fig_timeline::Facet::EFFECTS);
+                    SelectionKey::owned(SelectionGroup::Effect, fx.clone(), host.owner_id.clone())
+                }
+                None => SelectionKey::new(SelectionGroup::Clip, host.owner_id.clone()),
+            };
+            e.ed.selection.select_keyframe(owner, fig_edit::KeyframeRef { host: host.clone(), time_sec: time });
+            let at = e.ed.find_keyframe_host(&host).map_or(0.0, |h| h.origin_sec) + time;
             e.ed.begin_live();
-            e.tl.gesture = Gesture::Keyframe { clip, from: time, copy: mods.cmd };
+            e.tl.gesture = Gesture::Keyframe { host, from: time, copy: mods.cmd, value: value && !mods.cmd, gesture: fig_timeline::new_id() };
+            let at = e.ed.snap_time(at);
             crate::editor::seek(app, at, false);
         }
+        Hit::Rack { owner, item, part, .. } => press_rack(app, owner, item, part, t, x, clicks, mods),
         Hit::Clip { track, clip, part } => {
             if e.tool == Tool::Blade {
                 blade(app, &clip, t, mods.shift);
@@ -514,7 +707,19 @@ fn begin_clip_drag(e: &mut Editor, clip_id: &str, part: Part, t: f64, x: f32, ro
         blocked: None,
         ghost: None,
         collapse_to: collapse,
+        carry: Vec::new(),
     };
+    if mode == Mode::Move {
+        let moving: HashSet<&String> = drag.members.iter().collect();
+        drag.carry = e
+            .ed
+            .selection
+            .selected_effects()
+            .iter()
+            .filter(|(owner, _)| !moving.contains(owner))
+            .filter_map(|(owner, fx)| BarOrig::of(doc, owner, fx))
+            .collect();
+    }
     if matches!(mode, Mode::Start | Mode::End) {
         begin_roll(e, &mut drag, mode == Mode::End, roll);
     }
@@ -653,7 +858,11 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
                         ids.push(h);
                     }
                 }
+                let bars = bars_in_box(e, x0, y0, x, cy);
                 e.ed.selection.set_clips(ids);
+                if !bars.is_empty() {
+                    e.ed.selection.select_effects(bars, true);
+                }
             }
             g
         }
@@ -669,23 +878,42 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
             }
             Gesture::Transition { key, cut, max }
         }
-        Gesture::Keyframe { clip, from, copy } => {
-            let start = e.ed.find_clip(&clip).map_or(0.0, |c| c.start_sec);
-            let (st, _) = snap(e, t, &SnapExclude { clip_id: Some(&clip), ..Default::default() }, mods.alt);
-            let local = (st - start).max(0.0);
-            let host = fig_edit::KeyframeHostRef::of_clip(&clip);
-            if (local - from).abs() > 1e-6 {
-                let r = fig_edit::KeyframeRef { host, time_sec: from };
-                if copy {
-                    e.ed.duplicate_keyframes(&r, local);
-                } else {
-                    e.ed.move_keyframes(&r, local, "timeline-keyframe");
-                }
+        Gesture::Keyframe { host, from, copy, value, gesture } => {
+            let Some(h) = e.ed.find_keyframe_host(&host) else {
+                e.tl.gesture = Gesture::Idle;
+                return;
+            };
+            let (st, _) = snap(e, t, &SnapExclude { no_playhead: true, ..Default::default() }, mods.alt);
+            let to = (st - h.origin_sec).clamp(0.0, h.limit_sec);
+            let taken = h.times(e.doc()).iter().any(|k| (k - to).abs() < 1e-3 && (k - from).abs() > 1e-6);
+            let mut now = from;
+            if !copy && !taken && (to - from).abs() > 1e-6 {
+                e.ed.move_keyframes(&fig_edit::KeyframeRef { host: host.clone(), time_sec: from }, to, &gesture);
+                e.ed.selection.move_keyframe(to);
+                now = to;
             }
-            Gesture::Keyframe { clip, from: if copy { from } else { local }, copy }
+            // a speed point also follows the pointer up and down (with a little magnet at 1×)
+            if value
+                && let Some(ti) = e.ed.find_clip_track_id(&host.owner_id).and_then(|id| e.doc().tracks.iter().position(|t| t.id == id))
+            {
+                let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let mut speed = y_to_speed(speed_band(&lanes[ti]), e.tl.content_y(y));
+                if speed.ln().abs() < 0.06 {
+                    speed = 1.0;
+                }
+                e.ed.set_keyframe_value(&host, fig_timeline::automation_keys::SPEED, now, speed, Some(&gesture));
+            }
+            if copy {
+                e.tl.snap_guide = Some(h.origin_sec + to);
+            }
+            Gesture::Keyframe { host, from: if copy { from } else { now }, copy, value, gesture }
+        }
+        Gesture::Rack(mut r) => {
+            drag_rack(e, &mut r, t, mods.alt);
+            Gesture::Rack(r)
         }
         Gesture::Track { id, moved, .. } => {
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
             let cy = e.tl.content_y(y);
             let to = lanes.iter().position(|l| cy < l.top + l.height / 2.0).unwrap_or(lanes.len());
             Gesture::Track { id, to, moved: moved || (y - e.tl.pointer.map_or(y, |p| p.1)).abs() > 0.0 }
@@ -703,12 +931,16 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
                 e.tl.snap_guide = Some(st);
             }
             c.delta = st - c.anchor_start;
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
             c.track = e.tl.track_at(&lanes, y).or(c.track);
             Gesture::Copy(c)
         }
         Gesture::Clip(mut d) => {
             drag_clip(e, &mut d, x, y, t, mods.alt);
+            if !d.carry.is_empty() {
+                let delta = e.ed.find_clip(&d.clip).map_or(0.0, |c| c.start_sec) - d.orig[&d.clip].start;
+                slide_bars(e.ed.live_doc(), &d.carry, delta);
+            }
             Gesture::Clip(d)
         }
     };
@@ -719,7 +951,7 @@ fn marquee_hits(e: &Editor, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<String> {
     let (l, r) = (x0.min(x1), x0.max(x1));
     let (top, bottom) = (y0.min(y1), y0.max(y1));
     let doc = e.doc();
-    let lanes = lanes(doc, e.media(), e.tl.scale);
+    let lanes = lanes(doc, e.media(), e.tl.scale, &e.tl.folds);
     let mut out = Vec::new();
     for (i, track) in doc.tracks.iter().enumerate() {
         let lane = lanes[i];
@@ -784,7 +1016,7 @@ fn drag_clip(e: &mut Editor, d: &mut ClipDrag, x: f32, y: f32, t: f64, alt: bool
             let targets: IndexMap<String, f64> = d.members.iter().map(|id| (id.clone(), d.orig[id].start + delta)).collect();
             d.ghost = None;
             d.blocked = None;
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
             let hover = e.tl.track_at(&lanes, y);
             if magnet_move(e, d, hover, raw_start - origin) {
                 return;
@@ -1089,8 +1321,28 @@ fn released(app: &mut AppState, x: f32, y: f32, cancelled: bool, mods: Mods) {
                 }
             }
         }
-        Gesture::Marker { .. } | Gesture::Transition { .. } | Gesture::Keyframe { .. } => {
+        Gesture::Marker { .. } | Gesture::Transition { .. } => {
             e.ed.commit_live();
+        }
+        Gesture::Keyframe { host, from, copy, .. } => {
+            if copy {
+                let to = e.ed.find_keyframe_host(&host).map(|h| (e.tl.t_of(x).max(0.0), h)).map(|(t, h)| (e.ed.snap_time(t) - h.origin_sec).clamp(0.0, h.limit_sec));
+                if let Some(to) = to
+                    && (to - from).abs() > 1e-3
+                {
+                    e.ed.duplicate_keyframes(&fig_edit::KeyframeRef { host, time_sec: from }, to);
+                }
+            }
+            e.ed.commit_live();
+        }
+        Gesture::Rack(r) => {
+            let moved = (x - r.x0).abs() >= 3.0;
+            e.ed.commit_live();
+            if let Some((owner, fx)) = r.collapse_to
+                && !moved
+            {
+                e.ed.selection.select_effect(&owner, &fx);
+            }
         }
         Gesture::Track { id, to, moved } => {
             if moved && let Some(from) = e.doc().tracks.iter().position(|t| t.id == id) {
@@ -1192,7 +1444,7 @@ pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
         e.tl.set_scroll(e.tl.scroll - f64::from(dy / e.tl.pps));
         return true;
     }
-    let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+    let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
     let max = (content_height(&lanes) - e.tl.height).max(0.0);
     e.tl.scroll_y = (e.tl.scroll_y - w.dy).clamp(0.0, max);
     true
@@ -1200,7 +1452,10 @@ pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
 
 /// While a drag is near the left or right edge, the view scrolls (faster the closer it is). Called each frame.
 pub fn auto_scroll(e: &mut Editor, tx: &mut Tx) -> bool {
-    let active = matches!(e.tl.gesture, Gesture::Clip(_) | Gesture::Copy(_) | Gesture::Marquee { .. } | Gesture::Scrub | Gesture::Marker { .. });
+    let active = matches!(
+        e.tl.gesture,
+        Gesture::Clip(_) | Gesture::Copy(_) | Gesture::Marquee { .. } | Gesture::Scrub | Gesture::Marker { .. } | Gesture::Rack(_)
+    );
     let Some((x, _)) = e.tl.pointer else { return false };
     if !active {
         return false;
@@ -1229,4 +1484,157 @@ pub fn cancel(e: &mut Editor) -> bool {
         e.ed.cancel_live();
     }
     true
+}
+
+/// A press on a rack bar (`TimelineView.Racks.cs` `HandleRackPress`).
+#[allow(clippy::too_many_arguments)]
+fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: RackPart, t: f64, x: f32, clicks: u32, mods: Mods) {
+    let playhead = app.editor.as_ref().map_or(0.0, |e| e.playhead);
+    let Some(e) = app.editor.as_mut() else { return };
+    let origin = e.ed.find_clip(&owner).map_or(0.0, |c| c.start_sec);
+    let Some(fx) = item.effect.clone() else {
+        // a level or fade bar: pick its clip and open the tab that edits it
+        e.ed.selection.select_only(&owner);
+        e.inspector.tab = Some(item.opens);
+        return;
+    };
+    match part {
+        RackPart::Animate => {
+            // the stopwatch records: it adds a keyframe here and never takes any away
+            let keyed = e.ed.record_effect_keyframe(&owner, &fx, (playhead - origin).max(0.0));
+            pick_effect(e, &owner, &fx);
+            if let Some(at) = keyed {
+                use fig_timeline::{SelectionGroup, SelectionKey};
+                let host = fig_edit::KeyframeHostRef::of_effect(&owner, &fx);
+                e.ed.selection.select_keyframe(SelectionKey::owned(SelectionGroup::Effect, fx.clone(), owner.clone()), fig_edit::KeyframeRef { host, time_sec: at });
+            }
+            return;
+        }
+        RackPart::Power => return e.ed.toggle_effect(&owner, &fx),
+        RackPart::Remove => return e.ed.remove_effect(&owner, &fx),
+        _ => {}
+    }
+    // Shift adds the bar to the selection, or takes it out again; nothing is dragged
+    if mods.shift && part != RackPart::Keys {
+        e.ed.selection.toggle_effect(&owner, &fx);
+        return;
+    }
+    // a bar that is one of several keeps the selection so the group can be dragged; a click narrows to it
+    let selected = e.ed.selection.selected_effects();
+    let collapse_to = (part == RackPart::Body && e.ed.selection.is_effect_selected(&fx) && selected.len() > 1).then(|| (owner.clone(), fx.clone()));
+    if collapse_to.is_none() {
+        pick_effect(e, &owner, &fx);
+    }
+    if part == RackPart::Keys && clicks >= 2 {
+        // double-click the key lane: a keyframe holding the current look there
+        e.ed.add_effect_keyframe(&owner, &fx, (t - origin).max(0.0));
+        return;
+    }
+    // a bar covering its whole owner has nothing to move; only its ends drag, to limit the effect
+    if part == RackPart::Keys || (part == RackPart::Body && !item.ranged) {
+        return;
+    }
+    let doc = e.doc();
+    let bar = match BarOrig::of(doc, &owner, &fx) {
+        Some(b) => b,
+        // not limited yet: its ends start from the whole owner
+        None => BarOrig {
+            owner: owner.clone(),
+            effect: fx.clone(),
+            start: 0.0,
+            dur: item.dur,
+            limit: doc.find_clip(&owner).map_or(f64::INFINITY, |c| c.dur_sec),
+            keys: fig_edit::effects::owner_effects(doc, &owner).and_then(|l| l.iter().find(|f| f.id == fx)).map(|f| f.keyframes.clone()).unwrap_or_default(),
+        },
+    };
+    let (mut others, mut clips) = (Vec::new(), Vec::new());
+    if part == RackPart::Body && e.ed.selection.is_effect_selected(&fx) {
+        others = e.ed.selection.selected_effects().iter().filter(|(_, id)| *id != fx).filter_map(|(o, id)| BarOrig::of(doc, o, id)).collect();
+        // a track's bar carries the selected clips (a clip's bar moves inside its clip)
+        if doc.find_track(&owner).is_some() {
+            clips = e.ed.selection.selected_clip_ids().into_iter().filter_map(|id| doc.find_clip(&id).map(|c| (id, c.start_sec))).collect();
+        }
+    }
+    e.ed.begin_live();
+    e.tl.gesture = Gesture::Rack(Box::new(RackDrag { owner, part, origin, bar, press_t: t, x0: x, others, clips, collapse_to }));
+}
+
+/// Selects an effect bar and shows it in the inspector.
+fn pick_effect(e: &mut Editor, owner: &str, fx: &str) {
+    e.ed.selection.select_effect(owner, fx);
+    e.inspector.effect = Some(fx.to_string());
+    e.inspector.tab = Some(fig_timeline::Facet::EFFECTS);
+}
+
+fn drag_rack(e: &mut Editor, r: &mut RackDrag, t: f64, alt: bool) {
+    const MIN_LENGTH: f64 = 0.1;
+    let b = r.bar.clone();
+    let on_track = !b.limit.is_finite();
+    let ex = SnapExclude { no_playhead: true, ..Default::default() };
+    let local = snap(e, t, &ex, alt).0 - r.origin;
+    let (start, dur) = match r.part {
+        RackPart::Left => {
+            let end = b.start + b.dur;
+            let start = local.clamp(0.0, end - MIN_LENGTH);
+            (start, end - start)
+        }
+        RackPart::Right => {
+            let dur = if on_track { local - b.start } else { (local - b.start).min(b.limit - b.start) };
+            (b.start, dur.max(MIN_LENGTH))
+        }
+        _ => {
+            let moved = b.start + (t - r.press_t);
+            let max = if on_track { f64::INFINITY } else { (b.limit - b.dur).max(0.0) };
+            ((snap(e, r.origin + moved, &ex, alt).0 - r.origin).clamp(0.0, max), b.dur)
+        }
+    };
+    if r.part != RackPart::Body {
+        set_bar(e.ed.live_doc(), &b, start, dur, None);
+        return;
+    }
+    let delta = start - b.start;
+    let mut bars = r.others.clone();
+    bars.push(b);
+    slide_bars(e.ed.live_doc(), &bars, delta);
+    if r.clips.is_empty() {
+        return;
+    }
+    // the selected clips go with a track's bar, where they fit
+    let earliest = r.clips.iter().map(|c| c.1).fold(f64::INFINITY, f64::min);
+    let delta = delta.max(-earliest);
+    let targets: IndexMap<String, f64> = r.clips.iter().map(|(id, s)| (id.clone(), s + delta)).collect();
+    if !e.ed.would_overlap_move(&targets) {
+        let doc = e.ed.live_doc();
+        for (id, start) in &targets {
+            if let Some(c) = doc.find_clip_mut(id) {
+                c.start_sec = *start;
+            }
+        }
+    }
+}
+
+/// The effect bars a marquee box touches (content coordinates).
+fn bars_in_box(e: &Editor, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(String, String)> {
+    use super::rack::{self, Owner};
+    let (l, r) = (x0.min(x1), x0.max(x1));
+    let (top, bottom) = (y0.min(y1), y0.max(y1));
+    let doc = e.doc();
+    let tl = &e.tl;
+    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
+    let mut out = Vec::new();
+    for (ti, track) in doc.tracks.iter().enumerate() {
+        let lane = lanes[ti];
+        let owners = track.clips.iter().map(|c| (Owner::Clip(c), lane.clip_rack_top())).chain([(Owner::Track(track), lane.track_rack_top())]);
+        for (owner, rack_top) in owners {
+            let ox = tl.x_of(owner.origin());
+            for item in rack::items(owner) {
+                let Some(fx) = item.effect.clone() else { continue };
+                let b = rack::bar_rect(&item, ox, rack_top, tl.pps, lane.rack_open);
+                if b[0] <= r && b[0] + b[2] >= l && b[1] <= bottom && b[1] + b[3] >= top {
+                    out.push((owner.id().to_string(), fx));
+                }
+            }
+        }
+    }
+    out
 }

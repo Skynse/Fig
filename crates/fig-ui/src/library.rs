@@ -38,11 +38,19 @@ pub struct LibraryState {
     pub tab: Tab,
     pub search: TextEdit,
     pub category: Option<String>,
+    /// Effect presets saved from an edit (`~/.fig/presets`).
+    pub user_presets: Vec<fig_fx::presets::EffectPreset>,
 }
 
 impl LibraryState {
     pub fn new() -> LibraryState {
-        LibraryState { tab: Tab::Media, search: TextEdit::new(""), category: None }
+        let mut l = LibraryState { tab: Tab::Media, search: TextEdit::new(""), category: None, user_presets: Vec::new() };
+        l.load_presets();
+        l
+    }
+
+    pub fn load_presets(&mut self) {
+        self.user_presets = fig_fx::presets::EffectPresetStore::new(crate::settings::presets_dir()).list();
     }
 }
 
@@ -193,7 +201,7 @@ fn update_drop_preview(app: &mut AppState, x: f32, y: f32) {
     let Some(e) = app.editor.as_mut() else { return };
     match canvas_point(x, y).filter(|(cx, _)| *cx > HEADER_W) {
         Some((cx, cy)) => {
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
             let ti = e.tl.track_at(&lanes, cy);
             e.tl.drop_preview = Some((ti, e.ed.snap_time(e.tl.t_of(cx).max(0.0))));
         }
@@ -204,7 +212,7 @@ fn update_drop_preview(app: &mut AppState, x: f32, y: f32) {
 fn drop_on_timeline(app: &mut AppState, payload: &Payload, x: f32, y: f32) {
     let Some((cx, cy)) = canvas_point(x, y) else { return };
     let Some(e) = app.editor.as_mut() else { return };
-    let lanes = lanes(e.doc(), e.media(), e.tl.scale);
+    let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
     let ti = e.tl.track_at(&lanes, cy);
     let track = ti.map(|i| e.doc().tracks[i].id.clone());
     let at = e.ed.snap_time(e.tl.t_of(cx).max(0.0));
@@ -560,32 +568,65 @@ fn transitions_tab(e: &Editor, t: &Tokens) -> El {
     col().w_full().grow(1.0).min_h(0.0).gap(8.0).child(search(e, "Search transitions", t)).child(widgets::note("Drag a transition onto a cut.", t)).child(scroll(grid))
 }
 
+const EFFECT_CATEGORIES: [&str; 10] = ["All", "Motion", "Blur", "Light", "Glitch", "Retro", "Distort", "Color", "Stylize", "Custom"];
+
+/// A row card in the Effects tab.
+fn effect_card(icon_fill: &str, glyph: &'static rune::Icon, glyph_color: Color, name: String, description: String, t: &Tokens) -> El {
+    row()
+        .w_full()
+        .padding(8.0)
+        .gap(8.0)
+        .radius(8.0)
+        .fill(t.card_bg)
+        .hover(t.card_bg_alt)
+        .center_y()
+        .cursor(Cursor::Pointer)
+        .child(el().w(28.0).h(28.0).radius(6.0).fill(hex(icon_fill)).center().child(icon(glyph, 14.0).color(glyph_color)))
+        .child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .child(text(name).font(font(12.0, 600.0)).color(t.text_primary).truncate())
+                .child(text(description).font(font(10.5, 400.0)).color(t.text_muted).truncate()),
+        )
+}
+
 fn effects_tab(e: &Editor, t: &Tokens) -> El {
+    let category = e.library.category.clone().unwrap_or_else(|| "All".into());
+    let in_category = |c: &str| category == "All" || c.eq_ignore_ascii_case(&category);
     let mut list = col().w_full().gap(6.0);
-    let presets = fig_fx::presets::built_in();
-    let presets: Vec<_> = presets.into_iter().filter(|p| matches(e, &p.name)).collect();
-    if !presets.is_empty() {
+    // presets: the built-in ones, then the ones saved from an edit
+    let presets: Vec<_> = fig_fx::presets::built_in()
+        .into_iter()
+        .chain(e.library.user_presets.iter().cloned())
+        .filter(|p| matches(e, &p.name) && (category == "All" || category == "Motion"))
+        .collect();
+    let any_presets = !presets.is_empty();
+    if any_presets {
         list = list.child(widgets::heading("Presets", t));
         for p in presets {
-            let preset = p.clone();
-            list = list.child(
-                row()
-                    .w_full()
-                    .padding(8.0)
-                    .gap(8.0)
-                    .radius(8.0)
-                    .fill(t.card_bg)
-                    .hover(t.card_bg_alt)
-                    .center_y()
-                    .child(el().w(28.0).h(28.0).radius(14.0).fill(hex("#2a3d61")).center().child(icon(&icons::SPARKLE, 14.0).color(t.accent_text)))
-                    .child(col().grow(1.0).min_w(0.0).child(text(p.name.clone()).font(font(12.0, 600.0)).color(t.text_primary).truncate()).child(text(p.description.clone()).font(font(10.5, 400.0)).color(t.text_muted).truncate()))
-                    .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip").on_press(move |s: &mut AppState| add_preset(s, &preset))),
-            );
+            let (add, id, name) = (p.clone(), p.id.clone(), p.name.clone());
+            let mut card = effect_card("#2a3d61", &icons::SPARKLE, t.accent_text, p.name.clone(), p.description.clone(), t)
+                .help("Drag onto a video clip, or select a clip and press +")
+                .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip").on_press(move |s: &mut AppState| add_preset(s, &add)));
+            let menu_preset = p.clone();
+            let user = !p.built_in;
+            card = card.on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| {
+                let add = menu_preset.clone();
+                let (id, name) = (id.clone(), name.clone());
+                let mut items = vec![Item::new("Add to the selected clip", move |s, _| add_preset(s, &add))];
+                if user {
+                    items.push(Item::new("Delete preset", move |s, _| delete_preset(s, &id, &name)).danger());
+                }
+                crate::menu::open(s, crate::menu::Popup::at(at.x, at.y, items));
+            });
+            list = list.child(card);
         }
     }
     let mut by_cat: Vec<(String, Vec<std::sync::Arc<fig_fx::effects::EffectEntry>>)> = Vec::new();
     for entry in fig_fx::effects::all() {
-        if !matches(e, &entry.display_name) {
+        let custom = entry.type_id.starts_with("graph:");
+        if !matches(e, &entry.display_name) || !(in_category(&entry.category) || (custom && category == "Custom")) {
             continue;
         }
         match by_cat.iter_mut().find(|(c, _)| *c == entry.category) {
@@ -593,22 +634,21 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
             None => by_cat.push((entry.category.clone(), vec![entry])),
         }
     }
+    if by_cat.is_empty() && !any_presets {
+        list = list.child(text("No effects match your search").font(font(12.0, 400.0)).color(t.text_muted).pt(24.0));
+    }
     for (cat, entries) in by_cat {
         list = list.child(widgets::heading(cat, t).pt(6.0));
         for entry in entries {
-            let tid = entry.type_id.clone();
-            let card = row()
-                .w_full()
-                .padding(8.0)
-                .gap(8.0)
-                .radius(8.0)
-                .fill(t.card_bg)
-                .hover(t.card_bg_alt)
-                .center_y()
-                .cursor(Cursor::Pointer)
-                .child(el().w(28.0).h(28.0).radius(6.0).fill(hex("#6f5526")).center().child(icon(&icons::WAND_SPARKLES, 14.0).color(hex("#e0bd6e"))))
-                .child(col().grow(1.0).min_w(0.0).child(text(entry.display_name.clone()).font(font(12.0, 600.0)).color(t.text_primary).truncate()).child(text(entry.description.clone()).font(font(10.5, 400.0)).color(t.text_muted).truncate()))
-                .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip or track").on_press(move |s: &mut AppState| add_to_selection(s, &tid)));
+            let (tid, menu_tid, name) = (entry.type_id.clone(), entry.type_id.clone(), entry.display_name.clone());
+            let custom = entry.type_id.starts_with("graph:");
+            let card = effect_card("#6f5526", &icons::WAND_SPARKLES, hex("#e0bd6e"), entry.display_name.clone(), entry.description.clone(), t)
+                .help("Drag onto a video clip")
+                .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip or track").on_press(move |s: &mut AppState| add_to_selection(s, &tid)))
+                .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| {
+                    let items = effect_menu(&menu_tid, &name, custom);
+                    crate::menu::open(s, crate::menu::Popup::at(at.x, at.y, items));
+                });
             list = list.child(draggable(card, format!("lib.fx.{}", entry.type_id), Payload::Effect(entry.type_id.clone()), entry.display_name.clone(), |s, p| {
                 if let Payload::Effect(t) = p {
                     add_to_selection(s, t);
@@ -616,16 +656,135 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
             }));
         }
     }
+    let pick = category.clone();
     col()
         .w_full()
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
-        .child(row().w_full().gap(6.0).child(search(e, "Search effects", t).grow(1.0)).child(
-            widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).help("New graph effect").on_press(|s: &mut AppState| crate::graph::open(s, None)),
-        ))
-        .child(scroll(list))
         .child(widgets::note("Drag onto a video track, or select a track or clip and press +.", t))
+        .child(
+            row()
+                .w_full()
+                .gap(6.0)
+                .child(search(e, "Search effects", t).grow(1.0))
+                .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).help("Build a new effect from nodes").on_press(|s: &mut AppState| crate::graph::open(s, None)))
+                .child(widgets::icon_button(&icons::IMPORT, 14.0, 30.0, t).help("Import an effect file").on_press_tx(|_s: &mut AppState, tx: &mut Tx| import_graph(tx))),
+        )
+        .child(widgets::dropdown("lib.fx.category", pick, t).w_full().on_press(|s: &mut AppState| {
+            let items = EFFECT_CATEGORIES
+                .iter()
+                .map(|c| {
+                    let c = c.to_string();
+                    Item::new(c.clone(), move |s, _| {
+                        if let Some(e) = s.editor.as_mut() {
+                            e.library.category = (c != "All").then(|| c.clone());
+                        }
+                    })
+                })
+                .collect();
+            crate::menu::open_below(s, "lib.fx.category", items);
+        }))
+        .child(scroll(list))
+}
+
+/// The right-click menu on an effect in the library; a custom (node) effect can also be edited, copied, exported and
+/// deleted.
+fn effect_menu(type_id: &str, name: &str, custom: bool) -> Vec<Item> {
+    let tid = type_id.to_string();
+    let mut items = vec![Item::new("Add to the selected clip", move |s, _| add_to_selection(s, &tid))];
+    if !custom {
+        return items;
+    }
+    let id = type_id.trim_start_matches("graph:").to_string();
+    let (t1, i2, i3, i4, n3, n4) = (type_id.to_string(), id.clone(), id.clone(), id, name.to_string(), name.to_string());
+    items.extend([
+        Item::new("Edit graph…", move |s, _| crate::graph::open(s, Some(&t1))),
+        Item::new("Duplicate", move |s, _| {
+            if let Some(e) = s.editor.as_mut()
+                && let Some(copy) = e.graphs.duplicate(&i2).map(|g| g.name.clone())
+            {
+                e.media_rev += 1;
+                e.say(format!("Created \"{copy}\""));
+            }
+        }),
+        Item::new("Export…", move |_s, tx| export_graph(tx, &i3, &n3)),
+        Item::new("Delete", move |s, _| {
+            let Some(e) = s.editor.as_mut() else { return };
+            let type_id = format!("graph:{i4}");
+            let uses = e.doc().tracks.iter().map(|t| t.effects.iter().chain(t.clips.iter().flat_map(|c| &c.effects)).filter(|f| f.type_id == type_id).count()).sum::<usize>();
+            e.graphs.delete(&i4);
+            e.media_rev += 1;
+            e.say(if uses > 0 {
+                format!("Deleted \"{n4}\". {uses} use{} on the timeline will show the original picture.", if uses == 1 { "" } else { "s" })
+            } else {
+                format!("Deleted \"{n4}\"")
+            });
+        })
+        .danger(),
+    ]);
+    items
+}
+
+fn import_graph(tx: &mut Tx) {
+    let options = rune::file_dialog::FileDialogOptions { title: "Import effect".into(), ..Default::default() }.filter("Fig effect", &["json"]);
+    tx.open_file(options, |s: &mut AppState, result, _tx| {
+        let Ok(Some(path)) = result else { return };
+        let Some(e) = s.editor.as_mut() else { return };
+        let imported = e.graphs.import(&path).map(|g| g.name.clone());
+        match imported {
+            Ok(name) => {
+                e.media_rev += 1;
+                e.say(format!("Imported \"{name}\""));
+            }
+            Err(_) => e.say("That file is not a valid effect."),
+        }
+    });
+}
+
+fn export_graph(tx: &mut Tx, id: &str, name: &str) {
+    let options = rune::file_dialog::FileDialogOptions {
+        title: "Export effect".into(),
+        file_name: Some(format!("{name}.figgraph.json")),
+        ..Default::default()
+    }
+    .filter("Fig effect", &["json"]);
+    let (id, name) = (id.to_string(), name.to_string());
+    tx.save_file(options, move |s: &mut AppState, result, _tx| {
+        let Ok(Some(path)) = result else { return };
+        let Some(e) = s.editor.as_mut() else { return };
+        match e.graphs.export(&id, &path) {
+            Ok(()) => e.say(format!("Exported \"{name}\"")),
+            Err(_) => e.say("Could not write that file."),
+        }
+    });
+}
+
+/// Saves an effect as the user's own preset (`SaveEffectAsPresetAsync`).
+pub fn save_effect_preset(app: &mut AppState, owner: &str, fx: &str) {
+    let (owner, fx) = (owner.to_string(), fx.to_string());
+    crate::dialogs::prompt(app, "Save as preset", "Preset name", "My preset", "Save", move |s, name| {
+        let Some(e) = s.editor.as_mut() else { return };
+        let Some(effect) = e.ed.find_effect(&owner, &fx) else { return };
+        let mut preset = fig_fx::presets::from_effect(effect, name);
+        preset.description = "Saved from your own edit.".into();
+        match fig_fx::presets::EffectPresetStore::new(crate::settings::presets_dir()).save(&preset) {
+            Ok(()) => {
+                e.library.load_presets();
+                e.library.tab = Tab::Effects;
+                e.say(format!("Saved \"{name}\" \u{2014} find it under Effects \u{2192} Presets"));
+            }
+            Err(err) => e.say(format!("Couldn't save the preset: {err}")),
+        }
+    });
+}
+
+fn delete_preset(app: &mut AppState, id: &str, name: &str) {
+    let Some(e) = app.editor.as_mut() else { return };
+    if fig_fx::presets::EffectPresetStore::new(crate::settings::presets_dir()).delete(id) {
+        e.library.load_presets();
+        e.say(format!("Deleted \"{name}\""));
+    }
 }
 
 fn add_to_selection(app: &mut AppState, type_id: &str) {

@@ -16,7 +16,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     let doc = e.doc();
     let media = e.media();
     let tl = &e.tl;
-    let lanes = lanes(doc, media, tl.scale);
+    let lanes = lanes(doc, media, tl.scale, &tl.folds);
     let w = tl.width.max(HEADER_W + 10.0);
     let h = tl.height.max(RULER_H + 10.0);
     let oy = tl.scroll_y;
@@ -80,6 +80,12 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
             let touching_next = track.clips.get(ci + 1).is_some_and(|n| (n.start_sec - clip.end_sec()).abs() < 1e-4);
             c = c.child(clip_view(app, e, track, clip, &lane, y, touching_next, t));
         }
+        // the racks under the clips: each clip's, then the track's own
+        for clip in track.clips.iter().filter(|c| c.end_sec() >= t0 && c.start_sec <= t1) {
+            let x0 = tl.x_of(clip.start_sec + tl.slide_offset(&clip.id));
+            c = c.children(rack_bars(e, super::rack::Owner::Clip(clip), x0, lane.clip_rack_top() - oy, lane.rack_open, w, t));
+        }
+        c = c.children(rack_bars(e, super::rack::Owner::Track(track), tl.x_of(0.0), lane.track_rack_top() - oy, lane.rack_open, w, t));
         for cut in fig_edit::transitions::transitions_on(doc, &track.id) {
             let cx = tl.x_of(cut.cut_sec);
             let half = (cut.duration_sec / 2.0) as f32 * tl.pps;
@@ -274,7 +280,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
             s.drop_hover = false;
             let place = tx.drop_point().and_then(|p| {
                 let e = s.editor.as_ref()?;
-                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale);
+                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
                 let track = e.tl.track_at(&lanes, p.y).map(|i| e.doc().tracks[i].id.clone());
                 Some(crate::media::Placement { track_id: track, at_sec: e.ed.snap_time(e.tl.t_of(p.x).max(0.0)) })
             });
@@ -285,7 +291,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         })
         .on_drop_move(|s: &mut AppState, p: rune::PointerEvent, _tx: &mut Tx| {
             if let Some(e) = s.editor.as_mut() {
-                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale);
+                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
                 let ti = e.tl.track_at(&lanes, p.y);
                 e.tl.drop_preview = Some((ti, e.ed.snap_time(e.tl.t_of(p.x).max(0.0))));
             }
@@ -310,6 +316,7 @@ fn header_view(e: &Editor, track: &Track, lane: &Lane, y: f32, t: &Tokens) -> El
             HeaderButton::Toggle if track.kind == TrackKind::Video => (if track.visible { &icons::EYE } else { &icons::EYE_OFF }, !track.visible),
             HeaderButton::Toggle | HeaderButton::Mute => (if track.muted { &icons::VOLUME_X } else { &icons::VOLUME_2 }, track.muted),
             HeaderButton::Delete => (&icons::TRASH_2, false),
+            HeaderButton::Rack => continue,
         };
         let color = if on { hex("#ff7a7a") } else { t.text_muted };
         let tip = match button {
@@ -326,6 +333,21 @@ fn header_view(e: &Editor, track: &Track, lane: &Lane, y: f32, t: &Tokens) -> El
                 .center()
                 .help(tip)
                 .child(icon(glyph, 13.0).color(color)),
+        );
+    }
+    if super::rack::has_rack(track) {
+        let r = rack_toggle_rect(lane);
+        let open = lane.rack_open;
+        h = h.child(
+            el().absolute(r[0], r[1] - lane.top)
+                .w(r[2])
+                .h(r[3])
+                .radius(3.0)
+                .fill(Color::WHITE.alpha(0.08))
+                .hover(Color::WHITE.alpha(0.16))
+                .center()
+                .help(if open { "Fold the effect bars" } else { "Show the effect bars" })
+                .child(icon(if open { &icons::CHEVRON_DOWN } else { &icons::CHEVRON_RIGHT }, 12.0).color(t.text_secondary)),
         );
     }
     let name = super::track_name(e.doc(), track);
@@ -346,7 +368,7 @@ fn clip_label(e: &Editor, clip: &Clip) -> String {
 #[allow(clippy::too_many_arguments)]
 fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane, y: f32, touching_next: bool, t: &Tokens) -> El {
     let tl = &e.tl;
-    let x = tl.x_of(clip.start_sec);
+    let x = tl.x_of(clip.start_sec + tl.slide_offset(&clip.id));
     let mut w = clip.dur_sec as f32 * tl.pps;
     if touching_next {
         w -= 1.0;
@@ -370,6 +392,9 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
             c = c.child(el().absolute(0.0, body_top).w(w).h(picture_h).fill(hex("#0e2a47")));
             if let Some(asset) = clip.media_id().and_then(|id| e.find_media(id)) {
                 c = filmstrip(app, c, clip, asset, body_top, picture_h, vis_l, vis_r, tl.pps);
+            }
+            if let Some(line) = speed_line(e, clip, lane, y, vis_l, vis_r) {
+                c = c.child(line);
             }
             if lane.strip > 0.0 && clip.as_video().is_some_and(|v| v.plays_audio) {
                 c = c.child(el().absolute(0.0, body_top + picture_h).w(w).h(lane.strip).fill(hex("#15241d")));
@@ -608,4 +633,162 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
     r.child(el().absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(hex("#181a1d")))
         .child(el().absolute(HEADER_W - 1.0, 0.0).w(1.0).h(RULER_H).fill(hex("#34373c")))
         .child(text("").live_text(&e.live_time).font(mono(11.0, 500.0)).color(t.text_secondary).absolute(10.0, 14.0).w(120.0))
+}
+
+/// The bars of one owner's rack (`DrawRack`): `x0` is its origin on screen, `top` its first row (canvas coordinates).
+#[allow(clippy::too_many_arguments)]
+fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: bool, w: f32, t: &Tokens) -> Vec<El> {
+    use super::rack;
+    let tl = &e.tl;
+    let mut out = Vec::new();
+    for item in rack::items(owner) {
+        let r = rack::bar_rect(&item, x0, top, tl.pps, open);
+        if r[0] + r[2] < HEADER_W || r[0] > w || r[1] + r[3] < RULER_H {
+            continue;
+        }
+        let alpha = if item.enabled { 1.0 } else { 0.43 };
+        let edge = hex(item.edge).alpha(alpha);
+        if r[2] < DETAIL_W {
+            // a sliver of a bar: its colour only
+            out.push(el().absolute(r[0], r[1]).w(r[2]).h(r[3]).fill(edge).inert());
+            continue;
+        }
+        let selected = item.effect.as_deref().is_some_and(|id| e.ed.selection.is_effect_selected(id));
+        let mut bar = el()
+            .absolute(r[0], r[1])
+            .w(r[2])
+            .h(r[3])
+            .radius(3.0)
+            .fill(hex(item.fill).alpha(alpha))
+            .border(if selected { 1.5 } else { 1.0 }, if selected { Color::WHITE } else { edge })
+            .inert();
+        // keyframes: diamonds on an open bar's key lane, joined by a line; small ticks on a folded one
+        if !item.keys.is_empty() && item.effect.is_some() {
+            let ky = if open { rack::LABEL_ROW + (rack::BAR_FULL - rack::LABEL_ROW) / 2.0 } else { r[3] / 2.0 };
+            let picked = e.ed.selection.keyframe().filter(|k| k.host.effect_id == item.effect).map(|k| k.time_sec);
+            let lx = |k: f64| x0 + k as f32 * tl.pps - r[0];
+            if open && item.keys.len() > 1 {
+                let (a, b) = (lx(item.keys[0]), lx(item.keys[item.keys.len() - 1]));
+                bar = bar.child(el().absolute(a, ky - 0.6).w((b - a).max(1.0)).h(1.2).fill(edge.alpha(0.5)));
+            }
+            let size = if open { 5.0 } else { 3.0 };
+            for &k in &item.keys {
+                let kx = lx(k);
+                if kx < -6.0 || kx > r[2] + 6.0 {
+                    continue;
+                }
+                let hot = picked.is_some_and(|p| (p - k).abs() < 1e-4);
+                let d = vec![[size, 0.0], [2.0 * size, size], [size, 2.0 * size], [0.0, size]];
+                bar = bar.child(
+                    canvas(Shape::new().fill(d.clone(), if hot { Color::WHITE } else { hex(item.edge) }).stroke(
+                        vec![[size, 0.0], [2.0 * size, size], [size, 2.0 * size], [0.0, size], [size, 0.0]],
+                        1.0,
+                        hex("#c8000000"),
+                    ))
+                    .absolute(kx - size, ky - size)
+                    .w(2.0 * size)
+                    .h(2.0 * size),
+                );
+            }
+        }
+        if open && r[2] >= MIN_LABEL_W {
+            let vis_l = (HEADER_W - r[0]).max(0.0);
+            let buttons = r[2] >= rack::BUTTONS_W && item.effect.is_some();
+            let room = (r[2] - vis_l - if buttons { 72.0 } else { 14.0 }).max(0.0);
+            bar = bar.child(text(item.label.clone()).font(font(10.0, 500.0)).color(Color::WHITE).truncate().absolute(vis_l + 8.0, 3.5).max_w(room));
+            if buttons {
+                let animated = !item.keys.is_empty();
+                let [a, p, x] = rack::buttons(r);
+                let at = |b: [f32; 4]| (b[0] - r[0], b[1] - r[1]);
+                let (ax, ay) = at(a);
+                bar = bar.child(
+                    el().absolute(ax - 1.0, ay - 1.0)
+                        .w(18.0)
+                        .h(18.0)
+                        .radius(3.0)
+                        .fill(if animated { Color::WHITE.alpha(0.27) } else { Color::TRANSPARENT })
+                        .center()
+                        .child(icon(&icons::TIMER, 12.0).color(if animated { Color::WHITE } else { Color::WHITE.alpha(0.6) })),
+                );
+                for (b, glyph) in [(p, &icons::POWER), (x, &icons::X)] {
+                    let (bx, by) = at(b);
+                    bar = bar.child(el().absolute(bx, by).w(16.0).h(16.0).center().child(icon(glyph, 12.0).color(Color::WHITE)));
+                }
+            }
+        }
+        let _ = t;
+        out.push(bar);
+    }
+    out
+}
+
+/// The speed line of a clip with a speed curve (`DrawSpeedCurve`), over its picture: up is faster on a log scale, 1×
+/// dashed in the middle; where a fast curve runs out of footage the picture holds its last frame, shaded.
+fn speed_line(e: &Editor, clip: &Clip, lane: &Lane, y: f32, vis_l: f32, vis_r: f32) -> Option<El> {
+    let keys = clip_time::curve(clip)?;
+    let tl = &e.tl;
+    let (band_top, band_h) = speed_band(lane);
+    // band relative to the clip element
+    let band = (band_top - lane.clip_top(), band_h);
+    let (pic_top, pic_h) = (lane.label, lane.body - lane.strip);
+    let w = vis_r - vis_l;
+    if w < 2.0 {
+        return None;
+    }
+    let mut layer = el().absolute(vis_l, pic_top).w(w).h(pic_h).inert();
+    let rel = |p: [f32; 2]| [p[0] - vis_l, p[1] - pic_top];
+    if let Some(asset) = clip.media_id().and_then(|id| e.find_media(id))
+        && asset.duration_sec > 0.0
+        && clip_time::source_at(clip, clip.dur_sec) > asset.duration_sec + 1e-3
+    {
+        let runs_out = (clip_time::local_at(clip, asset.duration_sec) as f32 * tl.pps - vis_l).max(0.0);
+        if runs_out < w {
+            let held = el().absolute(runs_out, 0.0).w(w - runs_out).h(pic_h).fill(hex("#78000000"));
+            let held = if w - runs_out > 70.0 {
+                held.child(text("out of footage").font(font(10.0, 400.0)).color(Color::WHITE).absolute(6.0, pic_h - 16.0))
+            } else {
+                held
+            };
+            layer = layer.child(held);
+        }
+    }
+    let unity = speed_to_y(band, 1.0) - pic_top;
+    let mut dash = 0.0;
+    while dash < w {
+        layer = layer.child(el().absolute(dash, unity).w(4.0f32.min(w - dash)).h(1.0).fill(hex("#46ffd166")));
+        dash += 8.0;
+    }
+    let mut points = Vec::new();
+    let mut x = vis_l.floor();
+    while x <= vis_r + 2.0 {
+        let local = f64::from(x / tl.pps).min(clip.dur_sec);
+        points.push(rel([x, speed_to_y(band, clip_time::speed_at(clip, local))]));
+        x += 2.0;
+    }
+    layer = layer.child(canvas(Shape::new().stroke(points, 1.8, hex("#ffd166"))).absolute(0.0, 0.0).w(w).h(pic_h));
+    let picked = e.ed.selection.keyframe().filter(|k| k.host.lane.is_some() && k.host.owner_id == clip.id).map(|k| k.time_sec);
+    for k in keys.iter().filter(|k| k.time_sec <= clip.dur_sec + 1e-6) {
+        let [kx, ky] = rel([k.time_sec as f32 * tl.pps, speed_to_y(band, k.value.as_number())]);
+        let hot = picked.is_some_and(|p| (p - k.time_sec).abs() < 1e-4);
+        let r = if hot { 5.5 } else { 4.5 };
+        layer = layer.child(el().absolute(kx - r, ky - r).w(2.0 * r).h(2.0 * r).radius(r).fill(if hot { Color::WHITE } else { hex("#ffd166") }).border(1.0, Color::BLACK));
+        if hot {
+            let easing = super::menu::EASINGS.iter().find(|(e, _)| *e == k.easing).map_or("", |(_, n)| n);
+            let label = if k.easing == fig_timeline::KeyframeEasing::Linear {
+                format!("{:.2}×", k.value.as_number())
+            } else {
+                format!("{:.2}×  {}", k.value.as_number(), easing.to_lowercase())
+            };
+            layer = layer.child(
+                el().absolute(kx + 8.0, if ky > 24.0 { ky - 22.0 } else { ky + 8.0 })
+                    .px(4.0)
+                    .py(1.0)
+                    .radius(3.0)
+                    .fill(hex("#c8141418"))
+                    .child(text(label).font(font(10.0, 400.0)).color(Color::WHITE)),
+            );
+        }
+    }
+    let _ = y;
+    Some(layer)
 }

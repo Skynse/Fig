@@ -4,6 +4,8 @@
 use fig_timeline::fade::FadeOf;
 use fig_timeline::{Clip, ClipBody, ClipKind, MediaAsset, Timeline, Track, TrackKind};
 
+use super::rack::{self, Folds};
+
 pub const HEADER_W: f32 = 140.0;
 pub const MARKER_LANE_H: f32 = 20.0;
 pub const TICK_RULER_H: f32 = 22.0;
@@ -52,6 +54,10 @@ pub struct Lane {
     pub body: f32,
     /// The sound strip at the bottom of the body (0 when none).
     pub strip: f32,
+    /// The racks are open (labelled rows) rather than folded strips.
+    pub rack_open: bool,
+    /// The tallest of the clips' racks, under the clips; the track's own rack is under that.
+    pub clip_racks: f32,
 }
 
 impl Lane {
@@ -62,11 +68,30 @@ impl Lane {
     pub fn clip_height(&self) -> f32 {
         self.label + self.body
     }
+
+    /// The top of a clip's first row of bars.
+    pub fn clip_rack_top(&self) -> f32 {
+        self.clip_top() + self.clip_height() + super::rack::PAD
+    }
+
+    /// The top of the track's own first row of bars.
+    pub fn track_rack_top(&self) -> f32 {
+        self.clip_top() + self.clip_height() + self.clip_racks + super::rack::PAD
+    }
 }
 
-pub fn lane(track: &Track, media: &[MediaAsset], scale: f32, top: f32) -> Lane {
+pub fn lane(track: &Track, media: &[MediaAsset], scale: f32, top: f32, folds: &Folds) -> Lane {
+    let rack_open = folds.is_open(&track.id, scale);
     if track.clips.is_empty() && track.markers.is_empty() && track.effects.is_empty() {
-        return Lane { top, height: EMPTY_LANE_H, label: 0.0, body: EMPTY_LANE_H - CLIP_INSET - LANE_PAD, strip: 0.0 };
+        return Lane {
+            top,
+            height: EMPTY_LANE_H,
+            label: 0.0,
+            body: EMPTY_LANE_H - CLIP_INSET - LANE_PAD,
+            strip: 0.0,
+            rack_open,
+            clip_racks: 0.0,
+        };
     }
     let (label, body, strip) = if track.kind == TrackKind::Audio {
         (LABEL_H, AUDIO_CLIP_H * scale, 0.0)
@@ -76,16 +101,18 @@ pub fn lane(track: &Track, media: &[MediaAsset], scale: f32, top: f32) -> Lane {
         let strip = if has_sound_strip(track, media) { AUDIO_STRIP_H * scale } else { 0.0 };
         (LABEL_H, CLIP_H * scale + strip, strip)
     };
-    Lane { top, height: CLIP_INSET + label + body + LANE_PAD, label, body, strip }
+    let clip_racks = rack::clip_racks_height(track, rack_open);
+    let racks = clip_racks + rack::height(rack::Owner::Track(track), rack_open);
+    Lane { top, height: CLIP_INSET + label + body + racks + LANE_PAD, label, body, strip, rack_open, clip_racks }
 }
 
 /// Every lane, top to bottom, in content coordinates (the ruler is above the first).
-pub fn lanes(doc: &Timeline, media: &[MediaAsset], scale: f32) -> Vec<Lane> {
+pub fn lanes(doc: &Timeline, media: &[MediaAsset], scale: f32, folds: &Folds) -> Vec<Lane> {
     let mut top = RULER_H;
     doc.tracks
         .iter()
         .map(|t| {
-            let l = lane(t, media, scale, top);
+            let l = lane(t, media, scale, top, folds);
             top += l.height;
             l
         })
@@ -150,14 +177,18 @@ pub enum Part {
 }
 
 /// What's under a point of the timeline.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Hit {
     Ruler,
     Marker { id: String, grab: RangeGrab },
     Header { track: usize, button: Option<HeaderButton> },
     AddTrack,
     Transition { key: String, cut: f64 },
-    Keyframe { clip: String, time: f64 },
+    /// A keyframe diamond of any kind: `time` is from its host's start; `value` when it also drags up and down (a speed
+    /// point).
+    Keyframe { host: fig_edit::KeyframeHostRef, time: f64, value: bool },
+    /// An effect, level or fade bar under the clips.
+    Rack { track: usize, owner: String, item: rack::Item, part: RackPart },
     Clip { track: usize, clip: String, part: Part },
     Empty { track: Option<usize>, time: f64 },
 }
@@ -175,6 +206,47 @@ pub enum HeaderButton {
     Toggle,
     Mute,
     Delete,
+    /// Folds or opens the track's racks.
+    Rack,
+}
+
+/// The part of a rack bar under the pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RackPart {
+    Body,
+    Left,
+    Right,
+    /// The stopwatch: records a keyframe at the playhead.
+    Animate,
+    Power,
+    Remove,
+    /// The keyframe lane under an open bar's label.
+    Keys,
+}
+
+/// The rack fold toggle: on the right of the header, level with the clips' label strip.
+pub fn rack_toggle_rect(lane: &Lane) -> [f32; 4] {
+    [HEADER_W - 28.0, lane.clip_top() + 1.0, 20.0, LABEL_H.max(14.0) - 2.0]
+}
+
+/// A speed line's band: a video clip's picture, a little inset. Up is faster, on a log scale with 1× in the middle and
+/// 8× and ⅛× at the edges.
+pub fn speed_band(lane: &Lane) -> (f32, f32) {
+    let top = lane.clip_top() + lane.label + SPEED_PAD;
+    (top, (lane.body - lane.strip - 2.0 * SPEED_PAD).max(4.0))
+}
+
+const SPEED_PAD: f32 = 5.0;
+pub const SPEED_GRAB: f32 = 7.0;
+
+pub fn speed_to_y((top, h): (f32, f32), speed: f64) -> f32 {
+    let s = speed.clamp(fig_timeline::clip_time::MIN_SPEED, fig_timeline::clip_time::MAX_SPEED);
+    top + h / 2.0 - (s.ln() / 8f64.ln()) as f32 * h / 2.0
+}
+
+pub fn y_to_speed((top, h): (f32, f32), y: f32) -> f64 {
+    let s = (f64::from((top + h / 2.0 - y) / (h / 2.0)) * 8f64.ln()).exp();
+    s.clamp(fig_timeline::clip_time::MIN_SPEED, fig_timeline::clip_time::MAX_SPEED)
 }
 
 /// The header's buttons: a video lane has visibility, sound and delete; an audio lane sound and delete.

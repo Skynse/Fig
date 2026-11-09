@@ -26,7 +26,16 @@ pub fn open(app: &mut AppState, x: f32, y: f32, wx: f32, wy: f32) {
         }
         Hit::Header { track, .. } | Hit::Empty { track: Some(track), .. } if x < HEADER_W => track_menu(app, track),
         Hit::Ruler => ruler_menu(app, t),
-        Hit::Clip { clip, .. } | Hit::Keyframe { clip, .. } => {
+        Hit::Keyframe { host, time, .. } => keyframe_menu(app, host, time),
+        Hit::Rack { owner, item, .. } => {
+            let Some(fx) = item.effect else { return };
+            // right-clicking a bar that is part of a selection keeps it (to copy them all)
+            if !e.ed.selection.is_effect_selected(&fx) {
+                e.ed.selection.select_effect(&owner, &fx);
+            }
+            rack_menu(app, &owner, &fx, t)
+        }
+        Hit::Clip { clip, .. } => {
             if !e.ed.selection.is_selected(&clip) {
                 let group = e.ed.link_group(&clip);
                 e.ed.selection.set_clips(group);
@@ -367,5 +376,134 @@ fn marker_menu(app: &AppState, id: &str) -> Vec<Item> {
         })
         .danger(),
     );
+    items
+}
+
+pub const EASINGS: [(fig_timeline::KeyframeEasing, &str); 5] = [
+    (fig_timeline::KeyframeEasing::Linear, "Linear"),
+    (fig_timeline::KeyframeEasing::EaseIn, "Ease in"),
+    (fig_timeline::KeyframeEasing::EaseOut, "Ease out"),
+    (fig_timeline::KeyframeEasing::EaseInOut, "Ease in & out"),
+    (fig_timeline::KeyframeEasing::Hold, "Hold"),
+];
+
+/// The one menu for a keyframe, of any kind (`KeyframeMenu.cs`): jump to it, duplicate it to the playhead, choose how
+/// it moves on to the next one, delete it.
+pub fn keyframe_menu(app: &AppState, host: fig_edit::KeyframeHostRef, time: f64) -> Vec<Item> {
+    let e = app.editor.as_ref().unwrap();
+    let found = e.ed.find_keyframe_host(&host);
+    let origin = found.as_ref().map_or(0.0, |h| h.origin_sec);
+    let current = found.as_ref().and_then(|h| h.easing_at(e.doc(), time));
+    let k = fig_edit::KeyframeRef { host, time_sec: time };
+    let easing = EASINGS
+        .iter()
+        .map(|&(easing, name)| {
+            let k = k.clone();
+            Item::new(name, move |s, _| {
+                if let Some(e) = s.editor.as_mut() {
+                    e.ed.set_keyframe_easing(&k, easing);
+                }
+            })
+            .checked(current == Some(easing))
+        })
+        .collect();
+    let (k1, k2) = (k.clone(), k.clone());
+    vec![
+        Item::new("Jump to keyframe", move |s, _| crate::editor::seek(s, origin + time, false)),
+        Item::new("Duplicate to the playhead", move |s, _| {
+            if let Some(e) = s.editor.as_mut() {
+                let to = e.playhead - origin;
+                e.ed.duplicate_keyframes(&k1, to);
+            }
+        }),
+        Item::submenu("Movement to the next keyframe", easing),
+        Item::Separator,
+        Item::new("Delete keyframe", move |s, _| {
+            if let Some(e) = s.editor.as_mut() {
+                e.ed.remove_keyframes(&k2);
+                e.ed.selection.clear_keyframe();
+            }
+        })
+        .danger(),
+    ]
+}
+
+/// The menu for an effect bar (`TimelineView.Racks.cs` `TryOpenRackMenu`).
+fn rack_menu(app: &AppState, owner: &str, fx: &str, t: f64) -> Vec<Item> {
+    let e = app.editor.as_ref().unwrap();
+    let Some(effect) = e.ed.find_effect(owner, fx).cloned() else { return Vec::new() };
+    let on_track = e.doc().find_track(owner).is_some();
+    let origin = e.ed.find_clip(owner).map_or(0.0, |c| c.start_sec);
+    let span = e.ed.find_clip(owner).map_or(f64::INFINITY, |c| c.dur_sec);
+    let count = e.ed.selection.selected_effects().len().max(1);
+    let (o, f) = (owner.to_string(), fx.to_string());
+    let with = move |act: fn(&mut crate::editor::Editor, &str, &str, f64)| {
+        let (o, f) = (o.clone(), f.clone());
+        move |s: &mut AppState, _: &mut rune::Tx| {
+            if let Some(e) = s.editor.as_mut() {
+                let at = e.playhead;
+                act(e, &o, &f, at);
+            }
+        }
+    };
+    let mut items = vec![Item::new("Add keyframe here", {
+        let (o, f) = (owner.to_string(), fx.to_string());
+        move |s, _| {
+            if let Some(e) = s.editor.as_mut() {
+                e.ed.add_effect_keyframe(&o, &f, (t - origin).max(0.0));
+            }
+        }
+    })];
+    if !effect.keyframes.is_empty() {
+        items.push(Item::new(
+            "Clear all keyframes (keep the look at the playhead)",
+            with(|e, o, f, at| {
+                let origin = e.ed.find_clip(o).map_or(0.0, |c| c.start_sec);
+                e.ed.set_effect_animated(o, f, false, (at - origin).max(0.0));
+                e.ed.selection.clear_keyframe();
+            }),
+        ));
+    }
+    items.extend([
+        Item::new(if count == 1 { "Copy effect".to_string() } else { format!("Copy {count} effects") }, |s, _| {
+            if let Some(e) = s.editor.as_mut() {
+                let n = e.ed.copy_selected_effects();
+                e.say(if n == 1 { "Copied effect · paste puts it at the playhead".to_string() } else { format!("Copied {n} effects · paste puts them at the playhead") });
+            }
+        }),
+        Item::new("Paste effects at playhead", {
+            let o = owner.to_string();
+            move |s, _| {
+                if let Some(e) = s.editor.as_mut() {
+                    let at = e.playhead;
+                    let track = if e.doc().find_track(&o).is_some() { Some(o.clone()) } else { e.ed.find_clip_track_id(&o) };
+                    e.ed.paste_effects(at, track.as_deref());
+                }
+            }
+        })
+        .enabled(e.ed.has_effect_clipboard()),
+        Item::Separator,
+        Item::new("Save as preset...", {
+            let (o, f) = (owner.to_string(), fx.to_string());
+            move |s, _| crate::library::save_effect_preset(s, &o, &f)
+        }),
+        Item::Separator,
+        Item::new(if effect.enabled { "Turn effect off" } else { "Turn effect on" }, with(|e, o, f, _| e.ed.toggle_effect(o, f))),
+    ]);
+    if effect.start_sec.is_some() && effect.dur_sec.is_some() {
+        items.push(Item::new(
+            if on_track { "Apply to the whole track" } else { "Apply to the whole clip" },
+            with(|e, o, f, _| e.ed.set_effect_range(o, f, None, false)),
+        ));
+    } else {
+        let (o, f) = (owner.to_string(), fx.to_string());
+        items.push(Item::new(if on_track { "Limit to a timeline region" } else { "Limit to part on the timeline" }, move |s, _| {
+            if let Some(e) = s.editor.as_mut() {
+                let from = (e.playhead - origin).clamp(0.0, (span - 0.5).max(0.0));
+                e.ed.set_effect_range(&o, &f, Some((from, 3f64.min(span - from))), false);
+            }
+        }));
+    }
+    items.extend([Item::Separator, Item::new("Remove effect", with(|e, o, f, _| e.ed.remove_effect(o, f))).danger()]);
     items
 }
