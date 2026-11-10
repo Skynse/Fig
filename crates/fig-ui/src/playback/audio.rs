@@ -14,6 +14,9 @@ use super::Snapshot;
 const CHUNK_FRAMES: usize = 4096;
 /// Kept queued ahead of the device while playing.
 const TARGET_FRAMES: usize = 24_000;
+/// The device's period in frames.
+#[cfg(feature = "audio")]
+const PERIOD_FRAMES: u32 = 1024;
 /// Queued before the device starts, so the first moments don't stutter.
 const PREBUFFER_FRAMES: usize = 12_000;
 
@@ -249,19 +252,22 @@ mod device {
         let device = host.default_output_device()?;
         let default = device.default_output_config().ok()?;
         let channels = default.channels().max(1) as usize;
-        // ask for the mixer's rate; fall back to the device's own and resample
-        let try_rate = |rate: u32| cpal::StreamConfig {
-            channels: channels as u16,
-            sample_rate: rate,
-            buffer_size: cpal::BufferSize::Default,
+        // a steady period: PipeWire's ALSA device allows 16 frames, and a period that small underruns constantly
+        // (which sounds like crackle). About 21 ms is safe and still feels immediate.
+        let buffer = match default.buffer_size() {
+            cpal::SupportedBufferSize::Range { min, max } => cpal::BufferSize::Fixed(PERIOD_FRAMES.clamp(*min, *max)),
+            cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
         };
-        for rate in [SAMPLE_RATE, default.sample_rate()] {
+        // ask for the mixer's rate; fall back to the device's own and resample
+        let try_rate = |rate: u32, buffer_size: cpal::BufferSize| cpal::StreamConfig { channels: channels as u16, sample_rate: rate, buffer_size };
+        let attempts = [(SAMPLE_RATE, buffer), (default.sample_rate(), buffer), (SAMPLE_RATE, cpal::BufferSize::Default), (default.sample_rate(), cpal::BufferSize::Default)];
+        for (rate, buffer_size) in attempts {
             let step = SAMPLE_RATE as f64 / rate as f64;
             let inner = inner.clone();
             let mut phase = 1.0f64;
             let mut held = [0f32; 4];
             let stream = device.build_output_stream::<f32, _, _>(
-                try_rate(rate),
+                try_rate(rate, buffer_size),
                 move |out: &mut [f32], _| pull(&inner, out, channels, step, &mut phase, &mut held),
                 |_| {},
                 None,
@@ -281,5 +287,43 @@ mod device {
     /// Without a sound device the clock runs on wall time; `pull` stays unused.
     pub fn start(_inner: Arc<Inner>) {
         let _ = pull;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inner_with(samples: &[f32]) -> Inner {
+        Inner {
+            queue: Mutex::new(samples.iter().copied().collect()),
+            played: AtomicU64::new(0),
+            running: AtomicBool::new(true),
+            volume: AtomicU32::new(1f32.to_bits()),
+            muted: AtomicBool::new(false),
+            available: AtomicBool::new(true),
+            feed: Mutex::new(Feed::default()),
+            wake: Condvar::new(),
+        }
+    }
+
+    #[test]
+    fn same_rate_output_is_the_input() {
+        let input: Vec<f32> = (0..4800).flat_map(|i| {
+            let s = (i as f32 * 0.05).sin() * 0.5;
+            [s, -s]
+        }).collect();
+        let inner = inner_with(&input);
+        let (mut phase, mut held) = (1.0, [0f32; 4]);
+        let mut out = Vec::new();
+        for _ in 0..8 {
+            let mut buf = vec![0f32; 512 * 2];
+            pull(&inner, &mut buf, 2, 1.0, &mut phase, &mut held);
+            out.extend(buf);
+        }
+        // one frame of delay from the interpolation, otherwise exact
+        for f in 1..4000 {
+            assert!((out[f * 2] - input[(f - 1) * 2]).abs() < 1e-6, "frame {f}: {} vs {}", out[f * 2], input[(f - 1) * 2]);
+        }
     }
 }

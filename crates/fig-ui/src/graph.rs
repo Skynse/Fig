@@ -627,6 +627,8 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
 
     let mut cv = el()
         .key("graph.canvas")
+        // zoom and scroll move everything at once: no layout springs (they ghost)
+        .instant_changes()
         .w_full()
         .h_full()
         .fill(hex("#141517"))

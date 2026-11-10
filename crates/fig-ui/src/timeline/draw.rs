@@ -22,6 +22,8 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     let oy = tl.scroll_y;
     let mut c = el()
         .key("timeline.canvas")
+        // zoom and scroll move everything at once: no layout springs (they ghost)
+        .instant_changes()
         .w_full()
         .grow(1.0)
         .min_h(0.0)
