@@ -4,7 +4,10 @@
 //!
 //! Folding is per track. Once lanes are shrunk past [`FOLD_SCALE`] every rack folds unless its track is opened by hand.
 
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use fig_timeline::{Clip, ClipBody, EffectInstance, Facet, Track, automation_keys};
 
@@ -23,6 +26,8 @@ pub const FOLD_SCALE: f32 = 0.75;
 /// Which tracks' racks are folded.
 #[derive(Default)]
 pub struct Folds {
+    /// Bumped on every change (lane layouts are cached by it).
+    pub generation: u64,
     /// Folded by hand while racks are open by default.
     collapsed: HashSet<String>,
     /// Opened by hand while short lanes fold every rack.
@@ -35,6 +40,7 @@ impl Folds {
     }
 
     pub fn set_open(&mut self, track_id: &str, scale: f32, open: bool) {
+        self.generation += 1;
         let id = track_id.to_string();
         if scale < FOLD_SCALE {
             if open { self.opened.insert(id) } else { self.opened.remove(track_id) };
@@ -126,8 +132,54 @@ fn level_changed(clip: &Clip) -> bool {
     (clip.volume - 1.0).abs() > 0.01 || clip.keyframes.contains_key(automation_keys::VOLUME)
 }
 
-/// The bars under an owner, each on its row.
-pub fn items(owner: Owner) -> Vec<Item> {
+thread_local! {
+    /// Racks built so far, by owner, with the fingerprint of what they were built from.
+    static RACKS: RefCell<HashMap<String, (u64, Rc<Vec<Item>>)>> = RefCell::new(HashMap::new());
+}
+
+/// Everything [`build`] reads, folded into one number: cheap to compute, so a rack is only rebuilt when it changes.
+fn fingerprint(owner: Owner) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    owner.span().to_bits().hash(&mut h);
+    for fx in owner.effects() {
+        fx.id.hash(&mut h);
+        fx.type_id.hash(&mut h);
+        (fx.order, fx.enabled).hash(&mut h);
+        fx.start_sec.map(f64::to_bits).hash(&mut h);
+        fx.dur_sec.map(f64::to_bits).hash(&mut h);
+        for (k, keys) in &fx.keyframes {
+            k.hash(&mut h);
+            for key in keys {
+                key.time_sec.to_bits().hash(&mut h);
+            }
+        }
+    }
+    if let Owner::Clip(c) = owner {
+        (c.volume.to_bits(), c.fade_in_sec.to_bits(), c.fade_out_sec.to_bits(), c.keyframes.contains_key(automation_keys::VOLUME)).hash(&mut h);
+        c.as_video().map(|v| v.plays_audio).hash(&mut h);
+    }
+    h.finish()
+}
+
+/// The bars under an owner, each on its row (kept until what they're built from changes).
+pub fn items(owner: Owner) -> Rc<Vec<Item>> {
+    // a clip with nothing to show needs no lookup
+    if let Owner::Clip(c) = owner
+        && c.effects.is_empty()
+        && !matches!(c.body, ClipBody::Audio(_) | ClipBody::Video(_))
+    {
+        return Rc::new(Vec::new());
+    }
+    let print = fingerprint(owner);
+    if let Some(items) = RACKS.with_borrow(|m| m.get(owner.id()).filter(|(p, _)| *p == print).map(|(_, i)| i.clone())) {
+        return items;
+    }
+    let items = Rc::new(build(owner));
+    RACKS.with_borrow_mut(|m| m.insert(owner.id().to_string(), (print, items.clone())));
+    items
+}
+
+fn build(owner: Owner) -> Vec<Item> {
     let mut items = Vec::new();
     let mut effects: Vec<&EffectInstance> = owner.effects().iter().collect();
     effects.sort_by_key(|fx| fx.order);

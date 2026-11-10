@@ -134,11 +134,13 @@ pub struct PlaybackPreferences {
     /// The C# property is `Loop`.
     #[serde(rename = "Loop")]
     pub loop_playback: bool,
+    /// The timeline pages along with the playhead while playing.
+    pub follow_playhead: bool,
 }
 
 impl Default for PlaybackPreferences {
     fn default() -> Self {
-        PlaybackPreferences { audio_scrub: true, loop_playback: false }
+        PlaybackPreferences { audio_scrub: true, loop_playback: false, follow_playhead: true }
     }
 }
 

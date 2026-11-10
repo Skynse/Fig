@@ -9,7 +9,7 @@ use crate::editor::Editor;
 use crate::ui::icons;
 use crate::ui::menu::Item;
 use crate::ui::theme::{RADIUS_CARD, Tokens, font, hex, mono};
-use crate::timeline::geometry::{HEADER_W, lanes};
+use crate::timeline::geometry::HEADER_W;
 use crate::ui::widgets::{self, Kind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -219,7 +219,7 @@ fn update_drop_preview(app: &mut AppState, x: f32, y: f32) {
     let Some(e) = app.editor.as_mut() else { return };
     match canvas_point(x, y).filter(|(cx, _)| *cx > HEADER_W) {
         Some((cx, cy)) => {
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+            let lanes = e.lanes();
             let ti = e.tl.track_at(&lanes, cy);
             e.tl.drop_preview = Some((ti, e.ed.snap_time(e.tl.t_of(cx).max(0.0))));
         }
@@ -230,7 +230,7 @@ fn update_drop_preview(app: &mut AppState, x: f32, y: f32) {
 fn drop_on_timeline(app: &mut AppState, payload: &Payload, x: f32, y: f32) {
     let Some((cx, cy)) = canvas_point(x, y) else { return };
     let Some(e) = app.editor.as_mut() else { return };
-    let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+    let lanes = e.lanes();
     let ti = e.tl.track_at(&lanes, cy);
     let track = ti.map(|i| e.doc().tracks[i].id.clone());
     let at = e.ed.snap_time(e.tl.t_of(cx).max(0.0));

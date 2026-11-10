@@ -59,6 +59,8 @@ impl Panels {
 }
 
 pub struct Editor {
+    /// The lanes as last laid out, and the (revision, media revision, scale, folds) they were laid out for.
+    lanes: std::cell::RefCell<Option<((u64, u64, u32, u64), std::rc::Rc<Vec<crate::timeline::geometry::Lane>>)>>,
     /// The project's id in the store, and its folder.
     pub id: String,
     pub folder: PathBuf,
@@ -156,6 +158,7 @@ impl Editor {
             media_rev: 1,
             save: SaveState { saved: (0, 1), changed_at: None, saving: false, failed: false },
             hint: None,
+            lanes: std::cell::RefCell::new(None),
             show_overlay: true,
             views: Vec::new(),
             live_playhead: rune::Live::new([0.0, 0.0]),
@@ -169,6 +172,19 @@ impl Editor {
 
     pub fn media(&self) -> &[MediaAsset] {
         &self.project.media
+    }
+
+    /// Every lane, laid out once per change (a long timeline has thousands of clips to measure racks for).
+    pub fn lanes(&self) -> std::rc::Rc<Vec<crate::timeline::geometry::Lane>> {
+        let key = (self.ed.revision(), self.media_rev, self.tl.scale.to_bits(), self.tl.folds.generation);
+        if let Some((k, lanes)) = self.lanes.borrow().as_ref()
+            && *k == key
+        {
+            return lanes.clone();
+        }
+        let lanes = std::rc::Rc::new(crate::timeline::geometry::lanes(self.doc(), self.media(), self.tl.scale, &self.tl.folds));
+        *self.lanes.borrow_mut() = Some((key, lanes.clone()));
+        lanes
     }
 
     pub fn find_media(&self, id: &str) -> Option<&MediaAsset> {
@@ -285,6 +301,7 @@ pub fn play(app: &mut AppState, rate: f64) {
         e.playhead = 0.0;
     }
     let from = e.playhead;
+    e.tl.panned = false;
     sync_playback(app);
     app.playback.play(from, rate);
     // say once when there is no sound to play through
@@ -367,6 +384,7 @@ pub fn shuttle(app: &mut AppState, forward: bool) {
 /// Once a frame while playing: follows the clock, stops at the end (or loops), keeps the playhead on screen.
 pub fn tick(app: &mut AppState) -> bool {
     let playing = app.playback.is_playing();
+    let follow = app.preferences.playback.follow_playhead;
     let Some(e) = app.editor.as_mut() else { return false };
     if !playing {
         return false;
@@ -387,7 +405,9 @@ pub fn tick(app: &mut AppState) -> bool {
     }
     e.playhead = t.clamp(0.0, end.max(0.0));
     let scroll = e.tl.scroll;
-    e.tl.keep_in_view(e.playhead, forward);
+    if follow && !e.tl.panned {
+        e.tl.keep_in_view(e.playhead, forward);
+    }
     e.publish_playhead();
     // only a page turn needs the view rebuilt; the playhead itself moves through live values
     e.tl.scroll != scroll

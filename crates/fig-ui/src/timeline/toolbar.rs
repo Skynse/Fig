@@ -209,6 +209,17 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
         )
         .child(
             tool(&icons::MAGNET, "Snapping (N)", e.ed.snap.magnetic, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::Snapping, tx)),
+        )
+        .child(
+            tool(&icons::LOCATE_FIXED, "Follow the playhead while playing (panning by hand pauses it until the next play)", app.preferences.playback.follow_playhead, t).on_press(|s: &mut AppState| {
+                s.preferences.playback.follow_playhead = !s.preferences.playback.follow_playhead;
+                let on = s.preferences.playback.follow_playhead;
+                s.save_preferences();
+                if let Some(e) = s.editor.as_mut() {
+                    e.tl.panned = false;
+                    e.say(if on { "Following the playhead" } else { "The timeline stays where you put it" });
+                }
+            }),
         );
     let zoom = e.tl.zoom_slider();
     let right = row()

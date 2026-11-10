@@ -220,7 +220,7 @@ pub struct CopyDrag {
 pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
     let doc = e.doc();
     let tl = &e.tl;
-    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
+    let lanes = e.lanes();
     let t = tl.t_of(x);
     // markers in the top lane
     if y < MARKER_LANE_H && x > HEADER_W {
@@ -352,7 +352,8 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
     let owners = track.clips.iter().map(|c| (Owner::Clip(c), lane.clip_rack_top())).chain([(Owner::Track(track), lane.track_rack_top())]);
     for (owner, top) in owners {
         let x0 = tl.x_of(owner.origin() + tl.slide_offset(owner.id()));
-        for item in rack::items(owner) {
+        let items = rack::items(owner);
+        for item in items.iter() {
             let r = rack::bar_rect(&item, x0, top, tl.pps, open);
             // thin bars get a taller grab area
             if !rack::contains([r[0] - 4.0, r[1] - 2.0, r[2] + 8.0, r[3] + 4.0], x, cy) {
@@ -373,7 +374,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
                     let [animate, power, remove] = rack::buttons(r);
                     for (b, p) in [(animate, RackPart::Animate), (power, RackPart::Power), (remove, RackPart::Remove)] {
                         if rack::contains(b, x, cy) {
-                            return Some(Hit::Rack { owner: owner.id().to_string(), item, part: p });
+                            return Some(Hit::Rack { owner: owner.id().to_string(), item: item.clone(), part: p });
                         }
                     }
                 }
@@ -384,7 +385,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
                     part = RackPart::Right;
                 }
             }
-            return Some(Hit::Rack { owner: owner.id().to_string(), item, part });
+            return Some(Hit::Rack { owner: owner.id().to_string(), item: item.clone(), part });
         }
     }
     None
@@ -394,7 +395,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
 fn speed_line_at(e: &Editor, x: f32, cy: f32) -> Option<(String, f64)> {
     let doc = e.doc();
     let tl = &e.tl;
-    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
+    let lanes = e.lanes();
     for (ti, track) in doc.tracks.iter().enumerate() {
         let band = speed_band(&lanes[ti]);
         if cy < band.0 - SPEED_GRAB || cy > band.0 + band.1 + SPEED_GRAB {
@@ -452,7 +453,9 @@ pub fn on_drag(app: &mut AppState, d: &mut Drag, tx: &mut Tx) {
                 if app.gestures.resolve("Middle") != crate::settings::TimelineGesture::Pan {
                     return;
                 }
+                let playing = app.playback.is_playing();
                 if let Some(e) = app.editor.as_mut() {
+                    e.tl.panned |= playing;
                     e.tl.gesture = Gesture::Pan { scroll0: e.tl.scroll, x0: d.x };
                 }
                 return;
@@ -898,7 +901,7 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
             if value
                 && let Some(ti) = e.ed.find_clip_track_id(&host.owner_id).and_then(|id| e.doc().tracks.iter().position(|t| t.id == id))
             {
-                let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let lanes = e.lanes();
                 let mut speed = y_to_speed(speed_band(&lanes[ti]), e.tl.content_y(y));
                 if speed.ln().abs() < 0.06 {
                     speed = 1.0;
@@ -915,7 +918,7 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
             Gesture::Rack(r)
         }
         Gesture::Track { id, moved, .. } => {
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+            let lanes = e.lanes();
             let cy = e.tl.content_y(y);
             let to = lanes.iter().position(|l| cy < l.top + l.height / 2.0).unwrap_or(lanes.len());
             Gesture::Track { id, to, moved: moved || (y - e.tl.pointer.map_or(y, |p| p.1)).abs() > 0.0 }
@@ -933,7 +936,7 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
                 e.tl.snap_guide = Some(st);
             }
             c.delta = st - c.anchor_start;
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+            let lanes = e.lanes();
             c.track = e.tl.track_at(&lanes, y).or(c.track);
             Gesture::Copy(c)
         }
@@ -953,7 +956,7 @@ fn marquee_hits(e: &Editor, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<String> {
     let (l, r) = (x0.min(x1), x0.max(x1));
     let (top, bottom) = (y0.min(y1), y0.max(y1));
     let doc = e.doc();
-    let lanes = lanes(doc, e.media(), e.tl.scale, &e.tl.folds);
+    let lanes = e.lanes();
     let mut out = Vec::new();
     for (i, track) in doc.tracks.iter().enumerate() {
         let lane = lanes[i];
@@ -1018,7 +1021,7 @@ fn drag_clip(e: &mut Editor, d: &mut ClipDrag, x: f32, y: f32, t: f64, alt: bool
             let targets: IndexMap<String, f64> = d.members.iter().map(|id| (id.clone(), d.orig[id].start + delta)).collect();
             d.ghost = None;
             d.blocked = None;
-            let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+            let lanes = e.lanes();
             let hover = e.tl.track_at(&lanes, y);
             if magnet_move(e, d, hover, raw_start - origin) {
                 return;
@@ -1438,6 +1441,21 @@ pub fn hover(app: &mut AppState, x: f32, y: f32, tx: &mut Tx) {
 
 /// The wheel: plain scrolls the lanes, Shift scrolls sideways, Ctrl zooms about the pointer, Alt changes lane height.
 pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
+    let playing = app.playback.is_playing();
+    let Some(e) = app.editor.as_mut() else { return false };
+    let scroll = e.tl.scroll;
+    let handled = wheel_editor(app, w);
+    if let Some(e) = app.editor.as_mut()
+        && playing
+        && e.tl.scroll != scroll
+    {
+        // scrolled sideways by hand while playing: stop paging along until the next play
+        e.tl.panned = true;
+    }
+    handled
+}
+
+fn wheel_editor(app: &mut AppState, w: rune::WheelEvent) -> bool {
     use crate::settings::TimelineGesture as G;
     let Some(e) = app.editor.as_mut() else { return false };
     let dy = if w.dy.abs() > w.dx.abs() { w.dy } else { w.dx };
@@ -1450,7 +1468,7 @@ pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
             G::ShorterTracks => e.tl.taller(1.0 / 1.2),
             G::ScrollHorizontal => e.tl.set_scroll(e.tl.scroll - f64::from(dy / e.tl.pps)),
             G::ScrollVertical => {
-                let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let lanes = e.lanes();
                 let max = (content_height(&lanes) - e.tl.height).max(0.0);
                 e.tl.scroll_y = (e.tl.scroll_y - dy).clamp(0.0, max);
             }
@@ -1462,7 +1480,7 @@ pub fn wheel(app: &mut AppState, w: rune::WheelEvent) -> bool {
         e.tl.set_scroll(e.tl.scroll - f64::from(dy / e.tl.pps));
         return true;
     }
-    let lanes = lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+    let lanes = e.lanes();
     let max = (content_height(&lanes) - e.tl.height).max(0.0);
     e.tl.scroll_y = (e.tl.scroll_y - w.dy).clamp(0.0, max);
     true
@@ -1638,14 +1656,14 @@ fn bars_in_box(e: &Editor, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(String, S
     let (top, bottom) = (y0.min(y1), y0.max(y1));
     let doc = e.doc();
     let tl = &e.tl;
-    let lanes = lanes(doc, e.media(), tl.scale, &tl.folds);
+    let lanes = e.lanes();
     let mut out = Vec::new();
     for (ti, track) in doc.tracks.iter().enumerate() {
         let lane = lanes[ti];
         let owners = track.clips.iter().map(|c| (Owner::Clip(c), lane.clip_rack_top())).chain([(Owner::Track(track), lane.track_rack_top())]);
         for (owner, rack_top) in owners {
             let ox = tl.x_of(owner.origin());
-            for item in rack::items(owner) {
+            for item in rack::items(owner).iter() {
                 let Some(fx) = item.effect.clone() else { continue };
                 let b = rack::bar_rect(&item, ox, rack_top, tl.pps, lane.rack_open);
                 if b[0] <= r && b[0] + b[2] >= l && b[1] <= bottom && b[1] + b[3] >= top {

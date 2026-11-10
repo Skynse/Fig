@@ -13,10 +13,21 @@ use crate::ui::theme::{Tokens, font, hex, mono};
 
 /// The canvas: everything below the toolbar.
 pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
+    // FIG_PROFILE=1: how long each timeline build takes
+    static PROFILE: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var_os("FIG_PROFILE").is_some());
+    if *PROFILE {
+        let t0 = std::time::Instant::now();
+        let built = build_canvas(app, e, t);
+        eprintln!("timeline build {:.2} ms", t0.elapsed().as_secs_f64() * 1000.0);
+        return built;
+    }
+    build_canvas(app, e, t)
+}
+
+fn build_canvas(app: &AppState, e: &Editor, t: &Tokens) -> El {
     let doc = e.doc();
-    let media = e.media();
     let tl = &e.tl;
-    let lanes = lanes(doc, media, tl.scale, &tl.folds);
+    let lanes = e.lanes();
     let w = tl.width.max(HEADER_W + 10.0);
     let h = tl.height.max(RULER_H + 10.0);
     let oy = tl.scroll_y;
@@ -287,7 +298,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
             s.drop_hover = false;
             let place = tx.drop_point().and_then(|p| {
                 let e = s.editor.as_ref()?;
-                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let lanes = e.lanes();
                 let track = e.tl.track_at(&lanes, p.y).map(|i| e.doc().tracks[i].id.clone());
                 Some(crate::editor::media::Placement { track_id: track, at_sec: e.ed.snap_time(e.tl.t_of(p.x).max(0.0)) })
             });
@@ -298,7 +309,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         })
         .on_drop_move(|s: &mut AppState, p: rune::PointerEvent, _tx: &mut Tx| {
             if let Some(e) = s.editor.as_mut() {
-                let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
+                let lanes = e.lanes();
                 let ti = e.tl.track_at(&lanes, p.y);
                 e.tl.drop_preview = Some((ti, e.ed.snap_time(e.tl.t_of(p.x).max(0.0))));
             }
@@ -668,7 +679,8 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
     use super::rack;
     let tl = &e.tl;
     let mut out = Vec::new();
-    for item in rack::items(owner) {
+    let items = rack::items(owner);
+    for item in items.iter() {
         let r = rack::bar_rect(&item, x0, top, tl.pps, open);
         if r[0] + r[2] < HEADER_W || r[0] > w || r[1] + r[3] < RULER_H {
             continue;
