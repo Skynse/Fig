@@ -44,6 +44,8 @@ pub struct TimelineView {
     pub drop_preview: Option<(Option<usize>, f64)>,
     /// The track whose header was clicked.
     pub track_selected: Option<String>,
+    /// The clip part under the pointer while idle (its edge or fade handle lights up, the cursor changes).
+    pub hover: Option<(String, Part)>,
     /// Which tracks' effect racks are folded.
     pub folds: rack::Folds,
     /// Clips sliding into place after a ripple edit: how far from their new start they began, and when.
@@ -65,6 +67,7 @@ impl TimelineView {
             gap: None,
             drop_preview: None,
             track_selected: None,
+            hover: None,
             folds: rack::Folds::default(),
             slides: HashMap::new(),
         }

@@ -1421,8 +1421,17 @@ pub fn hover(app: &mut AppState, x: f32, y: f32, tx: &mut Tx) {
     let Some(e) = app.editor.as_mut() else { return };
     let before = e.tl.pointer;
     e.tl.pointer = Some((x, y));
-    if e.tool != Tool::Blade && before.is_some() && matches!(e.tl.gesture, Gesture::Idle) {
-        // only the blade line and edge cursors depend on the pointer while idle
+    if !matches!(e.tl.gesture, Gesture::Idle) {
+        return;
+    }
+    let over = match hit(e, x, y) {
+        Hit::Clip { clip, part, .. } if e.tool != Tool::Blade => Some((clip, part)),
+        _ => None,
+    };
+    let changed = over != e.tl.hover;
+    e.tl.hover = over;
+    // only the blade line and the handle under the pointer depend on it while idle
+    if e.tool != Tool::Blade && before.is_some() && !changed {
         tx.live_only();
     }
 }

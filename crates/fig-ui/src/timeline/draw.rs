@@ -29,7 +29,11 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .min_h(0.0)
         .fill(t.track_lane)
         .clip_rounded(8.0)
-        .cursor(if e.tool == Tool::Blade { Cursor::Crosshair } else { Cursor::Default })
+        .cursor(match (&e.tool, &tl.hover) {
+            (Tool::Blade, _) => Cursor::Crosshair,
+            (_, Some((_, Part::Body))) | (_, None) => Cursor::Default,
+            _ => Cursor::ResizeColumn,
+        })
         .on_layout(|s: &mut AppState, r: [f32; 4]| {
             crate::ui::layout::remember("timeline.canvas", r);
             if let Some(e) = s.editor.as_mut() {
@@ -511,6 +515,25 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
     }
     if selected {
         c = c.child(el().absolute(0.0, 0.0).w(w).h(h).radius(radius).border(2.0, t.selection).inert());
+    }
+    // the resize handles (`DrawResizeHandle`): both edges of a selected clip, or the edge or fade under the pointer
+    let hovered = tl.hover.as_ref().filter(|(id, _)| *id == clip.id).map(|(_, p)| *p);
+    let handle = |x: f32, top: f32, height: f32| el().absolute((x - 1.5).clamp(0.0, (w - 3.0).max(0.0)), top + 3.0).w(3.0).h((height - 6.0).max(2.0)).radius(1.5).fill(hex("#c84da3ff")).inert();
+    if selected || hovered == Some(Part::Left) {
+        c = c.child(handle(0.0, 0.0, h));
+    }
+    if selected || hovered == Some(Part::Right) {
+        c = c.child(handle(w, 0.0, h));
+    }
+    for of in fig_timeline::fade::channels(clip) {
+        let (fi, fo) = fig_timeline::fade::get(clip, *of);
+        let (top, fh) = if *of == fig_timeline::fade::FadeOf::Sound { (body_top + picture_h, lane.strip) } else { (body_top, picture_h.max(lane.body - lane.strip)) };
+        if (selected && fi > 1e-6) || hovered == Some(Part::FadeIn(*of)) {
+            c = c.child(handle(fi.min(clip.dur_sec) as f32 * tl.pps, top, fh));
+        }
+        if (selected && fo > 1e-6) || hovered == Some(Part::FadeOut(*of)) {
+            c = c.child(handle(w - fo.min(clip.dur_sec) as f32 * tl.pps, top, fh));
+        }
     }
     let _ = track;
     c
