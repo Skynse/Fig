@@ -566,7 +566,10 @@ fn transitions_tab(e: &Editor, t: &Tokens) -> El {
             .hover(t.card_bg_alt)
             .cursor(Cursor::Pointer)
             .help(entry.description.to_string())
-            .child(el().w_full().h(44.0).radius(8.0).fill(hex("#0e0f11")).center().child(icon(&icons::ARROW_RIGHT_LEFT, 18.0).color(hex("#eab308"))))
+            .child(match card_preview(entry.type_id, true) {
+                Some(p) => el().w_full().h(44.0).radius(8.0).clip_rounded(8.0).pixels(&p),
+                None => el().w_full().h(44.0).radius(8.0).fill(hex("#0e0f11")).center().child(icon(&icons::ARROW_RIGHT_LEFT, 18.0).color(hex("#eab308"))),
+            })
             .child(text(entry.display_name).font(font(11.0, 400.0)).color(t.text_secondary).truncate());
         grid = grid.child(draggable(card, format!("lib.tr.{}", entry.type_id), Payload::Transition(entry.type_id.to_string()), entry.display_name.to_string(), |s, p| {
             // a click puts it after the selected clip
@@ -589,7 +592,11 @@ fn transitions_tab(e: &Editor, t: &Tokens) -> El {
 const EFFECT_CATEGORIES: [&str; 10] = ["All", "Motion", "Blur", "Light", "Glitch", "Retro", "Distort", "Color", "Stylize", "Custom"];
 
 /// A row card in the Effects tab.
-fn effect_card(icon_fill: &str, glyph: &'static rune::Icon, glyph_color: Color, name: String, description: String, t: &Tokens) -> El {
+fn effect_card(icon_fill: &str, glyph: &'static rune::Icon, glyph_color: Color, name: String, description: String, preview: Option<rune::Pixels>, t: &Tokens) -> El {
+    let picture = match preview {
+        Some(p) => el().w(48.0).h(32.0).radius(5.0).clip_rounded(5.0).pixels(&p),
+        None => el().w(28.0).h(28.0).radius(6.0).fill(hex(icon_fill)).center().child(icon(glyph, 14.0).color(glyph_color)),
+    };
     row()
         .w_full()
         .padding(8.0)
@@ -599,7 +606,7 @@ fn effect_card(icon_fill: &str, glyph: &'static rune::Icon, glyph_color: Color, 
         .hover(t.card_bg_alt)
         .center_y()
         .cursor(Cursor::Pointer)
-        .child(el().w(28.0).h(28.0).radius(6.0).fill(hex(icon_fill)).center().child(icon(glyph, 14.0).color(glyph_color)))
+        .child(picture)
         .child(
             col()
                 .grow(1.0)
@@ -624,7 +631,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
         list = list.child(widgets::heading("Presets", t));
         for p in presets {
             let (add, id, name) = (p.clone(), p.id.clone(), p.name.clone());
-            let mut card = effect_card("#2a3d61", &icons::SPARKLE, t.accent_text, p.name.clone(), p.description.clone(), t)
+            let mut card = effect_card("#2a3d61", &icons::SPARKLE, t.accent_text, p.name.clone(), p.description.clone(), None, t)
                 .help("Drag onto a video clip, or select a clip and press +")
                 .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip").on_press(move |s: &mut AppState| add_preset(s, &add)));
             let menu_preset = p.clone();
@@ -660,7 +667,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
         for entry in entries {
             let (tid, menu_tid, name) = (entry.type_id.clone(), entry.type_id.clone(), entry.display_name.clone());
             let custom = entry.type_id.starts_with("graph:");
-            let card = effect_card("#6f5526", &icons::WAND_SPARKLES, hex("#e0bd6e"), entry.display_name.clone(), entry.description.clone(), t)
+            let card = effect_card("#6f5526", &icons::WAND_SPARKLES, hex("#e0bd6e"), entry.display_name.clone(), entry.description.clone(), card_preview(&entry.type_id, false), t)
                 .help("Drag onto a video clip")
                 .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip or track").on_press(move |s: &mut AppState| add_to_selection(s, &tid)))
                 .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| {
@@ -1206,4 +1213,36 @@ fn captions_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
             }),
     )
     .child(scroll(list))
+}
+
+thread_local! {
+    static PREVIEWS: std::cell::RefCell<std::collections::HashMap<String, Option<rune::Pixels>>> = Default::default();
+}
+
+/// A card's picture: the effect on the test picture, or a transition halfway from it to its night version
+/// (`EffectPreview`, `TransitionPreview`). Made once per type.
+fn card_preview(type_id: &str, transition: bool) -> Option<rune::Pixels> {
+    let key = format!("{}{type_id}", if transition { "t:" } else { "e:" });
+    if let Some(p) = PREVIEWS.with_borrow(|m| m.get(&key).cloned()) {
+        return p;
+    }
+    let source = crate::graph::test_picture(96, 64);
+    let frame = if transition {
+        fig_fx::transitions::find(type_id).map(|entry| {
+            let mut night = source.clone();
+            for px in night.pixels.chunks_exact_mut(4) {
+                let (b, g, r) = (px[0], px[1], px[2]);
+                (px[0], px[1], px[2]) = (r / 2 + 60, b / 3, g / 3 + 20);
+            }
+            entry.blend(&source, &night, 0.35, &Default::default())
+        })
+    } else {
+        fig_fx::effects::find(type_id).map(|entry| {
+            let params = entry.create_instance().params;
+            entry.apply(&source, &params, 0.5).unwrap_or_else(|| source.clone())
+        })
+    };
+    let pixels = frame.map(|f| crate::graph::to_pixels(&f));
+    PREVIEWS.with_borrow_mut(|m| m.insert(key, pixels.clone()));
+    pixels
 }

@@ -280,6 +280,11 @@ pub fn play(app: &mut AppState, rate: f64) {
     let from = e.playhead;
     sync_playback(app);
     app.playback.play(from, rate);
+    // say once when there is no sound to play through
+    static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !app.playback.has_sound() && !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        crate::toasts::show(app, "No audio output device is available. Playing without sound.");
+    }
 }
 
 pub fn pause(app: &mut AppState) {

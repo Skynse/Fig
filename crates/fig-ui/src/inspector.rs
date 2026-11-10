@@ -858,6 +858,23 @@ fn marker_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
     }
     let id = m.id.clone();
     let _ = app;
+    // the effect picked last in the Effects tab: keyframe all its values at the marker
+    let effect = e.inspector.effect.clone().and_then(|fx| {
+        e.doc().tracks.iter().find_map(|tr| {
+            tr.effects.iter().any(|f| f.id == fx).then(|| (tr.id.clone(), 0.0)).or_else(|| {
+                tr.clips.iter().find(|c| c.effects.iter().any(|f| f.id == fx)).map(|c| (c.id.clone(), c.start_sec))
+            })
+        }).map(|(owner, origin)| (owner, fx, origin))
+    });
+    if let Some((owner, fx, origin)) = effect {
+        let name = e.ed.find_effect(&owner, &fx).and_then(|f| fig_fx::effects::find(&f.type_id)).map_or("the effect".to_string(), |en| en.display_name.clone());
+        c = c.child(widgets::button("Place keyframe at marker", Kind::Normal, t).help(format!("Keyframe {name} at this marker")).on_press(move |s: &mut AppState| {
+            crate::editor::seek(s, at, false);
+            if let Some(e) = s.editor.as_mut() {
+                e.ed.record_effect_keyframe(&owner, &fx, (at - origin).max(0.0));
+            }
+        }));
+    }
     c.child(row().gap(6.0).child(widgets::button("Jump to marker", Kind::Normal, t).on_press(move |s: &mut AppState| crate::editor::seek(s, at, false))).child(
         widgets::button("Delete marker", Kind::Danger, t).on_press(move |s: &mut AppState| {
             if let Some(e) = s.editor.as_mut() {

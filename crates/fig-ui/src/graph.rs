@@ -1135,7 +1135,7 @@ fn confirm_card(valid: bool, t: &Tokens) -> El {
 
 /// The test picture: sky, a sun, hills and high-contrast bars, so blur, shifts and colour changes all show
 /// (`GraphPreviewSource`).
-fn test_picture(w: usize, h: usize) -> fig_fx::Frame {
+pub fn test_picture(w: usize, h: usize) -> fig_fx::Frame {
     let mut px = vec![0u8; w * h * 4];
     for y in 0..h {
         for x in 0..w {
@@ -1161,7 +1161,7 @@ fn test_picture(w: usize, h: usize) -> fig_fx::Frame {
     fig_fx::Frame::from_pixels(w, h, px)
 }
 
-fn to_pixels(f: &fig_fx::Frame) -> rune::Pixels {
+pub fn to_pixels(f: &fig_fx::Frame) -> rune::Pixels {
     let mut rgba = f.pixels.clone();
     for p in rgba.chunks_exact_mut(4) {
         p.swap(0, 2);
