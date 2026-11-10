@@ -205,8 +205,9 @@ pub fn title_bar(app: &AppState, t: &Tokens) -> El {
         .w_full()
         .h(crate::ui::theme::TITLEBAR_H)
         .center_y()
+        // pressing empty space moves the window, and a double press zooms it as the system says; a press handler of
+        // its own here would make the bar a control that keeps its presses, so the window wouldn't move
         .window_drag()
-        .on_double_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized())
         .child(el().grow(1.0).min_w(0.0).child(left))
         .child(center)
         .child(el().grow(1.0).min_w(0.0).child(row().w_full().justify_end().child(right)))
