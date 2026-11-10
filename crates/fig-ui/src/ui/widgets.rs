@@ -6,7 +6,7 @@ use std::rc::Rc;
 use rune::{Color, Cursor, Drag, El, Icon, Phase, TextEdit, Tx, el, icon, row, text, text_input};
 
 use crate::app::AppState;
-use crate::theme::{RADIUS_CONTROL, Tokens, font, hex, mono};
+use crate::ui::theme::{RADIUS_CONTROL, Tokens, font, hex, mono};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -86,15 +86,6 @@ pub fn toggle_button(i: &'static Icon, on: bool, box_size: f32, t: &Tokens) -> E
         .child(icon(i, 16.0).color(if on { t.accent_text } else { t.text_secondary }))
 }
 
-pub fn chip(label: impl Into<String>, t: &Tokens) -> El {
-    el().h(24.0)
-        .px(9.0)
-        .radius(RADIUS_CONTROL)
-        .fill(t.card_bg_alt)
-        .center()
-        .child(text(label.into()).font(font(11.0, 500.0)).color(t.text_secondary))
-}
-
 pub fn rule(t: &Tokens) -> El {
     el().w_full().h(1.0).fill(t.border)
 }
@@ -153,6 +144,7 @@ pub fn slider(key: impl Into<String>, value: f64, min: f64, max: f64, default: f
 }
 
 /// The NumberField: shows its value as text; drag up or down to change it (Shift fine, Ctrl coarse); click to type.
+#[allow(clippy::too_many_arguments)]
 pub fn number_field(
     key: impl Into<String>,
     value: f64,
@@ -280,7 +272,7 @@ pub fn checkbox(on: bool, label: impl Into<String>, t: &Tokens) -> El {
                 .fill(if on { t.accent } else { hex("#1b1d22") })
                 .border(1.0, if on { t.accent } else { t.border })
                 .center()
-                .children(on.then(|| icon(&crate::icons::CHECK, 12.0).color(t.on_accent))),
+                .children(on.then(|| icon(&crate::ui::icons::CHECK, 12.0).color(t.on_accent))),
         )
         .child(text(label.into()).font(font(12.5, 400.0)).color(t.text_secondary))
 }
@@ -307,7 +299,7 @@ pub fn dropdown(key: impl Into<String>, current: impl Into<String>, t: &Tokens) 
         .center_y()
         .cursor(Cursor::Pointer)
         .child(text(current.into()).font(font(12.0, 400.0)).color(t.text_secondary).grow(1.0).truncate())
-        .child(icon(&crate::icons::CHEVRON_DOWN, 12.0).color(t.text_muted))
+        .child(icon(&crate::ui::icons::CHEVRON_DOWN, 12.0).color(t.text_muted))
 }
 
 /// A labelled row: label on the left, control on the right.

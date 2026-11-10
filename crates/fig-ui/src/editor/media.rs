@@ -182,7 +182,7 @@ pub fn import_dialog(tx: &mut Tx) {
     tx.open_file(options, |app: &mut AppState, result, _tx| match result {
         Ok(Some(path)) => import_files(app, vec![path], None),
         Ok(None) => {}
-        Err(e) => crate::toasts::show(app, format!("Couldn't open the file picker: {}", e.0)),
+        Err(e) => crate::ui::toasts::show(app, format!("Couldn't open the file picker: {}", e.0)),
     });
 }
 
@@ -210,7 +210,7 @@ pub fn drop_files(app: &mut AppState, files: &[PathBuf], place: Option<Placement
         .cloned()
         .collect();
     if media.is_empty() {
-        crate::toasts::show(app, "Fig can't import that kind of file");
+        crate::ui::toasts::show(app, "Fig can't import that kind of file");
         return;
     }
     import_files(app, media, place);
@@ -230,8 +230,7 @@ pub fn import_files(app: &mut AppState, files: Vec<PathBuf>, place: Option<Place
     crate::app::spawn(
         move || {
             let mut results = Vec::new();
-            let mut scratch = fig_project::Project::default();
-            scratch.media = known;
+            let mut scratch = fig_project::Project { media: known, ..Default::default() };
             for f in &files {
                 let r = lib.import(&mut scratch, f).map(|id| scratch.media.iter().find(|m| m.id == id).cloned());
                 results.push((f.clone(), r.map_err(|e| e.to_string())));
@@ -247,7 +246,7 @@ pub fn import_files(app: &mut AppState, files: Vec<PathBuf>, place: Option<Place
                     Ok(Some(asset)) => asset,
                     Ok(None) => continue,
                     Err(error) => {
-                        crate::toasts::show(app, error);
+                        crate::ui::toasts::show(app, error);
                         continue;
                     }
                 };
@@ -276,9 +275,9 @@ pub fn import_files(app: &mut AppState, files: Vec<PathBuf>, place: Option<Place
             }
             load_pictures(app);
             if added.len() == 1 && place.is_none() {
-                crate::toasts::show(app, format!("Imported {}", added[0].file_name()));
+                crate::ui::toasts::show(app, format!("Imported {}", added[0].file_name()));
             } else if added.len() > 1 && place.is_none() {
-                crate::toasts::show(app, format!("Imported {} files", added.len()));
+                crate::ui::toasts::show(app, format!("Imported {} files", added.len()));
             }
         },
     );
@@ -310,7 +309,7 @@ pub fn add_to_timeline(app: &mut AppState, asset_id: &str) {
         if let Some(end) = end {
             crate::editor::seek(app, end, false);
         }
-        crate::toasts::show(app, format!("Added {name}"));
+        crate::ui::toasts::show(app, format!("Added {name}"));
     }
 }
 

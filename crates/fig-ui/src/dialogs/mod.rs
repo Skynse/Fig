@@ -10,11 +10,16 @@ use std::rc::Rc;
 use rune::{Color, El, TextEdit, Tx, col, el, row, text, text_input};
 
 use crate::app::AppState;
-use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets::{self, Kind};
+use crate::ui::theme::{Tokens, font, hex, mono};
+use crate::ui::widgets::{self, Kind};
 
 pub type OnName = Rc<dyn Fn(&mut AppState, &str)>;
 
+/// What a dialog's button does.
+pub type OnPress = Rc<dyn Fn(&mut AppState)>;
+
+// one dialog is open at a time; its size doesn't matter
+#[allow(clippy::large_enum_variant)]
 pub enum Dialog {
     Prompt { title: String, label: String, edit: TextEdit, confirm: String, on_ok: OnName },
     Confirm {
@@ -22,9 +27,9 @@ pub enum Dialog {
         message: String,
         confirm: String,
         danger: bool,
-        on_ok: Rc<dyn Fn(&mut AppState)>,
+        on_ok: OnPress,
         /// A third choice beside Cancel and the confirm button (Discard).
-        alt: Option<(String, Rc<dyn Fn(&mut AppState)>)>,
+        alt: Option<(String, OnPress)>,
     },
     Shortcuts,
     Jobs,
@@ -87,7 +92,7 @@ pub fn title_row(title: impl Into<String>, t: &Tokens) -> El {
         .w_full()
         .center_y()
         .child(text(title.into()).font(font(15.0, 600.0)).color(t.text_primary).grow(1.0))
-        .child(widgets::icon_button(&crate::icons::X, 14.0, 28.0, t).on_press(close))
+        .child(widgets::icon_button(&crate::ui::icons::X, 14.0, 28.0, t).on_press(close))
 }
 
 pub fn overlay(app: &AppState, dialog: &Dialog, t: &Tokens) -> El {
@@ -224,11 +229,11 @@ pub fn save_as(app: &mut AppState, _tx: &mut Tx) {
                 copy.id = id.clone();
                 copy.name = name.to_string();
                 match s.store.save_project(&mut copy) {
-                    Ok(()) => crate::toasts::show(s, format!("Saved as \u{201c}{name}\u{201d}")),
-                    Err(err) => crate::toasts::show(s, format!("Couldn't save: {err}")),
+                    Ok(()) => crate::ui::toasts::show(s, format!("Saved as \u{201c}{name}\u{201d}")),
+                    Err(err) => crate::ui::toasts::show(s, format!("Couldn't save: {err}")),
                 }
             }
-            Err(err) => crate::toasts::show(s, format!("Couldn't save: {err}")),
+            Err(err) => crate::ui::toasts::show(s, format!("Couldn't save: {err}")),
         }
     });
 }
@@ -248,13 +253,13 @@ pub fn save_package(app: &mut AppState, tx: &mut Tx) {
         e.commit_to_project();
         let project = e.project.clone();
         let root = s.store.root().to_path_buf();
-        crate::toasts::show(s, "Packing the project…");
+        crate::ui::toasts::show(s, "Packing the project…");
         crate::app::spawn(
             move || fig_project::ProjectStore::new(root).pack(&project, &path, &mut |_| {}).map_err(|e| e.to_string()),
             |s, r| match r {
-                Ok(p) if p.missing.is_empty() => crate::toasts::show(s, format!("Package saved ({} files)", p.files)),
-                Ok(p) => crate::toasts::show(s, format!("Package saved; {} file(s) were missing", p.missing.len())),
-                Err(err) => crate::toasts::show(s, format!("Couldn't save the package: {err}")),
+                Ok(p) if p.missing.is_empty() => crate::ui::toasts::show(s, format!("Package saved ({} files)", p.files)),
+                Ok(p) => crate::ui::toasts::show(s, format!("Package saved; {} file(s) were missing", p.missing.len())),
+                Err(err) => crate::ui::toasts::show(s, format!("Couldn't save the package: {err}")),
             },
         );
     });
@@ -264,7 +269,7 @@ pub fn save_package(app: &mut AppState, tx: &mut Tx) {
 pub fn export_captions(app: &mut AppState, tx: &mut Tx) {
     let Some(e) = app.editor.as_ref() else { return };
     if !e.ed.has_captions() {
-        crate::toasts::show(app, "There are no captions to export yet");
+        crate::ui::toasts::show(app, "There are no captions to export yet");
         return;
     }
     let options = rune::file_dialog::FileDialogOptions {
@@ -284,8 +289,8 @@ pub fn export_captions(app: &mut AppState, tx: &mut Tx) {
             fig_timeline::captions::to_srt(&cues)
         };
         match std::fs::write(&path, body) {
-            Ok(()) => crate::toasts::show(s, "Captions exported"),
-            Err(err) => crate::toasts::show(s, format!("Couldn't write the captions: {err}")),
+            Ok(()) => crate::ui::toasts::show(s, "Captions exported"),
+            Err(err) => crate::ui::toasts::show(s, format!("Couldn't write the captions: {err}")),
         }
     });
 }
@@ -297,7 +302,7 @@ pub fn collect_sources(app: &mut AppState) {
     let mut project = e.project.clone();
     let folder = e.folder.clone();
     let lib = fig_media::library::Library::new(app.store.cache_directory(&e.id));
-    crate::toasts::show(app, "Collecting sources…");
+    crate::ui::toasts::show(app, "Collecting sources…");
     crate::app::spawn(
         move || {
             let r = lib.collect_sources(&mut project, &folder, &mut |_| {}).map_err(|e| e.to_string());
@@ -312,9 +317,9 @@ pub fn collect_sources(app: &mut AppState) {
                     }
                     e.media_rev += 1;
                 }
-                crate::toasts::show(s, format!("{} file(s) copied into the project", res.copied));
+                crate::ui::toasts::show(s, format!("{} file(s) copied into the project", res.copied));
             }
-            Err(err) => crate::toasts::show(s, format!("Couldn't collect the sources: {err}")),
+            Err(err) => crate::ui::toasts::show(s, format!("Couldn't collect the sources: {err}")),
         },
     );
 }

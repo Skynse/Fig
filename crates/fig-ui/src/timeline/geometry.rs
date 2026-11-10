@@ -188,7 +188,7 @@ pub enum Hit {
     /// point).
     Keyframe { host: fig_edit::KeyframeHostRef, time: f64, value: bool },
     /// An effect, level or fade bar under the clips.
-    Rack { track: usize, owner: String, item: rack::Item, part: RackPart },
+    Rack { owner: String, item: rack::Item, part: RackPart },
     Clip { track: usize, clip: String, part: Part },
     Empty { track: Option<usize>, time: f64 },
 }
@@ -271,11 +271,12 @@ pub fn fade_of(clip: &Clip, in_strip: bool) -> FadeOf {
     if in_strip && clip.as_video().is_some_and(|v| v.plays_audio) { FadeOf::Sound } else { FadeOf::Picture }
 }
 
-pub fn clip_color(kind: ClipKind) -> (&'static str, &'static str) {
+/// A clip's body and border colours, by what it holds.
+pub fn clip_color(kind: ClipKind, t: &crate::ui::theme::Tokens) -> (rune::Color, rune::Color) {
     match kind {
-        ClipKind::Video => ("#1679db", "#55a2b2"),
-        ClipKind::Audio => ("#2d674a", "#589b74"),
-        ClipKind::Text => ("#a84f7d", "#d17aa6"),
-        ClipKind::Image => ("#5e57a8", "#8b84d6"),
+        ClipKind::Video => (t.video_clip, t.video_border),
+        ClipKind::Audio => (t.audio_clip, t.audio_border),
+        ClipKind::Text => (t.text_clip, t.text_border),
+        ClipKind::Image => (t.image_clip, t.image_border),
     }
 }

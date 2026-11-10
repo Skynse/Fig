@@ -7,7 +7,7 @@ use super::geometry::*;
 use super::input::hit;
 use crate::app::AppState;
 use crate::commands::Command;
-use crate::menu::{Item, Popup};
+use crate::ui::menu::{Item, Popup};
 
 pub fn open(app: &mut AppState, x: f32, y: f32, wx: f32, wy: f32) {
     let Some(e) = app.editor.as_mut() else { return };
@@ -45,7 +45,7 @@ pub fn open(app: &mut AppState, x: f32, y: f32, wx: f32, wy: f32) {
         Hit::Empty { track, time } => empty_menu(app, track, time),
         _ => return,
     };
-    crate::menu::open(app, Popup::at(wx, wy, items));
+    crate::ui::menu::open(app, Popup::at(wx, wy, items));
 }
 
 fn clip_menu(app: &AppState, clip_id: &str, t: f64) -> Vec<Item> {
@@ -94,7 +94,7 @@ fn clip_menu(app: &AppState, clip_id: &str, t: f64) -> Vec<Item> {
         items.push(Item::command(app, "Freeze frame at playhead", Command::Freeze));
     }
     items.push(Item::command(app, "Reverse", Command::Reverse));
-    if e.ed.can_detach_audio(&[id.clone()]) {
+    if e.ed.can_detach_audio(std::slice::from_ref(&id)) {
         items.push(Item::command(app, "Detach audio", Command::DetachAudio));
     }
     if clip.as_ref().is_some_and(|c| c.link_group_id.is_some()) {
@@ -315,7 +315,7 @@ fn transition_menu(key: &str) -> Vec<Item> {
         Item::new("Replace…", |s, _| {
             if let Some(e) = s.editor.as_mut() {
                 e.panels.left_collapsed = false;
-                e.library.tab = crate::library::Tab::Transitions;
+                e.library.tab = crate::editor::library::Tab::Transitions;
             }
         }),
         Item::Separator,
@@ -485,7 +485,7 @@ fn rack_menu(app: &AppState, owner: &str, fx: &str, t: f64) -> Vec<Item> {
         Item::Separator,
         Item::new("Save as preset...", {
             let (o, f) = (owner.to_string(), fx.to_string());
-            move |s, _| crate::library::save_effect_preset(s, &o, &f)
+            move |s, _| crate::editor::library::save_effect_preset(s, &o, &f)
         }),
         Item::Separator,
         Item::new(if effect.enabled { "Turn effect off" } else { "Turn effect on" }, with(|e, o, f, _| e.ed.toggle_effect(o, f))),

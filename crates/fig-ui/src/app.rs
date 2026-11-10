@@ -1,17 +1,16 @@
 //! The app: Home or an open project, the overlays above them (menus, dialogs, Preferences, toasts), and the
 //! background work that reports back to the UI thread.
 
-use std::rc::Rc;
 use std::sync::OnceLock;
 
 use rune::{AppHandle, Cx, El, Mods, NativeSurface, TextEdit, Tx, col, el, text};
 
 use crate::editor::Editor;
 use crate::home::HomeState;
-use crate::menu::Popup;
+use crate::ui::menu::Popup;
 use crate::playback::Playback;
 use crate::settings::{GestureMap, Preferences, WorkspaceLayout};
-use crate::theme::Tokens;
+use crate::ui::theme::Tokens;
 
 static HANDLE: OnceLock<AppHandle<AppState>> = OnceLock::new();
 
@@ -77,24 +76,24 @@ pub struct AppState {
     pub gestures: GestureMap,
     pub playback: Playback,
     pub surface: NativeSurface,
-    pub media: crate::media::MediaCache,
+    pub media: crate::editor::media::MediaCache,
     /// Measures titles and stills for the preview's handles (the preview thread has its own).
     pub layers: std::sync::Arc<fig_render::layers::LayerRasterizer>,
     pub jobs: crate::dialogs::jobs::Jobs,
     pub popup: Option<Popup>,
     pub dialog: Option<crate::dialogs::Dialog>,
     pub preferences_open: Option<crate::preferences::PreferencesState>,
-    pub toasts: crate::toasts::Toasts,
+    pub toasts: crate::ui::toasts::Toasts,
     pub window_size: (f32, f32),
     pub mods: Mods,
     /// The inline field being typed into (a number field's value, a rename), one at a time.
     pub field_key: Option<String>,
     pub field_edit: TextEdit,
-    pub field_apply: Option<crate::widgets::OnText>,
+    pub field_apply: Option<crate::ui::widgets::OnText>,
     /// Files dragged over the window right now (for the drop highlight).
     pub drop_hover: bool,
     /// Something being dragged from the library (onto the timeline).
-    pub lib_drag: Option<crate::library::LibDrag>,
+    pub lib_drag: Option<crate::editor::library::LibDrag>,
     /// A project to create and open on the next poll (asked for from a dialog that has no `Tx`).
     pub pending_new_project: Option<String>,
     /// The window's size when an edge grip drag began.
@@ -118,7 +117,7 @@ impl AppState {
             gestures: GestureMap::load(),
             playback: Playback::new(surface.clone()),
             surface,
-            media: crate::media::MediaCache::default(),
+            media: crate::editor::media::MediaCache::default(),
             layers: std::sync::Arc::new(fig_render::layers::LayerRasterizer::new()),
             jobs: Default::default(),
             popup: None,
@@ -136,10 +135,6 @@ impl AppState {
             pending_new_project: None,
             preferences,
         }
-    }
-
-    pub fn editor(&self) -> Option<&Editor> {
-        self.editor.as_ref()
     }
 
     pub fn refresh_home(&mut self) {
@@ -180,13 +175,13 @@ impl AppState {
                             if report.failed_artifacts > 0 {
                                 parts.push(format!("{} preview(s) failed", report.failed_artifacts));
                             }
-                            crate::toasts::show(app, parts.join(", "));
+                            crate::ui::toasts::show(app, parts.join(", "));
                         }
                     },
                 );
             }
-            Ok(None) => crate::toasts::show(self, "That project is gone"),
-            Err(error) => crate::toasts::show(self, format!("Couldn't open the project: {error}")),
+            Ok(None) => crate::ui::toasts::show(self, "That project is gone"),
+            Err(error) => crate::ui::toasts::show(self, format!("Couldn't open the project: {error}")),
         }
     }
 
@@ -202,7 +197,7 @@ impl AppState {
                 self.playback.reset_sources();
                 crate::editor::sync_playback(self);
                 crate::editor::seek(self, 0.0, false);
-                crate::media::prepare_project(self);
+                crate::editor::media::prepare_project(self);
                 // a new project starts with a video and an audio track
                 if let Some(e) = self.editor.as_mut()
                     && e.doc().tracks.is_empty()
@@ -226,7 +221,7 @@ impl AppState {
             Ok(id) => {
                 self.open_project(&id, tx);
             }
-            Err(error) => crate::toasts::show(self, format!("Couldn't create the project: {error}")),
+            Err(error) => crate::ui::toasts::show(self, format!("Couldn't create the project: {error}")),
         }
     }
 
@@ -239,12 +234,11 @@ impl AppState {
         if self.playback.is_playing() {
             self.playback.pause();
         }
-        if let Some(mut e) = self.editor.take() {
-            if save && e.is_dirty() {
+        if let Some(mut e) = self.editor.take()
+            && save && e.is_dirty() {
                 e.commit_to_project();
                 let _ = self.store.save_project(&mut e.project);
             }
-        }
         self.dialog = None;
         self.popup = None;
     }
@@ -324,9 +318,9 @@ impl AppState {
             tx.wake_after(std::time::Duration::from_millis(200));
             changed = true;
         }
-        crate::inspector::sync(self);
+        crate::editor::inspector::sync(self);
         if let Some(e) = self.editor.as_mut() {
-            crate::beats::check(e);
+            crate::editor::beats::check(e);
         }
         if self.playback.is_playing() {
             tx.wake_after(std::time::Duration::from_millis(16));
@@ -366,7 +360,7 @@ pub fn view(app: &AppState, cx: &mut Cx<AppState>) -> El {
         .h_full()
         .fill(t.surface_bg)
         .on_layout(|s: &mut AppState, r: [f32; 4]| s.window_size = (r[2], r[3]))
-        .child(crate::shell::title_bar(app, &t));
+        .child(crate::ui::title_bar::title_bar(app, &t));
     root = match (app.route, app.editor.as_ref()) {
         _ if app.loading.is_some() => root.child(loading_view(app.loading.as_ref().unwrap(), &t)),
         (Route::Editor, Some(editor)) => root.child(crate::editor::view::view(app, editor, &t, cx)),
@@ -378,14 +372,14 @@ pub fn view(app: &AppState, cx: &mut Cx<AppState>) -> El {
     if let Some(dialog) = app.dialog.as_ref() {
         root = root.child(crate::dialogs::overlay(app, dialog, &t));
     }
-    if let Some(f) = app.editor.as_ref().and_then(|e| crate::beats::flyout(app, e, &t)) {
+    if let Some(f) = app.editor.as_ref().and_then(|e| crate::editor::beats::flyout(app, e, &t)) {
         root = root.child(f);
     }
-    if let Some(menu) = crate::menu::overlay(app, &t) {
+    if let Some(menu) = crate::ui::menu::overlay(app, &t) {
         root = root.child(menu);
     }
     if let Some(d) = app.lib_drag.as_ref() {
-        root = root.child(crate::library::drag_ghost(d, &t));
+        root = root.child(crate::editor::library::drag_ghost(d, &t));
     }
     if app.drop_hover {
         root = root.child(
@@ -397,17 +391,14 @@ pub fn view(app: &AppState, cx: &mut Cx<AppState>) -> El {
                 .inert(),
         );
     }
-    root.child(crate::toasts::overlay(app, &t))
-        .children(crate::chrome::resize_handles())
+    root.child(crate::ui::toasts::overlay(app, &t))
+        .children(crate::ui::window_edges::resize_handles())
         .on_drop_files(|s: &mut AppState, files: &[std::path::PathBuf], tx: &mut Tx| {
             s.drop_hover = false;
-            crate::media::drop_files(s, files, None, tx);
+            crate::editor::media::drop_files(s, files, None, tx);
         })
         .on_drop_hover(|s: &mut AppState, over: bool, _tx: &mut Tx| s.drop_hover = over)
 }
-
-/// A shared, cheap-to-clone callback used by views that store handlers.
-pub type Handler = Rc<dyn Fn(&mut AppState, &mut Tx)>;
 
 /// The screen while a project opens (`LoadingView`).
 fn loading_view(l: &Loading, t: &Tokens) -> El {
@@ -417,7 +408,7 @@ fn loading_view(l: &Loading, t: &Tokens) -> El {
         .grow(1.0)
         .center()
         .gap(10.0)
-        .child(text("fig").font(crate::theme::font(34.0, 700.0)).color(t.text_primary))
-        .child(text(status).font(crate::theme::font(13.0, 500.0)).color(t.text_secondary))
-        .child(text(l.name.clone()).font(crate::theme::font(12.0, 400.0)).color(t.text_muted))
+        .child(text("fig").font(crate::ui::theme::font(34.0, 700.0)).color(t.text_primary))
+        .child(text(status).font(crate::ui::theme::font(13.0, 500.0)).color(t.text_secondary))
+        .child(text(l.name.clone()).font(crate::ui::theme::font(12.0, 400.0)).color(t.text_muted))
 }

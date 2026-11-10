@@ -69,8 +69,6 @@ pub struct Tokens {
     pub text_border: Color,
     pub image_clip: Color,
     pub image_border: Color,
-    pub effect_clip: Color,
-    pub effect_border: Color,
 
     pub playhead: Color,
     pub selection: Color,
@@ -122,8 +120,6 @@ impl Tokens {
             text_border: hex("#d17aa6"),
             image_clip: hex("#5e57a8"),
             image_border: hex("#8b84d6"),
-            effect_clip: hex("#c79a3d"),
-            effect_border: hex("#e0bd6e"),
 
             playhead: hex("#f0645a"),
             selection: hex("#d9e0e7"),
@@ -148,13 +144,9 @@ pub fn mono(size: f32, weight: f32) -> TextStyle {
 pub const TITLEBAR_H: f32 = 46.0;
 pub const WINDOW_MIN_W: f32 = 1100.0;
 pub const WINDOW_MIN_H: f32 = 700.0;
-pub const WINDOW_PAD: f32 = 8.0;
-pub const STATUS_H: f32 = 20.0;
-pub const SPLITTER: f32 = 8.0;
 
 // ---- shape tokens (FigTheme.axaml) ----
 pub const RADIUS_PANEL: f32 = 14.0;
 pub const RADIUS_CARD: f32 = 10.0;
 pub const RADIUS_CONTROL: f32 = 8.0;
 pub const RADIUS_MENU: f32 = 12.0;
-pub const RADIUS_CLIP: f32 = 6.0;

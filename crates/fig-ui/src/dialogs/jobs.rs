@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use rune::{El, col, el, row, text};
 
 use crate::app::AppState;
-use crate::theme::{Tokens, font, hex};
-use crate::widgets::{self, Kind};
+use crate::ui::theme::{Tokens, font, hex};
+use crate::ui::widgets::{self, Kind};
 
 pub struct Job {
     pub name: String,
@@ -64,8 +64,8 @@ pub fn view(app: &AppState, t: &Tokens) -> El {
         } else if job.error.is_none() {
             let path = job.path.to_string_lossy().into_owned();
             r = r.child(widgets::button("Show", Kind::Ghost, t).h(26.0).on_press(move |s: &mut AppState| {
-                if let Err(e) = crate::media::reveal(&path) {
-                    crate::toasts::show(s, e);
+                if let Err(e) = crate::editor::media::reveal(&path) {
+                    crate::ui::toasts::show(s, e);
                 }
             }));
         }

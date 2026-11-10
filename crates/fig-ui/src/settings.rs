@@ -431,20 +431,6 @@ impl GestureMap {
         self.resolve(&p)
     }
 
-    /// The bindings as `GestureRegistry.Save` writes them.
-    pub fn save(&self) -> std::io::Result<()> {
-        let path = gesture_config_path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let list: Vec<GestureBinding> = self
-            .bindings
-            .iter()
-            .filter(|(_, gesture)| **gesture != TimelineGesture::None)
-            .map(|(pattern, gesture)| GestureBinding { pattern: pattern.clone(), gesture: format!("{gesture:?}") })
-            .collect();
-        std::fs::write(path, serde_json::to_string_pretty(&list)?)
-    }
 }
 
 /// A pointer pattern in `GesturePatternParser.Serialize`'s order ("Ctrl+Shift+WheelUp", "Middle"); "Move" is

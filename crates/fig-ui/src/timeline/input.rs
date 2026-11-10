@@ -119,7 +119,6 @@ fn set_bar(doc: &mut fig_timeline::Timeline, b: &BarOrig, start: f64, dur: f64, 
 /// A rack bar being dragged: its body moves it (and the other selected bars, and the selected clips when it is on a
 /// track), its ends resize it.
 pub struct RackDrag {
-    owner: String,
     part: RackPart,
     origin: f64,
     bar: BarOrig,
@@ -374,7 +373,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
                     let [animate, power, remove] = rack::buttons(r);
                     for (b, p) in [(animate, RackPart::Animate), (power, RackPart::Power), (remove, RackPart::Remove)] {
                         if rack::contains(b, x, cy) {
-                            return Some(Hit::Rack { track: ti, owner: owner.id().to_string(), item, part: p });
+                            return Some(Hit::Rack { owner: owner.id().to_string(), item, part: p });
                         }
                     }
                 }
@@ -385,7 +384,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
                     part = RackPart::Right;
                 }
             }
-            return Some(Hit::Rack { track: ti, owner: owner.id().to_string(), item, part });
+            return Some(Hit::Rack { owner: owner.id().to_string(), item, part });
         }
     }
     None
@@ -458,7 +457,7 @@ pub fn on_drag(app: &mut AppState, d: &mut Drag, tx: &mut Tx) {
                 }
                 return;
             }
-            press(app, d.x, d.y, d.clicks, mods, tx);
+            press(app, d.x, d.y, d.clicks, mods);
         }
         Phase::Move => moved(app, d.x, d.y, mods),
         Phase::Up => released(app, d.x, d.y, d.cancelled(), mods),
@@ -466,7 +465,7 @@ pub fn on_drag(app: &mut AppState, d: &mut Drag, tx: &mut Tx) {
     tx.instant();
 }
 
-fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut Tx) {
+fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods) {
     let prefs = app.preferences.clone();
     let linked = prefs.editing.linked_selection;
     let Some(e) = app.editor.as_mut() else { return };
@@ -507,13 +506,13 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut T
             crate::editor::seek(app, st, true);
         }
         Hit::AddTrack => {
-            use crate::menu::{Item, Popup};
+            use crate::ui::menu::{Item, Popup};
             let items = vec![
                 Item::new("Video track", |s, _| add_track(s, TrackKind::Video)),
                 Item::new("Audio track", |s, _| add_track(s, TrackKind::Audio)),
             ];
-            let origin = crate::layout::rect("timeline.canvas").unwrap_or([0.0; 4]);
-            crate::menu::open(app, Popup::at(origin[0] + x, origin[1] + y, items));
+            let origin = crate::ui::layout::rect("timeline.canvas").unwrap_or([0.0; 4]);
+            crate::ui::menu::open(app, Popup::at(origin[0] + x, origin[1] + y, items));
         }
         Hit::Header { track, button } => {
             let tr = e.doc().tracks[track].clone();
@@ -1566,7 +1565,7 @@ fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: 
         }
     }
     e.ed.begin_live();
-    e.tl.gesture = Gesture::Rack(Box::new(RackDrag { owner, part, origin, bar, press_t: t, x0: x, others, clips, collapse_to }));
+    e.tl.gesture = Gesture::Rack(Box::new(RackDrag { part, origin, bar, press_t: t, x0: x, others, clips, collapse_to }));
 }
 
 /// Selects an effect bar and shows it in the inspector.

@@ -6,11 +6,11 @@ use rune::{Color, Cursor, Drag, El, Phase, TextEdit, Tx, col, el, icon, row, tex
 
 use crate::app::AppState;
 use crate::editor::Editor;
-use crate::icons;
-use crate::menu::Item;
-use crate::theme::{RADIUS_CARD, Tokens, font, hex, mono};
+use crate::ui::icons;
+use crate::ui::menu::Item;
+use crate::ui::theme::{RADIUS_CARD, Tokens, font, hex, mono};
 use crate::timeline::geometry::{HEADER_W, lanes};
-use crate::widgets::{self, Kind};
+use crate::ui::widgets::{self, Kind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -141,7 +141,7 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(
             widgets::icon_button(&icons::CHEVRON_LEFT, 14.0, 26.0, t)
                 .help("Hide this panel (Ctrl+1)")
-                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::MediaPanel, tx)),
+                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::MediaPanel, tx)),
         );
     let content = match tab {
         Tab::Media => media_tab(app, e, t),
@@ -179,8 +179,8 @@ fn scroll(content: El) -> El {
 /// without a drag runs `click`.
 fn draggable(card: El, key: String, payload: Payload, label: String, click: fn(&mut AppState, &Payload)) -> El {
     let k = key.clone();
-    crate::layout::tracked(card, key).drag_threshold(0.0).on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
-        let origin = crate::layout::rect(&k).unwrap_or([0.0; 4]);
+    crate::ui::layout::tracked(card, key).drag_threshold(0.0).on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
+        let origin = crate::ui::layout::rect(&k).unwrap_or([0.0; 4]);
         let (x, y) = (origin[0] + d.start_x + d.dx, origin[1] + d.start_y + d.dy);
         match d.phase {
             Phase::Down => {
@@ -211,7 +211,7 @@ fn draggable(card: El, key: String, payload: Payload, label: String, click: fn(&
 }
 
 fn canvas_point(x: f32, y: f32) -> Option<(f32, f32)> {
-    let r = crate::layout::rect("timeline.canvas")?;
+    let r = crate::ui::layout::rect("timeline.canvas")?;
     (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]).then(|| (x - r[0], y - r[1]))
 }
 
@@ -237,7 +237,7 @@ fn drop_on_timeline(app: &mut AppState, payload: &Payload, x: f32, y: f32) {
     let hit = crate::timeline::input::hit(e, cx, cy);
     match payload {
         Payload::Media(id) => {
-            crate::media::place_media(app, id, track.as_deref(), at);
+            crate::editor::media::place_media(app, id, track.as_deref(), at);
         }
         Payload::Text(i) => {
             if let Some(p) = fig_timeline::text_presets().get(*i) {
@@ -320,10 +320,10 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .w_full()
         .gap(6.0)
         .child(search(e, "Search media", t).grow(1.0))
-        .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).help("Import media (Ctrl+I)").on_press_tx(|_: &mut AppState, tx: &mut Tx| crate::media::import_dialog(tx)))
+        .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).help("Import media (Ctrl+I)").on_press_tx(|_: &mut AppState, tx: &mut Tx| crate::editor::media::import_dialog(tx)))
         .child(widgets::icon_button(&icons::ELLIPSIS, 14.0, 30.0, t).key("lib.media.more").on_press(|s: &mut AppState| {
             let items = vec![Item::new("Collect sources into the project folder", |s, _| crate::dialogs::collect_sources(s))];
-            crate::menu::open_below(s, "lib.media.more", items);
+            crate::ui::menu::open_below(s, "lib.media.more", items);
         }));
     let media: Vec<_> = e.project.media.iter().filter(|m| m.reverse_of.is_none() && matches(e, m.file_name())).collect();
     if e.project.media.is_empty() {
@@ -393,27 +393,27 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
                             .center()
                             .help("Add to the timeline at the playhead")
                             .child(icon(&icons::PLUS, 13.0).color(t.on_accent))
-                            .on_press(move |s: &mut AppState| crate::media::add_to_timeline(s, &id_add)),
+                            .on_press(move |s: &mut AppState| crate::editor::media::add_to_timeline(s, &id_add)),
                     ),
                 ),
             ))
             .child(text(name.clone()).font(font(12.0, 400.0)).color(t.text_secondary).truncate().help(name.clone()))
-            .on_double_press(move |s: &mut AppState| crate::media::add_to_timeline(s, &id_dbl))
+            .on_double_press(move |s: &mut AppState| crate::editor::media::add_to_timeline(s, &id_dbl))
             .on_secondary_press(move |s: &mut AppState, p: rune::PointerPress, _tx: &mut Tx| {
                 let (a, b, c, d) = (id_menu.clone(), id_menu.clone(), id_menu.clone(), id_menu.clone());
                 let items = vec![
-                    Item::new("Add to timeline at the playhead", move |s, _| crate::media::add_to_timeline(s, &a)),
+                    Item::new("Add to timeline at the playhead", move |s, _| crate::editor::media::add_to_timeline(s, &a)),
                     Item::new("Show in folder", move |s, _| {
                         let url = s.editor.as_ref().and_then(|e| e.find_media(&b)).map(|m| m.url.clone()).unwrap_or_default();
-                        if let Err(err) = crate::media::reveal(&url) {
-                            crate::toasts::show(s, err);
+                        if let Err(err) = crate::editor::media::reveal(&url) {
+                            crate::ui::toasts::show(s, err);
                         }
                     }),
-                    Item::new("Generate proxy", move |s, _| crate::media::request_proxy(s, &c, true)),
+                    Item::new("Generate proxy", move |s, _| crate::editor::media::request_proxy(s, &c, true)),
                     Item::Separator,
                     Item::new("Remove", move |s, _| remove_media(s, &d)).danger(),
                 ];
-                crate::menu::open(s, crate::menu::Popup::at(p.x, p.y, items));
+                crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.x, p.y, items));
             });
         grid = grid.child(draggable(card, format!("lib.media.{}", m.id), Payload::Media(m.id.clone()), name, |s, p| {
             if let (Payload::Media(id), Some(e)) = (p, s.editor.as_mut()) {
@@ -502,8 +502,8 @@ fn save_template(app: &mut AppState) {
         let tp = fig_project::templates::from_timeline(name.trim(), "Custom", e.doc(), &e.project.media, None);
         let store = fig_project::templates::TemplateStore::new(crate::settings::templates_dir());
         match store.save(&tp) {
-            Ok(()) => crate::toasts::show(s, "Template saved"),
-            Err(err) => crate::toasts::show(s, format!("Couldn't save the template: {err}")),
+            Ok(()) => crate::ui::toasts::show(s, "Template saved"),
+            Err(err) => crate::ui::toasts::show(s, format!("Couldn't save the template: {err}")),
         }
     });
 }
@@ -655,7 +655,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                 if user {
                     items.push(Item::new("Delete preset", move |s, _| delete_preset(s, &id, &name)).danger());
                 }
-                crate::menu::open(s, crate::menu::Popup::at(at.x, at.y, items));
+                crate::ui::menu::open(s, crate::ui::menu::Popup::at(at.x, at.y, items));
             });
             list = list.child(card);
         }
@@ -684,7 +684,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                 .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip or track").on_press(move |s: &mut AppState| add_to_selection(s, &tid)))
                 .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| {
                     let items = effect_menu(&menu_tid, &name, custom);
-                    crate::menu::open(s, crate::menu::Popup::at(at.x, at.y, items));
+                    crate::ui::menu::open(s, crate::ui::menu::Popup::at(at.x, at.y, items));
                 });
             list = list.child(draggable(card, format!("lib.fx.{}", entry.type_id), Payload::Effect(entry.type_id.clone()), entry.display_name.clone(), |s, p| {
                 if let Payload::Effect(t) = p {
@@ -705,7 +705,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                 .w_full()
                 .gap(6.0)
                 .child(search(e, "Search effects", t).grow(1.0))
-                .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).key("lib.fx.new").help("Build a new effect from nodes").on_press(|s: &mut AppState| crate::graph::open(s, None)))
+                .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).key("lib.fx.new").help("Build a new effect from nodes").on_press(|s: &mut AppState| crate::editor::graph::open(s, None)))
                 .child(widgets::icon_button(&icons::IMPORT, 14.0, 30.0, t).help("Import an effect file").on_press_tx(|_s: &mut AppState, tx: &mut Tx| import_graph(tx))),
         )
         .child(widgets::dropdown("lib.fx.category", pick, t).w_full().on_press(|s: &mut AppState| {
@@ -720,7 +720,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                     })
                 })
                 .collect();
-            crate::menu::open_below(s, "lib.fx.category", items);
+            crate::ui::menu::open_below(s, "lib.fx.category", items);
         }))
         .child(scroll(list))
 }
@@ -736,7 +736,7 @@ fn effect_menu(type_id: &str, name: &str, custom: bool) -> Vec<Item> {
     let id = type_id.trim_start_matches("graph:").to_string();
     let (t1, i2, i3, i4, n3, n4) = (type_id.to_string(), id.clone(), id.clone(), id, name.to_string(), name.to_string());
     items.extend([
-        Item::new("Edit graph…", move |s, _| crate::graph::open(s, Some(&t1))),
+        Item::new("Edit graph…", move |s, _| crate::editor::graph::open(s, Some(&t1))),
         Item::new("Duplicate", move |s, _| {
             if let Some(e) = s.editor.as_mut()
                 && let Some(copy) = e.graphs.duplicate(&i2).map(|g| g.name.clone())
@@ -902,7 +902,7 @@ fn marker_row(e: &Editor, loc: &fig_edit::MarkerLocation, sub: String, t: &Token
                     }
                 }),
                 Item::new("Split video at selected markers", |s, _| split_at_markers(s)),
-                Item::new("Delete selected markers", |s, tx| crate::actions::run(s, crate::commands::Command::DeleteMarker, tx)).danger(),
+                Item::new("Delete selected markers", |s, tx| crate::commands::actions::run(s, crate::commands::Command::DeleteMarker, tx)).danger(),
             ];
             if let Some(clip) = clip.clone() {
                 let c2 = clip.clone();
@@ -918,7 +918,7 @@ fn marker_row(e: &Editor, loc: &fig_edit::MarkerLocation, sub: String, t: &Token
                     }
                 }));
             }
-            crate::menu::open(s, crate::menu::Popup::at(p.x, p.y, items));
+            crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.x, p.y, items));
         })
 }
 
@@ -993,12 +993,12 @@ fn markers_tab(e: &Editor, t: &Tokens) -> El {
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
-        .child(widgets::button("Export marked ranges", Kind::Primary, t).key("lib.export_ranges").help("Save each range marker as its own video").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::ExportRanges, tx)))
+        .child(widgets::button("Export marked ranges", Kind::Primary, t).key("lib.export_ranges").help("Save each range marker as its own video").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::ExportRanges, tx)))
         .child(search(e, "Search markers", t))
         .child(
             row()
                 .gap(6.0)
-                .child(widgets::button("+ Point", Kind::Normal, t).help("Add a bookmark at the playhead (M)").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::AddMarker, tx)))
+                .child(widgets::button("+ Point", Kind::Normal, t).help("Add a bookmark at the playhead (M)").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::AddMarker, tx)))
                 .child(widgets::button("+ Range", Kind::Normal, t).help("Add a range that starts at the playhead").on_press(|s: &mut AppState| {
                     if let Some(e) = s.editor.as_mut() {
                         let at = e.playhead;
@@ -1019,7 +1019,7 @@ fn markers_tab(e: &Editor, t: &Tokens) -> El {
                         e.ed.selection.select_markers(ids, None);
                     }
                 }))
-                .child(widgets::button("Delete selected", Kind::Ghost, t).h(24.0).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::DeleteMarker, tx))),
+                .child(widgets::button("Delete selected", Kind::Ghost, t).h(24.0).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::DeleteMarker, tx))),
         )
         .child(widgets::button("Split video at markers", Kind::Normal, t).help("Split video on all tracks at selected marker positions. Linked audio follows; all cuts undo together.").on_press(split_at_markers))
         .child(widgets::note("Ctrl-click to toggle · Shift-click for a range · Delete to remove", t))
@@ -1090,7 +1090,7 @@ fn captions_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
                     })
                 })
                 .collect();
-            crate::menu::open_below(s, "lib.cap.track", items);
+            crate::ui::menu::open_below(s, "lib.cap.track", items);
         }));
     }
     // find and replace
@@ -1238,11 +1238,11 @@ fn card_preview(type_id: &str, transition: bool) -> Option<rune::Pixels> {
     if let Some(p) = PREVIEWS.with_borrow(|m| m.get(&key).cloned()) {
         return p;
     }
-    let source = crate::graph::test_picture(96, 64);
+    let source = crate::editor::graph::test_picture(96, 64);
     let frame = if transition {
         fig_fx::transitions::find(type_id).map(|entry| {
             let mut night = source.clone();
-            for px in night.pixels.chunks_exact_mut(4) {
+            for px in night.pixels.as_chunks_mut::<4>().0 {
                 let (b, g, r) = (px[0], px[1], px[2]);
                 (px[0], px[1], px[2]) = (r / 2 + 60, b / 3, g / 3 + 20);
             }
@@ -1254,7 +1254,7 @@ fn card_preview(type_id: &str, transition: bool) -> Option<rune::Pixels> {
             entry.apply(&source, &params, 0.5).unwrap_or_else(|| source.clone())
         })
     };
-    let pixels = frame.map(|f| crate::graph::to_pixels(&f));
+    let pixels = frame.map(|f| crate::editor::graph::to_pixels(&f));
     PREVIEWS.with_borrow_mut(|m| m.insert(key, pixels.clone()));
     pixels
 }

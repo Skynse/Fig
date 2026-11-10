@@ -5,9 +5,9 @@ use rune::{Color, El, Tx, el, icon, row, text};
 
 use crate::app::{AppState, Route};
 use crate::commands::Command;
-use crate::icons;
-use crate::menu::Item;
-use crate::theme::{Tokens, font, hex};
+use crate::ui::icons;
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font, hex};
 
 fn menu_button(name: &'static str, t: &Tokens, build: fn(&AppState) -> Vec<Item>) -> El {
     let key = format!("menu.{name}");
@@ -22,7 +22,7 @@ fn menu_button(name: &'static str, t: &Tokens, build: fn(&AppState) -> Vec<Item>
         .child(text(name).font(font(13.0, 400.0)).color(t.text_secondary))
         .on_press(move |s: &mut AppState| {
             let items = build(s);
-            crate::menu::open_below(s, &k, items);
+            crate::ui::menu::open_below(s, &k, items);
         })
 }
 
@@ -173,10 +173,10 @@ pub fn title_bar(app: &AppState, t: &Tokens) -> El {
                     .on_press(|s: &mut AppState| s.dialog = Some(crate::dialogs::Dialog::Jobs)),
             )
             .child(bar_button(&icons::PANEL_LEFT, "Media panel (Ctrl+1)", !e.panels.left_collapsed, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
-                crate::actions::run(s, Command::MediaPanel, tx)
+                crate::commands::actions::run(s, Command::MediaPanel, tx)
             }))
             .child(bar_button(&icons::PANEL_RIGHT, "Inspector (Ctrl+2)", !e.panels.right_collapsed, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| {
-                crate::actions::run(s, Command::Inspector, tx)
+                crate::commands::actions::run(s, Command::Inspector, tx)
             }))
             .child(
                 row()
@@ -192,18 +192,18 @@ pub fn title_bar(app: &AppState, t: &Tokens) -> El {
                     .no_window_drag()
                     .child(icon(&icons::UPLOAD, 14.0).color(t.on_accent))
                     .child(text("Export").font(font(13.0, 600.0)).color(t.on_accent))
-                    .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::Export, tx)),
+                    .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::Export, tx)),
             );
     }
     right = right
         .child(caption(&icons::MINUS, 14.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.minimize()))
         .child(caption(&icons::SQUARE, 12.0, false, t).on_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized()))
-        .child(caption(&icons::X, 14.0, true, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::Exit, tx)));
+        .child(caption(&icons::X, 14.0, true, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::Exit, tx)));
 
     row()
         .key("titlebar")
         .w_full()
-        .h(crate::theme::TITLEBAR_H)
+        .h(crate::ui::theme::TITLEBAR_H)
         .center_y()
         .window_drag()
         .on_double_press_tx(|_: &mut AppState, tx: &mut Tx| tx.toggle_maximized())

@@ -9,8 +9,8 @@ use rune::{El, Phase, col, row, text};
 
 use crate::app::AppState;
 use crate::editor::Editor;
-use crate::theme::{Tokens, font};
-use crate::widgets::{self, Kind};
+use crate::ui::theme::{Tokens, font};
+use crate::ui::widgets::{self, Kind};
 
 #[derive(Default)]
 pub struct BeatSession {
@@ -66,7 +66,7 @@ pub fn analyze(app: &mut AppState) {
         return fail(e, "The source audio is unavailable.");
     };
     let duration = clip_time::source_offset(&clip, clip.dur_sec).min(clip.source_out().min(asset.duration_sec) - clip.source_in());
-    if !(duration > 0.0) {
+    if duration.is_nan() || duration <= 0.0 {
         return fail(e, "The clip has no audio range to analyze.");
     }
     discard(e);

@@ -14,9 +14,9 @@ use rune::{Color, Cursor, Drag, El, KeyEvent, Phase, PointerButton, Shape, TextE
 
 use crate::app::AppState;
 use crate::editor::Editor;
-use crate::menu::{Item, Popup};
-use crate::theme::{Tokens, font, hex};
-use crate::widgets::{self, Kind};
+use crate::ui::menu::{Item, Popup};
+use crate::ui::theme::{Tokens, font, hex};
+use crate::ui::widgets::{self, Kind};
 
 const NODE_W: f32 = 176.0;
 const HEADER_H: f32 = 26.0;
@@ -436,7 +436,10 @@ impl GraphEditor {
 
 // ---- drawing ---------------------------------------------------------------------------------
 
-fn ports_of(node: &GraphNode) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, &'static str)>) {
+/// A node's ports: (id, label), its inputs then its outputs.
+type Ports = Vec<(&'static str, &'static str)>;
+
+fn ports_of(node: &GraphNode) -> (Ports, Ports) {
     match fig_fx::graph::find_primitive(&node.primitive_id) {
         Some(p) => (p.inputs.iter().map(|i| (i.id, i.label)).collect(), p.outputs.iter().map(|o| (o.id, o.label)).collect()),
         None => (Vec::new(), Vec::new()),
@@ -574,7 +577,7 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
         .child(widgets::button("Add", Kind::Normal, t).key("graph.add").help("Add a node (Shift+A to search)").on_press(|s: &mut AppState| {
             let at = canvas_center(s);
             let items = add_items(at);
-            crate::menu::open_below(s, "graph.add", items);
+            crate::ui::menu::open_below(s, "graph.add", items);
         }))
         .child(widgets::button("Edit", Kind::Ghost, t).key("graph.edit").on_press(|s: &mut AppState| {
             let Some(g) = ge(s) else { return };
@@ -591,7 +594,7 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
                 Item::Separator,
                 Item::new("Select all", |s, _| with(s, |g| g.selected = g.graph.nodes.iter().map(|n| n.id.clone()).collect())).hint("Ctrl+A"),
             ];
-            crate::menu::open_below(s, "graph.edit", items);
+            crate::ui::menu::open_below(s, "graph.edit", items);
         }))
         .child(widgets::button("View", Kind::Ghost, t).key("graph.view").on_press(|s: &mut AppState| {
             let items = vec![
@@ -599,7 +602,7 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
                 Item::new("Zoom in", |s, _| zoom_by(s, 1.2)),
                 Item::new("Zoom out", |s, _| zoom_by(s, 1.0 / 1.2)),
             ];
-            crate::menu::open_below(s, "graph.view", items);
+            crate::ui::menu::open_below(s, "graph.view", items);
         }))
         .child(el().grow(1.0))
         .child(
@@ -612,9 +615,9 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
                 .help(if valid { "Valid".to_string() } else { compiled.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("\n") })
                 .child(text(if valid { "✓" } else { "!" }).font(font(13.0, 700.0)).color(if valid { hex("#589b74") } else { hex("#eab308") })),
         )
-        .child(widgets::icon_button(&crate::icons::UNDO_2, 15.0, 30.0, t).help("Undo (Ctrl+Z)").opacity(if g.undo.is_empty() { 0.4 } else { 1.0 }).on_press(|s: &mut AppState| with(s, GraphEditor::undo)))
-        .child(widgets::icon_button(&crate::icons::REDO_2, 15.0, 30.0, t).help("Redo (Ctrl+Y)").opacity(if g.redo.is_empty() { 0.4 } else { 1.0 }).on_press(|s: &mut AppState| with(s, GraphEditor::redo)))
-        .child(widgets::icon_button(&crate::icons::ROTATE_CCW, 15.0, 30.0, t).help("Revert to the saved version").opacity(if g.dirty { 1.0 } else { 0.4 }).on_press(|s: &mut AppState| {
+        .child(widgets::icon_button(&crate::ui::icons::UNDO_2, 15.0, 30.0, t).help("Undo (Ctrl+Z)").opacity(if g.undo.is_empty() { 0.4 } else { 1.0 }).on_press(|s: &mut AppState| with(s, GraphEditor::undo)))
+        .child(widgets::icon_button(&crate::ui::icons::REDO_2, 15.0, 30.0, t).help("Redo (Ctrl+Y)").opacity(if g.redo.is_empty() { 0.4 } else { 1.0 }).on_press(|s: &mut AppState| with(s, GraphEditor::redo)))
+        .child(widgets::icon_button(&crate::ui::icons::ROTATE_CCW, 15.0, 30.0, t).help("Revert to the saved version").opacity(if g.dirty { 1.0 } else { 0.4 }).on_press(|s: &mut AppState| {
             if let Some(g) = ge(s)
                 && g.dirty
             {
@@ -635,7 +638,7 @@ pub fn view(_app: &AppState, _e: &Editor, g: &GraphEditor, t: &Tokens) -> El {
         .clip_rounded(0.0)
         .pointer_buttons([PointerButton::Primary, PointerButton::Middle])
         .on_layout(|s: &mut AppState, r: [f32; 4]| {
-            crate::layout::remember("graph.canvas", r);
+            crate::ui::layout::remember("graph.canvas", r);
             if let Some(g) = ge(s)
                 && !g.framed
             {
@@ -907,7 +910,7 @@ fn with(s: &mut AppState, f: impl FnOnce(&mut GraphEditor)) {
 
 /// The world point in the middle of the canvas.
 fn canvas_center(s: &mut AppState) -> (f64, f64) {
-    let size = crate::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
+    let size = crate::ui::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
     ge(s).map_or((200.0, 200.0), |g| {
         let (x, y) = g.to_world(size[0] / 2.0, size[1] / 2.0);
         (x - f64::from(NODE_W) / 2.0, y - 20.0)
@@ -915,12 +918,12 @@ fn canvas_center(s: &mut AppState) -> (f64, f64) {
 }
 
 fn frame_all(s: &mut AppState) {
-    let size = crate::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
+    let size = crate::ui::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
     with(s, |g| g.frame_all(size));
 }
 
 fn zoom_by(s: &mut AppState, factor: f32) {
-    let size = crate::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
+    let size = crate::ui::layout::rect("graph.canvas").map_or([800.0, 600.0], |r| [r[2], r[3]]);
     with(s, |g| {
         let (cx, cy) = (size[0] / 2.0, size[1] / 2.0);
         let (wx, wy) = g.to_world(cx, cy);
@@ -1025,7 +1028,7 @@ fn context_menu(s: &mut AppState, x: f32, y: f32, wx: f32, wy: f32) {
             ]
         }
     };
-    crate::menu::open(s, Popup::at(wx, wy, items));
+    crate::ui::menu::open(s, Popup::at(wx, wy, items));
 }
 
 /// Shift+A: a search box over the canvas; Enter adds the first match where the search was opened.
@@ -1165,7 +1168,7 @@ pub fn test_picture(w: usize, h: usize) -> fig_fx::Frame {
 
 pub fn to_pixels(f: &fig_fx::Frame) -> rune::Pixels {
     let mut rgba = f.pixels.clone();
-    for p in rgba.chunks_exact_mut(4) {
+    for p in rgba.as_chunks_mut::<4>().0 {
         p.swap(0, 2);
     }
     let pixels = rune::Pixels::new();
@@ -1248,7 +1251,7 @@ fn side_panel(g: &GraphEditor, compiled: &fig_fx::graph::CompileResult, t: &Toke
                                     Item::new(ch.clone(), move |s, _| set(s, i as f64, Phase::Up))
                                 })
                                 .collect();
-                            crate::menu::open_below(s, &k, items);
+                            crate::ui::menu::open_below(s, &k, items);
                         })
                     }
                     _ => widgets::slider(format!("g.{}.{}", node.id, def.key), v, def.min, if def.max > def.min { def.max } else { def.min + 1.0 }, def.default, set, t),
@@ -1262,7 +1265,7 @@ fn side_panel(g: &GraphEditor, compiled: &fig_fx::graph::CompileResult, t: &Toke
                         .center_y()
                         .child(text(def.label.clone()).font(font(11.5, 400.0)).color(t.text_muted).w(84.0).truncate())
                         .child(el().grow(1.0).child(control))
-                        .child(widgets::toggle_button(&crate::icons::PIN, promoted, 24.0, t).help("Expose as a control on the effect").on_press(move |s: &mut AppState| with(s, |g| g.toggle_promote(&nid, &key)))),
+                        .child(widgets::toggle_button(&crate::ui::icons::PIN, promoted, 24.0, t).help("Expose as a control on the effect").on_press(move |s: &mut AppState| with(s, |g| g.toggle_promote(&nid, &key)))),
                 );
             }
         }
@@ -1302,7 +1305,7 @@ fn side_panel(g: &GraphEditor, compiled: &fig_fx::graph::CompileResult, t: &Toke
                         .child(text(p.label.clone()).font(font(12.0, 600.0)).color(t.text_primary).truncate())
                         .child(text(format!("{source}{more}")).font(font(10.0, 400.0)).color(t.text_muted).truncate()),
                 )
-                .child(widgets::icon_button(&crate::icons::PENCIL, 12.0, 22.0, t).help("Rename").on_press(move |s: &mut AppState| {
+                .child(widgets::icon_button(&crate::ui::icons::PENCIL, 12.0, 22.0, t).help("Rename").on_press(move |s: &mut AppState| {
                     let key = k1.clone();
                     crate::dialogs::prompt(s, "Rename control", "Label", &label, "Rename", move |s, name| {
                         let name = name.trim().to_string();
@@ -1316,9 +1319,9 @@ fn side_panel(g: &GraphEditor, compiled: &fig_fx::graph::CompileResult, t: &Toke
                         });
                     });
                 }))
-                .child(widgets::icon_button(&crate::icons::CHEVRON_UP, 12.0, 22.0, t).opacity(if i == 0 { 0.35 } else { 1.0 }).on_press(move |s: &mut AppState| with(s, |g| g.move_control(&k2, -1))))
-                .child(widgets::icon_button(&crate::icons::CHEVRON_DOWN, 12.0, 22.0, t).opacity(if last { 0.35 } else { 1.0 }).on_press(move |s: &mut AppState| with(s, |g| g.move_control(&k3, 1))))
-                .child(widgets::icon_button(&crate::icons::X, 12.0, 22.0, t).help("Stop exposing this value").on_press(move |s: &mut AppState| with(s, |g| g.remove_control(&k4)))),
+                .child(widgets::icon_button(&crate::ui::icons::CHEVRON_UP, 12.0, 22.0, t).opacity(if i == 0 { 0.35 } else { 1.0 }).on_press(move |s: &mut AppState| with(s, |g| g.move_control(&k2, -1))))
+                .child(widgets::icon_button(&crate::ui::icons::CHEVRON_DOWN, 12.0, 22.0, t).opacity(if last { 0.35 } else { 1.0 }).on_press(move |s: &mut AppState| with(s, |g| g.move_control(&k3, 1))))
+                .child(widgets::icon_button(&crate::ui::icons::X, 12.0, 22.0, t).help("Stop exposing this value").on_press(move |s: &mut AppState| with(s, |g| g.remove_control(&k4)))),
         );
     }
     c.child(widgets::note("These are the sliders the effect shows on a clip. They can be keyframed and saved in presets.", t))

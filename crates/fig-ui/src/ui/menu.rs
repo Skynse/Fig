@@ -7,15 +7,14 @@ use rune::{El, Tx, col, el, icon, row, text};
 
 use crate::app::AppState;
 use crate::commands::Command;
-use crate::icons;
-use crate::theme::{Tokens, font, hex};
+use crate::ui::icons;
+use crate::ui::theme::{Tokens, font, hex};
 
 pub type Action = Rc<dyn Fn(&mut AppState, &mut Tx)>;
 
 pub enum Item {
     Action { label: String, hint: String, enabled: bool, checked: Option<bool>, danger: bool, action: Action },
     Submenu { label: String, items: Vec<Item> },
-    Header(String),
     Separator,
 }
 
@@ -34,7 +33,7 @@ impl Item {
     /// A command from the catalog: its shortcut shown, run through `commands::run`.
     pub fn command(app: &AppState, label: impl Into<String>, command: Command) -> Item {
         let hint = crate::commands::shortcut_label(command, &app.preferences.keyboard.shortcuts);
-        Item::new(label, move |s, tx| crate::actions::run(s, command, tx)).hint(hint)
+        Item::new(label, move |s, tx| crate::commands::actions::run(s, command, tx)).hint(hint)
     }
 
     pub fn hint(mut self, h: impl Into<String>) -> Item {
@@ -118,32 +117,25 @@ pub fn open_below(app: &mut AppState, key: &str, items: Vec<Item>) {
 
 const ITEM_H: f32 = 30.0;
 const SEP_H: f32 = 11.0;
-const HEADER_H: f32 = 24.0;
 
 fn height_of(items: &[Item]) -> f32 {
     12.0 + items
         .iter()
         .map(|i| match i {
             Item::Separator => SEP_H,
-            Item::Header(_) => HEADER_H,
             _ => ITEM_H + 2.0,
         })
         .sum::<f32>()
 }
 
 fn card(items: &[Item], path: Vec<usize>, min_w: f32, t: &Tokens) -> El {
-    let mut list = col().padding(6.0).min_w(min_w).fill(hex("#23252b")).radius(12.0).border(1.0, hex("#2f323a"));
+    let mut list = col().padding(6.0).min_w(min_w).fill(hex("#23252b")).radius(crate::ui::theme::RADIUS_MENU).border(1.0, hex("#2f323a"));
     list = list.shadow(10.0, 30.0, rune::Color::BLACK.alpha(0.45));
     for (i, item) in items.iter().enumerate() {
         let mut here = path.clone();
         here.push(i);
         list = list.child(match item {
             Item::Separator => el().w_full().h(SEP_H).py(5.0).child(el().w_full().h(1.0).fill(hex("#2f323a"))),
-            Item::Header(label) => el()
-                .h(HEADER_H)
-                .px(10.0)
-                .center_y()
-                .child(text(label.clone()).font(font(11.0, 600.0)).color(t.text_muted)),
             Item::Action { label, hint, enabled, checked, danger, .. } => {
                 let color = if !enabled {
                     t.text_faint
@@ -233,7 +225,7 @@ pub fn overlay(app: &AppState, t: &Tokens) -> Option<El> {
     let (mut px, mut py, mut min_w) = (popup.x, popup.y, popup.min_w);
     let mut above = None;
     if let Some(key) = &popup.anchor {
-        let r = crate::layout::rect(key)?;
+        let r = crate::ui::layout::rect(key)?;
         (px, py, min_w) = (r[0], r[1] + r[3] + 4.0, r[2].max(160.0));
         above = Some(r[1] - 4.0);
     }
@@ -256,8 +248,7 @@ pub fn overlay(app: &AppState, t: &Tokens) -> Option<El> {
             .iter()
             .map(|i| match i {
                 Item::Separator => SEP_H,
-                Item::Header(_) => HEADER_H,
-                _ => ITEM_H + 2.0,
+                    _ => ITEM_H + 2.0,
             })
             .sum::<f32>();
         let sw = 220.0;

@@ -10,9 +10,9 @@ use rune::{Color, El, col, el, row, text};
 
 use super::Dialog;
 use crate::app::AppState;
-use crate::menu::Item;
-use crate::theme::{Tokens, font, hex};
-use crate::widgets::{self, Kind};
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font, hex};
+use crate::ui::widgets::{self, Kind};
 
 pub struct CaptionsState {
     pub model: &'static str,
@@ -122,7 +122,7 @@ pub fn view(app: &AppState, s: &CaptionsState, t: &Tokens) -> El {
                         })
                     })
                     .collect();
-                crate::menu::open_below(a, "cap.lang", items);
+                crate::ui::menu::open_below(a, "cap.lang", items);
             }),
             t,
         ))
@@ -140,7 +140,7 @@ pub fn view(app: &AppState, s: &CaptionsState, t: &Tokens) -> El {
                         })
                     })
                     .collect();
-                crate::menu::open_below(a, "cap.group", items);
+                crate::ui::menu::open_below(a, "cap.group", items);
             }),
             t,
         ))
@@ -239,9 +239,9 @@ fn generate(app: &mut AppState) {
                 a.dialog = None;
                 if let Some(e) = a.editor.as_mut() {
                     e.ed.add_captions(&cues, None, None);
-                    e.library.tab = crate::library::Tab::Captions;
+                    e.library.tab = crate::editor::library::Tab::Captions;
                 }
-                crate::toasts::show(a, format!("{} captions added", cues.len()));
+                crate::ui::toasts::show(a, format!("{} captions added", cues.len()));
             }
             Err(err) => {
                 if let Some(s) = state(a) {

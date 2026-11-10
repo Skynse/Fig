@@ -7,10 +7,10 @@ use fig_project::{ProjectStore, ProjectSummary};
 use rune::{Color, Cursor, El, KeyEvent, Pixels, TextEdit, Tx, col, el, icon, row, text};
 
 use crate::app::AppState;
-use crate::icons;
-use crate::menu::Item;
-use crate::theme::{Tokens, font, hex};
-use crate::widgets::{self, Kind};
+use crate::ui::icons;
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font, hex};
+use crate::ui::widgets::{self, Kind};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Sort {
@@ -124,7 +124,7 @@ pub fn view(app: &AppState, t: &Tokens) -> El {
                 .into_iter()
                 .map(|(v, l)| Item::new(l, move |s, _| s.home.sort = v))
                 .collect();
-            crate::menu::open_below(s, "home.sort", items);
+            crate::ui::menu::open_below(s, "home.sort", items);
         }))
         .child(widgets::toggle_button(&icons::LAYOUT_GRID, !h.list, 30.0, t).on_press(|s: &mut AppState| s.home.list = false))
         .child(widgets::toggle_button(&icons::LIST, h.list, 30.0, t).on_press(|s: &mut AppState| s.home.list = true));
@@ -201,15 +201,15 @@ fn project_menu(app: &mut AppState, id: &str, x: f32, y: f32) {
             let id = b.clone();
             crate::dialogs::prompt(s, "Rename project", "Project name", &current, "Rename", move |s, name| {
                 if let Err(err) = s.store.rename_project(&id, name.trim()) {
-                    crate::toasts::show(s, format!("Couldn't rename: {err}"));
+                    crate::ui::toasts::show(s, format!("Couldn't rename: {err}"));
                 }
                 s.refresh_home();
             });
         }),
         Item::new("Show in folder", move |s, _| {
             let folder = s.store.project_directory(&c);
-            if let Err(err) = crate::media::reveal(&folder.join("project.json").to_string_lossy()) {
-                crate::toasts::show(s, err);
+            if let Err(err) = crate::editor::media::reveal(&folder.join("project.json").to_string_lossy()) {
+                crate::ui::toasts::show(s, err);
             }
         }),
         Item::Separator,
@@ -223,7 +223,7 @@ fn project_menu(app: &mut AppState, id: &str, x: f32, y: f32) {
         })
         .danger(),
     ];
-    crate::menu::open(app, crate::menu::Popup::at(x, y, items));
+    crate::ui::menu::open(app, crate::ui::menu::Popup::at(x, y, items));
 }
 
 fn new_project(app: &mut AppState) {
@@ -250,15 +250,15 @@ fn import_dialog(app: &mut AppState, tx: &mut Tx) {
 /// Unpacks a .figpck into a new project, in the background, then refreshes Home.
 pub fn import_package(app: &mut AppState, path: PathBuf) {
     let root = app.store.root().to_path_buf();
-    crate::toasts::show(app, "Unpacking the project…");
+    crate::ui::toasts::show(app, "Unpacking the project…");
     crate::app::spawn(
         move || ProjectStore::new(root).unpack(&path, &mut |_| {}).map_err(|e| e.to_string()),
         |s, r| match r {
             Ok(_) => {
                 s.refresh_home();
-                crate::toasts::show(s, "Project imported");
+                crate::ui::toasts::show(s, "Project imported");
             }
-            Err(err) => crate::toasts::show(s, format!("Couldn't import the package: {err}")),
+            Err(err) => crate::ui::toasts::show(s, format!("Couldn't import the package: {err}")),
         },
     );
 }
@@ -273,18 +273,18 @@ fn import_otio(app: &mut AppState, path: &std::path::Path, tx: &mut Tx) {
                     project.id = id.clone();
                     project.name = name;
                     if let Err(err) = app.store.save_project(&mut project) {
-                        crate::toasts::show(app, format!("Couldn't save the imported project: {err}"));
+                        crate::ui::toasts::show(app, format!("Couldn't save the imported project: {err}"));
                         return;
                     }
                     if !import.warnings.is_empty() {
-                        crate::toasts::show(app, format!("Imported with {} warning(s)", import.warnings.len()));
+                        crate::ui::toasts::show(app, format!("Imported with {} warning(s)", import.warnings.len()));
                     }
                     app.open_project(&id, tx);
                 }
-                Err(err) => crate::toasts::show(app, format!("Couldn't create the project: {err}")),
+                Err(err) => crate::ui::toasts::show(app, format!("Couldn't create the project: {err}")),
             }
         }
-        Err(err) => crate::toasts::show(app, format!("Couldn't read the timeline: {err}")),
+        Err(err) => crate::ui::toasts::show(app, format!("Couldn't read the timeline: {err}")),
     }
 }
 

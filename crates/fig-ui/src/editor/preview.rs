@@ -11,11 +11,11 @@ use rune::{Color, Cursor, Cx, Drag, El, Phase, Shape, SurfaceFit, Tx, canvas, co
 use crate::app::AppState;
 use crate::commands::Command;
 use crate::editor::Editor;
-use crate::icons;
-use crate::menu::Item;
+use crate::ui::icons;
+use crate::ui::menu::Item;
 use crate::playback::Quality;
-use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets;
+use crate::ui::theme::{Tokens, font, hex, mono};
+use crate::ui::widgets;
 
 pub fn view(app: &AppState, e: &Editor, t: &Tokens, cx: &mut Cx<AppState>) -> El {
     let _ = cx;
@@ -67,7 +67,7 @@ fn well(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .fill(hex("#0b0c0e"))
+        .fill(t.preview_well)
         .child(el().w_full().h_full().native_surface(&app.surface, SurfaceFit::Fit))
         .on_secondary_press(|s: &mut AppState, p: rune::PointerPress, _tx: &mut Tx| {
             let playing = s.playback.is_playing();
@@ -83,7 +83,7 @@ fn well(app: &AppState, e: &Editor, t: &Tokens) -> El {
                     }
                 }),
             ];
-            crate::menu::open(s, crate::menu::Popup::at(p.x, p.y, items));
+            crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.x, p.y, items));
         });
     if e.show_overlay
         && !app.playback.is_playing()
@@ -92,7 +92,7 @@ fn well(app: &AppState, e: &Editor, t: &Tokens) -> El {
         let frame = crate::playback::render::frame_size(e.doc(), e.media());
         let rect = picture_rect(size, frame);
         w = w.children(gizmo(app, e, rect, frame, t));
-        w = w.children(crate::overlays::view(e, rect, t));
+        w = w.children(crate::editor::overlays::view(e, rect, t));
     }
     w
 }
@@ -117,7 +117,7 @@ fn gizmo(app: &AppState, e: &Editor, rect: [f32; 4], frame: (u32, u32), t: &Toke
         .w_full()
         .h_full()
         .child(canvas(Shape::new().stroke(outline, 1.5, t.accent)).absolute(0.0, 0.0).w_full().h_full().inert());
-    for (i, p) in pts.iter().enumerate() {
+    for p in &pts {
         let id = id.clone();
         layer = layer.child(
             el().absolute(p[0] - 5.0, p[1] - 5.0)
@@ -127,7 +127,7 @@ fn gizmo(app: &AppState, e: &Editor, rect: [f32; 4], frame: (u32, u32), t: &Toke
                 .fill(Color::WHITE)
                 .border(1.0, t.accent)
                 .cursor(Cursor::Crosshair)
-                .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_handle(s, &id, Handle::Corner(i), d, tx, rect, aspect)),
+                .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_handle(s, &id, Handle::Corner, d, tx, rect, aspect)),
         );
     }
     let rid = id.clone();
@@ -155,7 +155,7 @@ fn measure(app: &AppState, e: &Editor, clip: &Clip, frame: (u32, u32), local: f6
 #[derive(Clone, Copy)]
 enum Handle {
     Move,
-    Corner(usize),
+    Corner,
     Rotate,
 }
 
@@ -200,7 +200,7 @@ fn drag_handle(s: &mut AppState, id: &str, h: Handle, d: &mut Drag, tx: &mut Tx,
                 l.center_y = 0.5;
             }
         }
-        Handle::Corner(_) => {
+        Handle::Corner => {
             // scale by how far the pointer is from the centre now, against where the press was
             let c = [rect[0] + start.center_x as f32 * rect[2], rect[1] + start.center_y as f32 * rect[3]];
             let p0 = [d.start_x, d.start_y];
@@ -244,8 +244,8 @@ fn transport(app: &AppState, e: &Editor, t: &Tokens) -> El {
     let center = row()
         .gap(2.0)
         .center_y()
-        .child(small(&icons::SKIP_BACK, "Go to the start (Home)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::GoStart, tx)))
-        .child(small(&icons::STEP_BACK, "Previous frame (Left)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::FrameBack, tx)))
+        .child(small(&icons::SKIP_BACK, "Go to the start (Home)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::GoStart, tx)))
+        .child(small(&icons::STEP_BACK, "Previous frame (Left)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::FrameBack, tx)))
         .child(
             el().w(30.0)
                 .h(30.0)
@@ -257,8 +257,8 @@ fn transport(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 .child(icon(if playing { &icons::PAUSE } else { &icons::PLAY }, 15.0).color(t.text_primary))
                 .on_press(crate::editor::toggle_play),
         )
-        .child(small(&icons::STEP_FORWARD, "Next frame (Right)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::FrameForward, tx)))
-        .child(small(&icons::SKIP_FORWARD, "Go to the end (End)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::GoEnd, tx)))
+        .child(small(&icons::STEP_FORWARD, "Next frame (Right)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::FrameForward, tx)))
+        .child(small(&icons::SKIP_FORWARD, "Go to the end (End)", t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::GoEnd, tx)))
         .child(
             el().w(28.0)
                 .h(28.0)
@@ -267,7 +267,7 @@ fn transport(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 .center()
                 .help("Loop playback (Ctrl+L)")
                 .child(icon(&icons::REPEAT, 14.0).color(if e.loop_playback { t.accent } else { t.text_secondary }))
-                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, Command::Loop, tx)),
+                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, Command::Loop, tx)),
         );
     let quality = app.playback.quality();
     let right = row()
@@ -307,7 +307,7 @@ fn transport(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 .iter()
                 .map(|&q| Item::new(q.label(), move |s, _| s.playback.set_quality(q)).checked(q == current))
                 .collect();
-            crate::menu::open_below(s, "preview.quality", items);
+            crate::ui::menu::open_below(s, "preview.quality", items);
         }));
     row()
         .w_full()

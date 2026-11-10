@@ -47,6 +47,8 @@ pub fn init() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let _ = ffmpeg_next::init();
-        ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Error);
+        // only fatal: a decoder complains at "error" when a seek lands between keyframes (dav1d: "Missing reference
+        // frame"), which is expected and recovered from at the next keyframe
+        ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Fatal);
     });
 }

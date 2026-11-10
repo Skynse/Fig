@@ -8,7 +8,7 @@ use rune::{Color, Cursor, Drag, El, Phase, Shape, Tx, canvas, el, text};
 
 use crate::app::AppState;
 use crate::editor::Editor;
-use crate::theme::{Tokens, font, hex};
+use crate::ui::theme::{Tokens, font, hex};
 
 /// The selected Transform effect: its owner, the effect, and the owner's start on the timeline.
 pub fn selected_transform(e: &Editor) -> Option<(String, EffectInstance, f64)> {

@@ -3,6 +3,13 @@
 //! Every change to the timeline goes through `fig_edit::TimelineEditor` (`ed`), which owns undo, selection and
 //! snapping. The project is saved a moment after each change, as the C# build does.
 
+pub mod beats;
+pub mod graph;
+pub mod inspector;
+pub mod library;
+pub mod media;
+pub mod overlays;
+pub mod preview;
 pub mod view;
 
 use std::path::PathBuf;
@@ -70,12 +77,12 @@ pub struct Editor {
     pub muted: bool,
     pub tool: Tool,
     /// The beat-marker session under the Beats button.
-    pub beats: crate::beats::BeatSession,
+    pub beats: crate::editor::beats::BeatSession,
     pub tl: crate::timeline::TimelineView,
     pub panels: Panels,
-    pub library: crate::library::LibraryState,
-    pub inspector: crate::inspector::InspectorState,
-    pub graph: Option<crate::graph::GraphEditor>,
+    pub library: crate::editor::library::LibraryState,
+    pub inspector: crate::editor::inspector::InspectorState,
+    pub graph: Option<crate::editor::graph::GraphEditor>,
     /// The project's own graph effects, registered in the effect catalog while it is open.
     pub graphs: fig_fx::graph::GraphEffectLibrary,
     /// Bumped when the media library changes (imports, filmstrips, proxies), so playback re-reads it.
@@ -139,11 +146,11 @@ impl Editor {
             volume: 1.0,
             muted: false,
             tool: Tool::Select,
-            beats: crate::beats::BeatSession::new(),
+            beats: crate::editor::beats::BeatSession::new(),
             tl: crate::timeline::TimelineView::new(prefs),
             panels: Panels::from_workspace(workspace),
-            library: crate::library::LibraryState::new(),
-            inspector: crate::inspector::InspectorState::default(),
+            library: crate::editor::library::LibraryState::new(),
+            inspector: crate::editor::inspector::InspectorState::default(),
             graph: None,
             graphs,
             media_rev: 1,
@@ -283,7 +290,7 @@ pub fn play(app: &mut AppState, rate: f64) {
     // say once when there is no sound to play through
     static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !app.playback.has_sound() && !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        crate::toasts::show(app, "No audio output device is available. Playing without sound.");
+        crate::ui::toasts::show(app, "No audio output device is available. Playing without sound.");
     }
 }
 
@@ -428,7 +435,7 @@ pub fn save_now(app: &mut AppState) {
                 }
                 Err(error) => {
                     e.save.failed = true;
-                    crate::toasts::show(app, format!("Couldn't save: {error}"));
+                    crate::ui::toasts::show(app, format!("Couldn't save: {error}"));
                 }
             }
         },

@@ -13,9 +13,9 @@ use rune::{El, TextEdit, Tx, col, el, row, text, text_input};
 use super::Dialog;
 use super::jobs::Job;
 use crate::app::AppState;
-use crate::menu::Item;
-use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets::{self, Kind};
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font, hex, mono};
+use crate::ui::widgets::{self, Kind};
 
 pub struct ExportState {
     pub ranges: bool,
@@ -295,7 +295,7 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                         })
                     })
                     .collect();
-                crate::menu::open_below(a, "export.size", items);
+                crate::ui::menu::open_below(a, "export.size", items);
             }),
             t,
         ))
@@ -334,7 +334,7 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                         })
                     })
                     .collect();
-                crate::menu::open_below(a, "export.encoder", items);
+                crate::ui::menu::open_below(a, "export.encoder", items);
             }),
             t,
         ))
@@ -360,7 +360,7 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                         })
                     })
                     .collect();
-                crate::menu::open_below(a, "export.turn", items);
+                crate::ui::menu::open_below(a, "export.turn", items);
             }),
             t,
         ))
@@ -506,7 +506,7 @@ fn start(app: &mut AppState) {
                     Ok(encoder) => {
                         job.encoder = Some(encoder);
                         let name = job.name.clone();
-                        crate::toasts::show(a, format!("Exported {name}"));
+                        crate::ui::toasts::show(a, format!("Exported {name}"));
                     }
                     Err(err) => {
                         let cancelled = job.cancel.load(Ordering::Relaxed);

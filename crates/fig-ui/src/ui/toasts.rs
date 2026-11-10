@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use rune::{El, col, el, text};
 
 use crate::app::AppState;
-use crate::theme::{Tokens, font, hex};
+use crate::ui::theme::{Tokens, font, hex};
 
 const LIFETIME: Duration = Duration::from_millis(3200);
 

@@ -5,14 +5,14 @@ use std::rc::Rc;
 use fig_timeline::{FrameRate, FrameShape, Timeline};
 use rune::{El, Tx, col, el, icon, row, text};
 
-use crate::actions;
+use crate::commands::actions;
 use crate::app::AppState;
 use crate::commands::Command;
 use crate::editor::{Editor, Tool};
-use crate::icons;
-use crate::menu::Item;
-use crate::theme::{Tokens, font};
-use crate::widgets::{self, Kind};
+use crate::ui::icons;
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font};
+use crate::ui::widgets::{self, Kind};
 
 pub fn panel(app: &AppState, e: &Editor, t: &Tokens) -> El {
     col()
@@ -58,7 +58,7 @@ fn tabs(e: &Editor, t: &Tokens) -> El {
                         Item::Separator,
                         Item::new("Delete", move |s, _| delete_timeline(s, i)).danger(),
                     ];
-                    crate::menu::open(s, crate::menu::Popup::at(p.x, p.y, items));
+                    crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.x, p.y, items));
                 }),
         );
     }
@@ -88,9 +88,7 @@ fn new_timeline(app: &mut AppState) {
     let prefs = app.preferences.clone();
     let Some(e) = app.editor.as_mut() else { return };
     e.commit_to_project();
-    let mut tl = Timeline::default();
-    tl.rate = e.doc().rate;
-    tl.shape = e.doc().shape;
+    let mut tl = Timeline { rate: e.doc().rate, shape: e.doc().shape, ..Default::default() };
     tl.tracks = vec![fig_timeline::Track::new(fig_timeline::TrackKind::Video), fig_timeline::Track::new(fig_timeline::TrackKind::Audio)];
     e.project.timelines.push(tl);
     let i = e.project.timelines.len() - 1;
@@ -167,7 +165,7 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
                         .checked(current)
                     })
                     .collect();
-                crate::menu::open_below(s, "tl.rate", items);
+                crate::ui::menu::open_below(s, "tl.rate", items);
             }),
         )
         .child(
@@ -184,7 +182,7 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
                         .checked(current)
                     })
                     .collect();
-                crate::menu::open_below(s, "tl.shape", items);
+                crate::ui::menu::open_below(s, "tl.shape", items);
             }),
         );
     let mut middle = row()
@@ -240,7 +238,7 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(widgets::icon_button(&icons::ROWS_3, 13.0, 30.0, t).help("Fit tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::FitTracks, tx)))
         .child(widgets::icon_button(&icons::UNFOLD_VERTICAL, 13.0, 30.0, t).help("Taller tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::TallerTracks, tx)))
         .child(
-            widgets::button(crate::beats::button_label(e), Kind::Normal, t).key("tl.beats").h(28.0).help("Preview beat or kick markers, then apply them").on_press(|s: &mut AppState| {
+            widgets::button(crate::editor::beats::button_label(e), Kind::Normal, t).key("tl.beats").h(28.0).help("Preview beat or kick markers, then apply them").on_press(|s: &mut AppState| {
                 if let Some(e) = s.editor.as_mut() {
                     e.beats.open = !e.beats.open;
                 }
@@ -250,9 +248,9 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
             let items = vec![
                 Item::command(s, "Enable / disable clip", Command::ToggleEnabled),
                 Item::command(s, "Delete selected marker", Command::DeleteMarker),
-                Item::new("Analyze beats for markers", |s, _| crate::actions::analyze_beats(s)),
+                Item::new("Analyze beats for markers", |s, _| crate::commands::actions::analyze_beats(s)),
             ];
-            crate::menu::open_below(s, "tl.more", items);
+            crate::ui::menu::open_below(s, "tl.more", items);
         }));
     row()
         .w_full()

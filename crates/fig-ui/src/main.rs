@@ -1,32 +1,16 @@
 //! Fig: a video editor for short art reels.
 
-mod actions;
 mod app;
-mod beats;
-mod chrome;
 mod commands;
 mod desktop;
 mod dialogs;
 mod editor;
-mod graph;
 mod home;
-mod icons;
-mod inspector;
-mod keys;
-mod layout;
-mod library;
-mod media;
-mod menu;
-mod overlays;
 mod playback;
 mod preferences;
-mod preview;
 mod settings;
-mod shell;
-mod theme;
 mod timeline;
-mod toasts;
-mod widgets;
+mod ui;
 
 use rune::{App, AppSpec, KeyEvent, Tx, Waker, WindowOptions};
 
@@ -41,7 +25,7 @@ fn poll(app: &mut AppState, _now: f64, tx: &mut Tx) -> bool {
 }
 
 fn on_key(app: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let handled = keys::handle(app, ev, tx);
+    let handled = commands::keys::handle(app, ev, tx);
     if handled {
         tx.instant();
     }
@@ -64,7 +48,7 @@ fn main() {
     }
     fig_media::init();
     let spec = AppSpec::<AppState> {
-        min_size: Some((theme::WINDOW_MIN_W, theme::WINDOW_MIN_H)),
+        min_size: Some((ui::theme::WINDOW_MIN_W, ui::theme::WINDOW_MIN_H)),
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(on_key),
@@ -74,7 +58,7 @@ fn main() {
         .on_modifiers(|s: &mut AppState, mods: rune::Mods, _tx: &mut Tx| s.mods = mods)
         // the window manager's close can't wait for an answer: keep the changes
         .on_close(|s: &mut AppState, _tx: &mut Tx| s.close_project_quietly())
-        .window_options(WindowOptions { borderless: true, min_size: Some((theme::WINDOW_MIN_W, theme::WINDOW_MIN_H)), ..Default::default() });
+        .window_options(WindowOptions { borderless: true, min_size: Some((ui::theme::WINDOW_MIN_W, ui::theme::WINDOW_MIN_H)), ..Default::default() });
     app::set_handle(app.handle());
     app.run();
 }

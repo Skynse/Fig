@@ -2,6 +2,9 @@
 //! Menus, the timeline toolbar, the shortcut cheat sheet and Preferences' keyboard page all read this table, and
 //! `run` is the one place that does each thing.
 
+pub mod actions;
+pub mod keys;
+
 use crate::settings::{KeyCombo, SpecialKey, parse_gesture};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

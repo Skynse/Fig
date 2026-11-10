@@ -7,10 +7,10 @@ use rune::{Color, El, KeyEvent, col, el, icon, row, text};
 
 use crate::app::AppState;
 use crate::commands::CATALOG;
-use crate::icons;
+use crate::ui::icons;
 use crate::settings::{EncoderChoice, display_gesture};
-use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets::{self, Kind};
+use crate::ui::theme::{Tokens, font, hex, mono};
+use crate::ui::widgets::{self, Kind};
 
 #[derive(Default)]
 pub struct PreferencesState {
@@ -170,13 +170,13 @@ pub fn overlay(app: &AppState, st: &PreferencesState, t: &Tokens) -> El {
                     let items = [EncoderChoice::Automatic, EncoderChoice::Nvenc, EncoderChoice::QuickSync, EncoderChoice::Amf, EncoderChoice::Vaapi, EncoderChoice::Software]
                         .into_iter()
                         .map(|c| {
-                            crate::menu::Item::new(format!("{c:?}"), move |s, _| {
+                            crate::ui::menu::Item::new(format!("{c:?}"), move |s, _| {
                                 s.preferences.export.encoder = c;
                                 s.save_preferences();
                             })
                         })
                         .collect();
-                    crate::menu::open_below(s, "prefs.encoder", items);
+                    crate::ui::menu::open_below(s, "prefs.encoder", items);
                 }),
                 t,
             )),
@@ -344,7 +344,7 @@ fn storage_page(app: &AppState, t: &Tokens) -> El {
             for id in ids.into_iter().filter(|id| Some(id) != open.as_ref()) {
                 let _ = std::fs::remove_dir_all(s.store.cache_directory(&id));
             }
-            crate::toasts::show(s, "Cleared (the open project's previews are kept)");
+            crate::ui::toasts::show(s, "Cleared (the open project's previews are kept)");
         }), t))
         .child(setting("Speech models", &format!("{} in {}", mb(dir_size(&models)), models.display()), el(), t))
 }

@@ -76,8 +76,8 @@ fn on_drag(state: &mut AppState, grip: Grip, drag: &mut Drag, tx: &mut Tx) {
         }
         Phase::Move => {
             let Some((w0, h0)) = state.resize_origin else { return };
-            let w = (w0 + grip.dx() * drag.dx).clamp(crate::theme::WINDOW_MIN_W, 8192.0);
-            let h = (h0 + grip.dy() * drag.dy).clamp(crate::theme::WINDOW_MIN_H, 8192.0);
+            let w = (w0 + grip.dx() * drag.dx).clamp(crate::ui::theme::WINDOW_MIN_W, 8192.0);
+            let h = (h0 + grip.dy() * drag.dy).clamp(crate::ui::theme::WINDOW_MIN_H, 8192.0);
             if (w - w0).abs() > 0.5 || (h - h0).abs() > 0.5 {
                 tx.resize_window((w, h));
             }

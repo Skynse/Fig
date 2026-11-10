@@ -8,8 +8,8 @@ use super::geometry::*;
 use super::input::{self, Gesture};
 use crate::app::AppState;
 use crate::editor::{Editor, Tool};
-use crate::icons;
-use crate::theme::{Tokens, font, hex, mono};
+use crate::ui::icons;
+use crate::ui::theme::{Tokens, font, hex, mono};
 
 /// The canvas: everything below the toolbar.
 pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
@@ -27,11 +27,11 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .w_full()
         .grow(1.0)
         .min_h(0.0)
-        .fill(hex("#202226"))
+        .fill(t.track_lane)
         .clip_rounded(8.0)
         .cursor(if e.tool == Tool::Blade { Cursor::Crosshair } else { Cursor::Default })
         .on_layout(|s: &mut AppState, r: [f32; 4]| {
-            crate::layout::remember("timeline.canvas", r);
+            crate::ui::layout::remember("timeline.canvas", r);
             if let Some(e) = s.editor.as_mut() {
                 e.tl.width = r[2];
                 e.tl.height = r[3];
@@ -47,9 +47,9 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
             continue;
         }
         let selected = tl.track_selected.as_deref() == Some(track.id.as_str());
-        c = c.child(el().key(format!("tl.lane.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(if i % 2 == 0 { hex("#202226") } else { hex("#1d1f22") }));
+        c = c.child(el().key(format!("tl.lane.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(if i % 2 == 0 { t.track_lane } else { t.track_lane_alt }));
         if selected {
-            c = c.child(el().key(format!("tl.lanesel.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(hex("#147b9fc6")));
+            c = c.child(el().key(format!("tl.lanesel.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(t.selected_lane_tint));
         }
         c = c.child(el().key(format!("tl.lanerule.{}", track.id)).absolute(0.0, y + lane.height - 1.0).w(w).h(1.0).fill(hex("#00000040")));
     }
@@ -205,7 +205,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     }
 
     // header column over the lanes
-    c = c.child(el().key("tl.headers").absolute(0.0, 0.0).w(HEADER_W).h(h).fill(hex("#191b1e")));
+    c = c.child(el().key("tl.headers").absolute(0.0, 0.0).w(HEADER_W).h(h).fill(t.track_header_bg));
     for (i, track) in doc.tracks.iter().enumerate() {
         let lane = lanes[i];
         let y = lane.top - oy;
@@ -249,7 +249,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
 
     // snap guide, blade line
     if let Some(at) = tl.snap_guide {
-        c = c.child(el().key("tl.snap").absolute(tl.x_of(at) - 0.75, MARKER_LANE_H).w(1.5).h(h).fill(hex("#e6ffd60a")).inert());
+        c = c.child(el().key("tl.snap").absolute(tl.x_of(at) - 0.75, MARKER_LANE_H).w(1.5).h(h).fill(t.snap.alpha(0.9)).inert());
     }
     if e.tool == Tool::Blade
         && let Some((px, py)) = tl.pointer
@@ -285,12 +285,12 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 let e = s.editor.as_ref()?;
                 let lanes = super::geometry::lanes(e.doc(), e.media(), e.tl.scale, &e.tl.folds);
                 let track = e.tl.track_at(&lanes, p.y).map(|i| e.doc().tracks[i].id.clone());
-                Some(crate::media::Placement { track_id: track, at_sec: e.ed.snap_time(e.tl.t_of(p.x).max(0.0)) })
+                Some(crate::editor::media::Placement { track_id: track, at_sec: e.ed.snap_time(e.tl.t_of(p.x).max(0.0)) })
             });
             if let Some(e) = s.editor.as_mut() {
                 e.tl.drop_preview = None;
             }
-            crate::media::drop_files(s, files, place, tx);
+            crate::editor::media::drop_files(s, files, place, tx);
         })
         .on_drop_move(|s: &mut AppState, p: rune::PointerEvent, _tx: &mut Tx| {
             if let Some(e) = s.editor.as_mut() {
@@ -312,7 +312,7 @@ fn header_view(e: &Editor, track: &Track, lane: &Lane, y: f32, t: &Tokens) -> El
     let mid = y + lane.height / 2.0 - HEADER_BUTTON / 2.0;
     let mut h = el().absolute(0.0, y).w(HEADER_W).h(lane.height);
     if selected {
-        h = h.child(el().absolute(0.0, 0.0).w(2.0).h(lane.height).fill(hex("#5795df")));
+        h = h.child(el().absolute(0.0, 0.0).w(2.0).h(lane.height).fill(t.track_accent));
     }
     for (button, bx) in header_buttons(track) {
         let (glyph, on) = match button {
@@ -378,16 +378,16 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
     }
     let w = w.max(1.0);
     let h = lane.clip_height();
-    let (fill, border) = clip_color(clip.kind());
+    let (fill, border) = clip_color(clip.kind(), t);
     let selected = e.ed.selection.is_selected(&clip.id);
     if w < DETAIL_W {
-        return el().absolute(x, y).w(w).h(h).fill(if selected { hex("#d9e0e7") } else { hex(fill) });
+        return el().absolute(x, y).w(w).h(h).fill(if selected { t.selection } else { fill });
     }
     // only the visible part is drawn in detail
     let vis_l = (HEADER_W - x).max(0.0);
     let vis_r = (tl.width - x).min(w);
     let radius = RADIUS.min(w / 2.0);
-    let mut c = el().absolute(x, y).w(w).h(h).radius(radius).clip_rounded(radius).fill(hex(fill)).shadow(1.0, 0.0, hex("#00000060"));
+    let mut c = el().absolute(x, y).w(w).h(h).radius(radius).clip_rounded(radius).fill(fill).shadow(1.0, 0.0, hex("#00000060"));
     let body_top = lane.label;
     let picture_h = lane.body - lane.strip;
     match clip.kind() {
@@ -402,7 +402,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
             if lane.strip > 0.0 && clip.as_video().is_some_and(|v| v.plays_audio) {
                 c = c.child(el().absolute(0.0, body_top + picture_h).w(w).h(lane.strip).fill(hex("#15241d")));
                 if let Some(asset) = clip.media_id().and_then(|id| e.find_media(id)) {
-                    c = c.children(waveform(clip, asset, body_top + picture_h, lane.strip, vis_l, vis_r, tl.pps));
+                    c = c.children(waveform(clip, asset, body_top + picture_h, lane.strip, vis_l, vis_r, tl.pps, t.audio_wave));
                 }
             }
         }
@@ -410,7 +410,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
             c = c.child(el().absolute(0.0, body_top).w(w).h(lane.body).fill(hex("#15241d")));
             c = c.child(el().absolute(0.0, body_top + lane.body / 2.0).w(w).h(1.0).fill(hex("#4674d6a0")));
             if let Some(asset) = clip.media_id().and_then(|id| e.find_media(id)) {
-                c = c.children(waveform(clip, asset, body_top, lane.body, vis_l, vis_r, tl.pps));
+                c = c.children(waveform(clip, asset, body_top, lane.body, vis_l, vis_r, tl.pps, t.audio_wave));
             }
         }
         ClipKind::Image => {
@@ -433,7 +433,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
                         .w(12.0)
                         .h(12.0)
                         .radius(3.0)
-                        .border(1.0, hex(border))
+                        .border(1.0, border)
                         .center()
                         .child(text("T").font(font(8.0, 700.0)).color(Color::WHITE)),
                 )
@@ -449,7 +449,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
     }
     // label strip
     if lane.label > 0.0 {
-        c = c.child(el().absolute(0.0, 0.0).w(w).h(lane.label).fill(hex(fill)));
+        c = c.child(el().absolute(0.0, 0.0).w(w).h(lane.label).fill(fill));
         if w - vis_l >= MIN_LABEL_W {
             let speed = if (clip.speed - 1.0).abs() > 1e-3 || clip_time::has_curve(clip) {
                 if clip_time::has_curve(clip) { "  · curve".to_string() } else { format!("  · {:.2}×", clip.speed) }
@@ -501,7 +501,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
     // clip markers: a pennant at the top, a pole down the picture
     for m in &clip.markers {
         let mx = m.start_sec as f32 * tl.pps;
-        let color = hex(if m.color.is_empty() { "#ffd60a" } else { &m.color });
+        let color = if m.color.is_empty() { t.marker_default } else { hex(&m.color) };
         c = c
             .child(el().absolute(mx, 0.0).w(1.0).h(h).fill(color.alpha(0.7)).inert())
             .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 3.5], [0.0, 7.0]], color)).absolute(mx, 0.0).w(10.0).h(7.0).inert());
@@ -510,7 +510,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
         c = c.child(el().absolute(0.0, 0.0).w(w).h(h).fill(hex("#a6101012")).inert());
     }
     if selected {
-        c = c.child(el().absolute(0.0, 0.0).w(w).h(h).radius(radius).border(2.0, hex("#d9e0e7")).inert());
+        c = c.child(el().absolute(0.0, 0.0).w(w).h(h).radius(radius).border(2.0, t.selection).inert());
     }
     let _ = track;
     c
@@ -547,7 +547,8 @@ fn filmstrip(app: &AppState, mut c: El, clip: &Clip, asset: &MediaAsset, top: f3
 }
 
 /// The waveform: the loudest peak under each column, mirrored around the middle.
-fn waveform(clip: &Clip, asset: &MediaAsset, top: f32, h: f32, vis_l: f32, vis_r: f32, pps: f32) -> Option<El> {
+#[allow(clippy::too_many_arguments)]
+fn waveform(clip: &Clip, asset: &MediaAsset, top: f32, h: f32, vis_l: f32, vis_r: f32, pps: f32, color: Color) -> Option<El> {
     let peaks = asset.waveform_peaks.as_ref()?;
     if peaks.is_empty() || asset.duration_sec <= 0.0 || vis_r <= vis_l {
         return None;
@@ -572,12 +573,12 @@ fn waveform(clip: &Clip, asset: &MediaAsset, top: f32, h: f32, vis_l: f32, vis_r
     for p in upper.iter().rev() {
         points.push([p[0], h - p[1]]);
     }
-    Some(canvas(Shape::new().fill(points, hex("#74d6a0"))).absolute(vis_l, top).w(vis_r - vis_l).h(h).inert())
+    Some(canvas(Shape::new().fill(points, color)).absolute(vis_l, top).w(vis_r - vis_l).h(h).inert())
 }
 
 fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
     let tl = &e.tl;
-    let mut r = el().absolute(0.0, 0.0).w(w).h(RULER_H).fill(hex("#181a1d")).child(el().absolute(0.0, RULER_H - 1.0).w(w).h(1.0).fill(hex("#34373c")));
+    let mut r = el().absolute(0.0, 0.0).w(w).h(RULER_H).fill(t.ruler_bg).child(el().absolute(0.0, RULER_H - 1.0).w(w).h(1.0).fill(hex("#34373c")));
     let fps = e.fps();
     let (major, minor, div) = ruler_scale(f64::from(tl.pps), fps);
     let first = (tl.scroll / minor).floor() * minor;
@@ -603,7 +604,7 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
     // timeline markers in the top lane
     for m in &e.doc().markers {
         let x = tl.x_of(m.start_sec);
-        let color = hex(if m.color.is_empty() { "#ffd60a" } else { &m.color });
+        let color = if m.color.is_empty() { t.marker_default } else { hex(&m.color) };
         let hot = e.ed.selection.is_marker_selected(&m.id);
         if m.is_range() {
             let xe = tl.x_of(m.end_sec());
@@ -633,7 +634,7 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
             r = r.child(el().key(format!("beat.{x}")).absolute(x, 2.0).w(1.0).h(RULER_H - 2.0).fill(hex("#5ac8fa")));
         }
     }
-    r.child(el().key("cover").absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(hex("#181a1d")))
+    r.child(el().key("cover").absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(t.ruler_bg))
         .child(el().key("coverrule").absolute(HEADER_W - 1.0, 0.0).w(1.0).h(RULER_H).fill(hex("#34373c")))
         .child(text("").key("timecode").live_text(&e.live_time).font(mono(11.0, 500.0)).color(t.text_secondary).absolute(10.0, 14.0).w(120.0))
 }

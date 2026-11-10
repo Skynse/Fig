@@ -10,10 +10,10 @@ use rune::{Color, Drag, El, Phase, TextEdit, Tx, col, el, icon, row, text, text_
 
 use crate::app::AppState;
 use crate::editor::Editor;
-use crate::icons;
-use crate::menu::Item;
-use crate::theme::{Tokens, font, hex, mono};
-use crate::widgets::{self, Kind, OnValue};
+use crate::ui::icons;
+use crate::ui::menu::Item;
+use crate::ui::theme::{Tokens, font, hex, mono};
+use crate::ui::widgets::{self, Kind, OnValue};
 use indexmap::IndexMap;
 
 #[derive(Default)]
@@ -58,7 +58,7 @@ pub fn collapsed(t: &Tokens) -> El {
     col().w_full().h_full().pt(10.0).items_center().child(
         widgets::icon_button(&icons::CHEVRON_LEFT, 14.0, 28.0, t)
             .help("Show the inspector (Ctrl+2)")
-            .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::Inspector, tx)),
+            .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::Inspector, tx)),
     )
 }
 
@@ -106,7 +106,7 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(
             widgets::icon_button(&icons::CHEVRON_RIGHT, 14.0, 26.0, t)
                 .help("Hide the inspector (Ctrl+2)")
-                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::Inspector, tx)),
+                .on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::commands::actions::run(s, crate::commands::Command::Inspector, tx)),
         );
     let mut body = col().w_full().h_full().padding(12.0).gap(6.0).child(header).child(widgets::rule(t));
     if e.ed.selection.is_empty() || facets.is_empty() {
@@ -245,7 +245,7 @@ fn property_row(app: &AppState, e: &Editor, ids: &[String], clip: &Clip, p: &'st
     let value = p.value_at(clip, local);
     let label = text(p.def.label.clone()).font(font(11.5, 400.0)).color(t.text_muted).w(72.0).truncate().help(p.def.label.clone());
     let ids_v: Vec<String> = ids.to_vec();
-    let set: Rc<dyn Fn(&mut AppState, ParamValue, Phase)> = Rc::new(move |s: &mut AppState, v: ParamValue, phase: Phase| {
+    let set: OnParam = Rc::new(move |s: &mut AppState, v: ParamValue, phase: Phase| {
         if let Some(e) = s.editor.as_mut() {
             let at = e.playhead;
             e.ed.set_clip_property(&ids_v, p, v, at);
@@ -279,7 +279,7 @@ fn property_row(app: &AppState, e: &Editor, ids: &[String], clip: &Clip, p: &'st
                         Item::new(c.clone(), move |s, _| set(s, ParamValue::Choice(i as i32), Phase::Up))
                     })
                     .collect();
-                crate::menu::open_below(s, &k, items);
+                crate::ui::menu::open_below(s, &k, items);
             })
         }
         _ => number_control(app, &format!("prop.{}", p.key()), &p.def, value.as_number(), set.clone(), t),
@@ -361,14 +361,14 @@ fn color_control(key: &str, c: u32, set: OnParam, t: &Tokens) -> El {
             items.push(Item::Separator);
             items.push(Item::new("Type a colour…", move |s, _| {
                 let set = set.clone();
-                crate::widgets::begin_typing(s, &key, &format!("#{:06X}", c & 0xFFFFFF), Rc::new(move |s, text| {
+                crate::ui::widgets::begin_typing(s, &key, &format!("#{:06X}", c & 0xFFFFFF), Rc::new(move |s, text| {
                     let hex = text.trim().trim_start_matches('#');
                     if let Ok(v) = u32::from_str_radix(hex, 16) {
                         set(s, ParamValue::Color(0xFF000000 | v), Phase::Up);
                     }
                 }));
             }));
-            crate::menu::open_below(s, &k, items);
+            crate::ui::menu::open_below(s, &k, items);
         })
 }
 
@@ -450,7 +450,7 @@ fn text_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 let name = f.clone();
                 items.push(Item::new(f, move |s, _| set_font(s, &name)));
             }
-            crate::menu::open_below(s, "insp.font", items);
+            crate::ui::menu::open_below(s, "insp.font", items);
         }),
         t,
     ));
@@ -746,7 +746,7 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
                                 Item::new(c.clone(), move |s, _| set(s, ParamValue::Choice(i as i32), Phase::Up))
                             })
                             .collect();
-                        crate::menu::open_below(s, &k, items);
+                        crate::ui::menu::open_below(s, &k, items);
                     })
                 }
                 _ => number_control(app, &format!("fx.{}.{}", fx.id, def.key), def, v, set, t),
@@ -755,7 +755,7 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         }
         if entry.is_custom {
             let type_id = fx.type_id.clone();
-            card = card.child(widgets::button("Edit graph…", Kind::Normal, t).on_press(move |s: &mut AppState| crate::graph::open(s, Some(&type_id))));
+            card = card.child(widgets::button("Edit graph…", Kind::Normal, t).on_press(move |s: &mut AppState| crate::editor::graph::open(s, Some(&type_id))));
         }
         c = c.child(card);
     }
@@ -765,14 +765,14 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         for entry in fig_fx::effects::all() {
             let owner = o.clone();
             let type_id = entry.type_id.clone();
-            let item = Item::new(entry.display_name.clone(), move |s, _| crate::library::add_effect(s, &owner, &type_id));
+            let item = Item::new(entry.display_name.clone(), move |s, _| crate::editor::library::add_effect(s, &owner, &type_id));
             match by_cat.iter_mut().find(|(c, _)| *c == entry.category) {
                 Some((_, list)) => list.push(item),
                 None => by_cat.push((entry.category.clone(), vec![item])),
             }
         }
         let items = by_cat.into_iter().map(|(c, list)| Item::submenu(c, list)).collect();
-        crate::menu::open_below(s, "insp.addfx", items);
+        crate::ui::menu::open_below(s, "insp.addfx", items);
     }))
 }
 
@@ -983,10 +983,10 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(
             row()
                 .gap(6.0)
-                .child(widgets::button("Make proxy", Kind::Normal, t).on_press(move |s: &mut AppState| crate::media::request_proxy(s, &id, true)))
+                .child(widgets::button("Make proxy", Kind::Normal, t).on_press(move |s: &mut AppState| crate::editor::media::request_proxy(s, &id, true)))
                 .child(widgets::button("Show in folder", Kind::Ghost, t).on_press(move |s: &mut AppState| {
-                    if let Err(err) = crate::media::reveal(&url) {
-                        crate::toasts::show(s, err);
+                    if let Err(err) = crate::editor::media::reveal(&url) {
+                        crate::ui::toasts::show(s, err);
                     }
                 })),
         )
@@ -995,7 +995,7 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
 /// The Transform effect's camera (`TransformControlsViewModel`): its keyframes at the playhead, zoom and turn, and
 /// the steps a zoom edit is made of. The frame itself is dragged on the preview.
 fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::EffectInstance, t: &Tokens) -> El {
-    use crate::overlays::{edit_time, keyframe_times, set_camera};
+    use crate::editor::overlays::{edit_time, keyframe_times, set_camera};
     let origin = e.ed.find_clip(owner).map_or(0.0, |c| c.start_sec);
     let span = e.ed.find_clip(owner).map_or(f64::INFINITY, |c| c.dur_sec);
     let time = edit_time(e, fx, origin);
@@ -1031,7 +1031,7 @@ fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::Effec
     };
     let zoom: OnValue = Rc::new(|s: &mut AppState, v: f64, phase: Phase| {
         if let Some(e) = s.editor.as_mut()
-            && let Some((_, fx, origin)) = crate::overlays::selected_transform(e)
+            && let Some((_, fx, origin)) = crate::editor::overlays::selected_transform(e)
         {
             let view = fig_fx::effects::transform_view_at(&fx, edit_time(e, &fx, origin));
             set_camera(e, view.center_x, view.center_y, v, None);
@@ -1042,7 +1042,7 @@ fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::Effec
     });
     let turn: OnValue = Rc::new(|s: &mut AppState, v: f64, phase: Phase| {
         if let Some(e) = s.editor.as_mut()
-            && let Some((_, fx, origin)) = crate::overlays::selected_transform(e)
+            && let Some((_, fx, origin)) = crate::editor::overlays::selected_transform(e)
         {
             let view = fig_fx::effects::transform_view_at(&fx, edit_time(e, &fx, origin));
             set_camera(e, view.center_x, view.center_y, view.zoom, Some(v));
@@ -1144,7 +1144,7 @@ fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::Effec
 fn keyframe_ruler(e: &Editor, host: fig_edit::KeyframeHostRef, (from, to): (f64, f64), origin: f64, t: &Tokens) -> El {
     const PAD: f32 = 12.0;
     let key = "insp.kfruler";
-    let w = crate::layout::rect(key).map_or(260.0, |r| r[2]);
+    let w = crate::ui::layout::rect(key).map_or(260.0, |r| r[2]);
     let len = (to - from).max(1e-3);
     let x_of = |sec: f64| PAD + ((sec - from) / len) as f32 * (w - 2.0 * PAD);
     let times = e.ed.find_keyframe_host(&host).map(|h| h.times(e.doc())).unwrap_or_default();
@@ -1166,7 +1166,7 @@ fn keyframe_ruler(e: &Editor, host: fig_edit::KeyframeHostRef, (from, to): (f64,
     let at_x = move |x: f32| from + f64::from(((x - PAD) / (w - 2.0 * PAD).max(1.0)).clamp(0.0, 1.0)) * len;
     let near = move |times: &[f64], x: f32| times.iter().copied().find(|k| (PAD + ((k - from) / len) as f32 * (w - 2.0 * PAD) - x).abs() <= 10.0);
     let times2 = times.clone();
-    crate::layout::tracked(bar, key)
+    crate::ui::layout::tracked(bar, key)
         .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
             thread_local! { static HELD: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) }; }
             let Some(e) = s.editor.as_mut() else { return };
@@ -1214,7 +1214,7 @@ fn keyframe_ruler(e: &Editor, host: fig_edit::KeyframeHostRef, (from, to): (f64,
         .on_secondary_press_local(move |s: &mut AppState, p: rune::PointerEvent, _tx: &mut Tx| {
             if let Some(k) = near(&times2, p.x) {
                 let items = crate::timeline::menu::keyframe_menu(s, h2.clone(), k);
-                crate::menu::open(s, crate::menu::Popup::at(p.window_x, p.window_y, items));
+                crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.window_x, p.window_y, items));
             }
         })
 }

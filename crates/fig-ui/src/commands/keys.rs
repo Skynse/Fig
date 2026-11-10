@@ -23,18 +23,18 @@ pub fn handle(app: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return crate::home::key(app, ev, tx);
     }
     if app.editor.as_ref().is_some_and(|e| e.graph.is_some()) {
-        return crate::graph::key(app, ev);
+        return crate::editor::graph::key(app, ev);
     }
     let Some(command) = commands::for_key(&ev.key, ev.mods, &app.preferences.keyboard.shortcuts) else { return false };
     app.popup = None;
-    crate::actions::run(app, command, tx);
+    crate::commands::actions::run(app, command, tx);
     true
 }
 
 /// Escape: closes the menu, a dialog or Preferences; cancels a drag; puts the blade away; clears the selection.
 fn escape(app: &mut AppState) -> bool {
     if app.field_key.is_some() {
-        crate::widgets::finish_typing(app, false);
+        crate::ui::widgets::finish_typing(app, false);
         return true;
     }
     if app.popup.take().is_some() {
@@ -49,7 +49,7 @@ fn escape(app: &mut AppState) -> bool {
     }
     let Some(e) = app.editor.as_mut() else { return false };
     if e.graph.is_some() {
-        return crate::graph::escape(app);
+        return crate::editor::graph::escape(app);
     }
     if crate::timeline::input::cancel(e) {
         return true;
@@ -69,10 +69,6 @@ fn escape(app: &mut AppState) -> bool {
     false
 }
 
-/// Space plays from anywhere in the editor (not inside text fields, which take it first).
-pub fn is_space(ev: &KeyEvent) -> bool {
-    matches!(&ev.key, Key::Text(t) if t == " ") && !ev.mods.cmd
-}
 
 #[allow(dead_code)]
 fn _cmd(_: Command) {}

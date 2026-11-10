@@ -191,10 +191,6 @@ pub fn starts(doc: &Timeline) -> HashMap<String, f64> {
     doc.tracks.iter().flat_map(|t| &t.clips).map(|c| (c.id.clone(), c.start_sec)).collect()
 }
 
-/// The lane a track has, by its index.
-pub fn track_lane<'a>(lanes: &'a [Lane], index: usize) -> &'a Lane {
-    &lanes[index.min(lanes.len().saturating_sub(1))]
-}
 
 /// The track's display name ("V1", "A2", or what it was called).
 pub fn track_name(doc: &Timeline, track: &Track) -> String {

@@ -49,7 +49,7 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
         SaveAs => crate::dialogs::save_as(app, tx),
         SavePackage => crate::dialogs::save_package(app, tx),
         CloseProject => app.close_project(tx),
-        Import => crate::media::import_dialog(tx),
+        Import => crate::editor::media::import_dialog(tx),
         Export => crate::dialogs::export::open(app, false),
         ExportRanges => crate::dialogs::export::open(app, true),
         ExportCaptions => crate::dialogs::export_captions(app, tx),
@@ -72,7 +72,7 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
             } else {
                 let done = if command == Cut { e.ed.cut_selected() } else { e.ed.copy_selected() };
                 if done {
-                    crate::toasts::show(app, if command == Cut { "Clip cut" } else { "Clip copied" });
+                    crate::ui::toasts::show(app, if command == Cut { "Clip cut" } else { "Clip copied" });
                 }
             }
         }
@@ -320,8 +320,7 @@ fn freeze_frame(app: &mut AppState) {
             fig_media::artifacts::save_frame_as_jpeg(std::path::Path::new(&asset.url), source_sec, &out, asset.width.max(2) as u32)
                 .map_err(|e| e.to_string())?;
             let lib = Library::new(cache);
-            let mut scratch = fig_project::Project::default();
-            scratch.media = known;
+            let mut scratch = fig_project::Project { media: known, ..Default::default() };
             let id = lib.import(&mut scratch, &out).map_err(|e| e.to_string())?;
             scratch.media.into_iter().find(|m| m.id == id).ok_or_else(|| "The frame couldn't be read back".into())
         },
@@ -336,9 +335,9 @@ fn freeze_frame(app: &mut AppState) {
                     if e.ed.freeze_frame(&clip_id, at, &still).is_none() {
                         e.say("No room to hold the frame there");
                     }
-                    crate::media::load_pictures(app);
+                    crate::editor::media::load_pictures(app);
                 }
-                Err(err) => crate::toasts::show(app, format!("Couldn't make the freeze frame: {err}")),
+                Err(err) => crate::ui::toasts::show(app, format!("Couldn't make the freeze frame: {err}")),
             }
         },
     );
@@ -377,11 +376,10 @@ pub fn reverse_selected(app: &mut AppState) {
                 let ext = if asset.kind == fig_timeline::MediaKind::Audio { "m4a" } else { "mp4" };
                 let out = cache.join(format!("{}_reversed.{ext}", asset.hash));
                 let _ = std::fs::create_dir_all(&cache);
-                if !out.exists() {
-                    if let Err(err) = fig_media::reverse::reverse(std::path::Path::new(&asset.url), &out, &mut |_| {}, &|| false) {
+                if !out.exists()
+                    && let Err(err) = fig_media::reverse::reverse(std::path::Path::new(&asset.url), &out, &mut |_| {}, &|| false) {
                         return Err(err.to_string());
                     }
-                }
                 let mut copy = fig_media::probe::probe(&out).map_err(|e| e.to_string())?;
                 copy.reverse_of = Some(asset.id.clone());
                 made.push(copy);
@@ -398,7 +396,7 @@ pub fn reverse_selected(app: &mut AppState) {
                 }
                 finish_reverse(app, &ids);
             }
-            Err(err) => crate::toasts::show(app, format!("Couldn't reverse the clip: {err}")),
+            Err(err) => crate::ui::toasts::show(app, format!("Couldn't reverse the clip: {err}")),
         },
     );
 }
@@ -422,5 +420,5 @@ pub fn analyze_beats(app: &mut AppState) {
     if let Some(e) = app.editor.as_mut() {
         e.beats.open = true;
     }
-    crate::beats::analyze(app);
+    crate::editor::beats::analyze(app);
 }
