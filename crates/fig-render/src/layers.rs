@@ -61,11 +61,13 @@ pub mod geometry {
 struct Fonts {
     system: FontSystem,
     cache: SwashCache,
+    /// COLR emoji painted so far, by font, glyph, size and text colour (none: the glyph has no COLR picture).
+    colr: std::collections::HashMap<(cosmic_text::fontdb::ID, u16, u32, u32), Option<std::sync::Arc<crate::colr::Painted>>>,
 }
 
 /// The system's fonts, found once (it takes a moment).
 static FONTS: LazyLock<Mutex<Fonts>> =
-    LazyLock::new(|| Mutex::new(Fonts { system: FontSystem::new(), cache: SwashCache::new() }));
+    LazyLock::new(|| Mutex::new(Fonts { system: FontSystem::new(), cache: SwashCache::new(), colr: Default::default() }));
 
 /// One positioned glyph of a laid-out title.
 struct Glyph {
@@ -203,8 +205,30 @@ fn glyph_path(fonts: &mut Fonts, g: &Glyph) -> Option<tiny_skia::Path> {
     pb.finish()
 }
 
-/// Draws a colour glyph (an emoji) at its pen position.
-fn draw_color_glyph(fonts: &mut Fonts, g: &Glyph, target: &mut Pixmap, t: Transform) {
+/// Draws a colour glyph (an emoji) at its pen position: from the font's COLR table (v0 or v1), else the bitmap
+/// swash finds (CBDT, sbix).
+fn draw_color_glyph(fonts: &mut Fonts, g: &Glyph, target: &mut Pixmap, t: Transform, text: u32) {
+    let key = (g.key.font_id, g.key.glyph_id, g.key.font_size_bits, text);
+    let painted = match fonts.colr.get(&key) {
+        Some(p) => p.clone(),
+        None => {
+            let foreground = tiny_skia::Color::from_rgba8((text >> 16) as u8, (text >> 8) as u8, text as u8, (text >> 24) as u8);
+            let size = f32::from_bits(g.key.font_size_bits);
+            let painted = fonts
+                .system
+                .db()
+                .with_face_data(g.key.font_id, |data, index| crate::colr::paint(data, index, g.key.glyph_id, size, foreground))
+                .flatten()
+                .map(std::sync::Arc::new);
+            fonts.colr.insert(key, painted.clone());
+            painted
+        }
+    };
+    if let Some(p) = painted {
+        let at = Transform::from_translate(g.x + p.left, g.y + p.top);
+        target.draw_pixmap(0, 0, p.pixmap.as_ref(), &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() }, t.pre_concat(at), None);
+        return;
+    }
     let Some(image) = fonts.cache.get_image(&mut fonts.system, g.key).as_ref() else { return };
     if image.content != SwashContent::Color || image.placement.width == 0 {
         return;
@@ -282,10 +306,8 @@ fn draw_text(
     for ((path, is_lit), g) in paths.iter().zip(&block.glyphs) {
         match path {
             Some(path) => target.fill_path(path, if *is_lit { &lit_fill } else { &fill }, FillRule::Winding, t, None),
-            None => draw_color_glyph(fonts, g, target, t),
+            None => draw_color_glyph(fonts, g, target, t, style.color),
         }
-        // a COLRv1 emoji (Fedora's Noto Color Emoji) has neither an outline nor a picture swash can draw: TODO, draw
-        // such glyphs from a monochrome emoji font until swash reads COLRv1
     }
 }
 

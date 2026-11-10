@@ -39,10 +39,11 @@ fn main() {
     }
     desktop::install_crash_log();
     desktop::on_startup();
-    // Wayland reports no file drops to winit 0.30, so Fig runs through XWayland on Linux (where drops work) unless
-    // FIG_WAYLAND=1 asks for native Wayland.
+    // Native Wayland by default: through XWayland, NVIDIA's Vulkan driver fails to reconfigure the surface when the
+    // window is resized or moved (wgpu panics "Failed to wait for GPU to come idle"). Wayland gives winit 0.30 no
+    // file drops, so FIG_X11=1 runs through XWayland for dropping files from a file manager.
     #[cfg(target_os = "linux")]
-    if std::env::var_os("FIG_WAYLAND").is_none() && std::env::var_os("DISPLAY").is_some() {
+    if std::env::var_os("FIG_X11").is_some() && std::env::var_os("DISPLAY").is_some() {
         // SAFETY: nothing else runs yet; the variable is read once when the window system starts.
         unsafe { std::env::remove_var("WAYLAND_DISPLAY") };
     }

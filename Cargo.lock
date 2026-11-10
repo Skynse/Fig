@@ -1254,6 +1254,7 @@ dependencies = [
  "fig-timeline",
  "image",
  "rayon",
+ "skrifa 0.44.0",
  "swash",
  "tiny-skia 0.12.0",
 ]

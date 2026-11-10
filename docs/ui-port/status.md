@@ -30,7 +30,8 @@ differs is listed under Known gaps.
 
 ## Known gaps
 
-- File drops: Wayland gives winit none, so on Linux Fig runs through XWayland (`FIG_WAYLAND=1` opts out).
+- File drops: Wayland gives winit 0.30 none. Fig runs natively on Wayland (XWayland crashes NVIDIA on resize);
+  `FIG_X11=1` runs it through XWayland when you want to drop files from a file manager.
 - Rune can't set the X11 window class, so the taskbar may not match the window to the launcher's icon.
 - Tooltips and status messages are reworded in places, not copied word for word.
 - Headless testing: `--snap` runs in virtual time (~5× real time), so background work (project checks, analysis)

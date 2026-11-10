@@ -10,4 +10,5 @@ rayon.workspace = true
 cosmic-text = "0.19"
 tiny-skia = "0.12"
 swash = "0.2"
+skrifa = "0.44"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
