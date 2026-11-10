@@ -76,8 +76,8 @@ pub struct Popup {
     pub x: f32,
     pub y: f32,
     pub min_w: f32,
-    /// The open submenu's index.
-    pub sub: Option<usize>,
+    /// The open submenus: the index of each, from the top level down.
+    pub sub: Vec<usize>,
     /// The element the menu hangs from, so pressing it again closes rather than reopens.
     pub owner: Option<String>,
     /// Hang under this element (placed when drawn: a handler can't read where things are laid out).
@@ -86,7 +86,7 @@ pub struct Popup {
 
 impl Popup {
     pub fn at(x: f32, y: f32, items: Vec<Item>) -> Popup {
-        Popup { items, x, y, min_w: 220.0, sub: None, owner: None, anchor: None }
+        Popup { items, x, y, min_w: 220.0, sub: Vec::new(), owner: None, anchor: None }
     }
 
     pub fn width(mut self, w: f32) -> Popup {
@@ -165,6 +165,12 @@ fn card(items: &[Item], path: Vec<usize>, min_w: f32, t: &Tokens) -> El {
                     ))
                     .child(text(label.clone()).font(font(13.0, 400.0)).color(color).grow(1.0))
                     .child(text(hint.clone()).font(font(12.0, 400.0)).color(t.text_muted).ml(24.0));
+                let parent = path.clone();
+                r = r.on_hover(move |s: &mut AppState| {
+                    if let Some(popup) = s.popup.as_mut() {
+                        popup.sub.truncate(parent.len());
+                    }
+                });
                 if *enabled {
                     let p = here.clone();
                     r = r.hover(hex("#323640")).press(hex("#3a3f4a")).on_press_tx(move |s: &mut AppState, tx: &mut Tx| {
@@ -192,12 +198,12 @@ fn card(items: &[Item], path: Vec<usize>, min_w: f32, t: &Tokens) -> El {
                     .child(icon(&icons::CHEVRON_RIGHT, 13.0).color(t.text_muted))
                     .on_hover(move |s: &mut AppState| {
                         if let Some(popup) = s.popup.as_mut() {
-                            popup.sub = p.first().copied();
+                            popup.sub = p.clone();
                         }
                     })
                     .on_press(move |s: &mut AppState| {
                         if let Some(popup) = s.popup.as_mut() {
-                            popup.sub = here.first().copied();
+                            popup.sub = here.clone();
                         }
                     })
             }
@@ -241,10 +247,12 @@ pub fn overlay(app: &AppState, t: &Tokens) -> Option<El> {
         .on_press(|s: &mut AppState| s.popup = None)
         .on_secondary_press(|s: &mut AppState, _, _| s.popup = None)
         .child(card(&popup.items, Vec::new(), w, t).absolute(x, y).on_press(|_: &mut AppState| {}));
-    if let Some(sub) = popup.sub
-        && let Some(Item::Submenu { items, .. }) = popup.items.get(sub)
-    {
-        let top = y + 6.0 + popup.items[..sub]
+    // each open submenu beside the row that opened it, as deep as they go
+    let (mut items, mut px, mut py, mut pw) = (&popup.items, x, y, w);
+    for depth in 0..popup.sub.len() {
+        let index = popup.sub[depth];
+        let Some(Item::Submenu { items: inner, .. }) = items.get(index) else { break };
+        let top = py + 6.0 + items[..index]
             .iter()
             .map(|i| match i {
                 Item::Separator => SEP_H,
@@ -252,10 +260,11 @@ pub fn overlay(app: &AppState, t: &Tokens) -> Option<El> {
                 _ => ITEM_H + 2.0,
             })
             .sum::<f32>();
-        let sw = 200.0;
-        let sx = if x + w + sw > ww { x - sw + 4.0 } else { x + w - 4.0 };
-        let sy = top.min(wh - height_of(items) - 8.0).max(4.0);
-        layer = layer.child(card(items, vec![sub], sw, t).absolute(sx, sy).on_press(|_: &mut AppState| {}));
+        let sw = 220.0;
+        let sx = if px + pw + sw > ww { px - sw + 4.0 } else { px + pw - 4.0 };
+        let sy = top.min(wh - height_of(inner) - 8.0).max(4.0);
+        layer = layer.child(card(inner, popup.sub[..=depth].to_vec(), sw, t).absolute(sx, sy).on_press(|_: &mut AppState| {}));
+        (items, px, py, pw) = (inner, sx, sy, sw);
     }
     Some(layer)
 }
