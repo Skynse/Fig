@@ -28,5 +28,5 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 indexmap = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-cpal = { version = "0.18", optional = true }
+cpal = { version = "0.18", optional = true, features = ["pulseaudio"] }
 rune = { git = "https://github.com/anomalyco/rune", rev = "39301f6793266450a057f270da06b048a689be96", features = ["native-file-dialog"] }

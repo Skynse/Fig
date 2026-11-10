@@ -286,8 +286,10 @@ mod device {
     }
 
     fn open(inner: Arc<Inner>) -> Option<cpal::Stream> {
-        let host = cpal::default_host();
-        let device = host.default_output_device()?;
+        // PulseAudio (PipeWire's pulse server on Linux) first: through ALSA's emulation of PipeWire the stream under-
+        // and overruns (crackle) and takes frames 1-2% off real time, which the clock reads as playing fast or slow
+        let host = cpal::host_from_id(cpal::HostId::PulseAudio).unwrap_or_else(|_| cpal::default_host());
+        let device = host.default_output_device().or_else(|| cpal::default_host().default_output_device())?;
         let default = device.default_output_config().ok()?;
         let channels = default.channels().max(1) as usize;
         // a steady period: PipeWire's ALSA device allows 16 frames, and a period that small underruns constantly
