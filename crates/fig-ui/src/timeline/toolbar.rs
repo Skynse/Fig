@@ -267,9 +267,10 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .w_full()
         .h(34.0)
         .center_y()
-        .child(el().grow(1.0).min_w(0.0).child(left))
+        // when the window narrows the left group gives way (and clips); the tools and the zoom keep their room
+        .child(el().grow(1.0).min_w(0.0).clip_rounded(0.0).child(left))
         .child(middle)
-        .child(el().grow(1.0).min_w(0.0).child(row().w_full().justify_end().child(right)))
+        .child(el().grow(1.0).child(row().w_full().justify_end().child(right)))
 }
 
 fn set_tool(app: &mut AppState, tool: Tool) {
