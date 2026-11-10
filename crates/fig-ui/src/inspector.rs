@@ -169,13 +169,24 @@ fn targets(e: &Editor, facet: Facet) -> Vec<String> {
     e.ed.edit_targets(&e.ed.selection.selected_clip_ids(), facet)
 }
 
+/// The clips a style edit reaches (`StyleTargets`): with "Style all captions together" on, a caption's look is shared
+/// by every caption on its track; what each says stays its own.
+fn style_targets(app: &AppState, e: &Editor, facet: Facet) -> Vec<String> {
+    let ids = targets(e, facet);
+    if app.preferences.captions.style_all && facet != Facet::RETIME && facet != Facet::FADES {
+        e.ed.with_caption_trackmates(&ids)
+    } else {
+        ids
+    }
+}
+
 fn first_clip<'a>(e: &'a Editor, ids: &[String]) -> Option<&'a Clip> {
     ids.iter().find_map(|id| e.ed.find_clip(id))
 }
 
 /// Every property group shown in a tab, each with its rows and a Reset.
 fn property_groups(app: &AppState, e: &Editor, tab: Facet, t: &Tokens) -> El {
-    let ids = targets(e, tab);
+    let ids = style_targets(app, e, tab);
     let Some(clip) = first_clip(e, &ids) else { return col() };
     let props: Vec<&'static ClipProperty> = properties::all()
         .iter()
@@ -447,8 +458,11 @@ fn text_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
 }
 
 fn set_font(app: &mut AppState, family: &str) {
+    let ids = match app.editor.as_ref() {
+        Some(e) => style_targets(app, e, Facet::TEXT),
+        None => return,
+    };
     let Some(e) = app.editor.as_mut() else { return };
-    let ids = e.ed.edit_targets(&e.ed.selection.selected_clip_ids(), Facet::TEXT);
     let family = family.to_string();
     e.ed.set_clip_value(&ids, "fontFamily", move |c| {
         if let Some(t) = c.as_text_mut() {

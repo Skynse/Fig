@@ -2,7 +2,7 @@
 //! Captions. Cards can be clicked or double-clicked, and dragged onto the timeline.
 
 use fig_timeline::{MediaKind, SelectionGroup, SelectionKey};
-use rune::{Color, Cursor, Drag, El, Phase, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Color, Cursor, Drag, El, Phase, TextEdit, Tx, col, el, icon, row, text, text_input};
 
 use crate::app::AppState;
 use crate::editor::Editor;
@@ -40,11 +40,29 @@ pub struct LibraryState {
     pub category: Option<String>,
     /// Effect presets saved from an edit (`~/.fig/presets`).
     pub user_presets: Vec<fig_fx::presets::EffectPreset>,
+    pub captions: CaptionsPanel,
+}
+
+/// The Captions tab (`CaptionsPanelViewModel`): which captions track it lists, find and replace, and the caption
+/// being typed in.
+#[derive(Default)]
+pub struct CaptionsPanel {
+    pub track: usize,
+    pub find: TextEdit,
+    pub replace: TextEdit,
+    pub match_case: bool,
+    pub editing: Option<(String, TextEdit)>,
 }
 
 impl LibraryState {
     pub fn new() -> LibraryState {
-        let mut l = LibraryState { tab: Tab::Media, search: TextEdit::new(""), category: None, user_presets: Vec::new() };
+        let mut l = LibraryState {
+            tab: Tab::Media,
+            search: TextEdit::new(""),
+            category: None,
+            user_presets: Vec::new(),
+            captions: CaptionsPanel::default(),
+        };
         l.load_presets();
         l
     }
@@ -132,7 +150,7 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         Tab::Transitions => transitions_tab(e, t),
         Tab::Effects => effects_tab(e, t),
         Tab::Markers => markers_tab(e, t),
-        Tab::Captions => captions_tab(e, t),
+        Tab::Captions => captions_tab(app, e, t),
     };
     row()
         .w_full()
@@ -989,49 +1007,203 @@ fn markers_tab(e: &Editor, t: &Tokens) -> El {
         .child(scroll(list))
 }
 
-fn captions_tab(e: &Editor, t: &Tokens) -> El {
-    let cues = e.ed.caption_cues(0.0, f64::MAX);
-    let mut list = col().w_full().gap(4.0);
-    let current = cues.iter().position(|c| e.playhead >= c.start_sec && e.playhead < c.end_sec);
-    for (i, cue) in cues.iter().enumerate() {
-        let at = cue.start_sec;
-        let id = e
-            .doc()
-            .clips()
-            .find(|c| c.as_text().is_some_and(|t| t.is_caption) && c.start_sec <= at + 1e-6 && at < c.end_sec())
-            .map_or_else(String::new, |c| c.id.clone());
-        let picked = e.ed.selection.is_selected(&id);
-        list = list.child(
-            row()
-                .w_full()
-                .padding(8.0)
-                .gap(8.0)
-                .radius(6.0)
-                .fill(if picked { hex("#222f48") } else { t.card_bg })
-                .border(1.0, if current == Some(i) { t.accent } else { Color::TRANSPARENT })
-                .hover(t.card_bg_alt)
-                .child(text(e.timecode(at)).font(mono(10.5, 400.0)).color(t.text_muted).w(76.0))
-                .child(text(cue.text.clone()).font(font(12.0, 400.0)).color(t.text_secondary).wrap().grow(1.0).min_w(0.0))
-                .on_press(move |s: &mut AppState| {
-                    if let Some(e) = s.editor.as_mut() {
-                        e.ed.selection.select_only(&id);
-                        e.inspector.tab = Some(fig_timeline::Facet::TEXT);
-                    }
-                    crate::editor::seek(s, at, false);
-                }),
-        );
+fn caption_tracks(e: &Editor) -> Vec<(String, String)> {
+    e.doc()
+        .tracks
+        .iter()
+        .filter(|t| !fig_edit::captions_on(t).is_empty())
+        .map(|t| (t.id.clone(), t.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Captions".into())))
+        .collect()
+}
+
+fn captions_panel(app: &mut AppState) -> Option<&mut CaptionsPanel> {
+    Some(&mut app.editor.as_mut()?.library.captions)
+}
+
+/// Starts typing in a caption (and shows it).
+fn edit_caption(app: &mut AppState, id: &str) {
+    let Some(e) = app.editor.as_mut() else { return };
+    let Some(clip) = e.ed.find_clip(id) else { return };
+    let (at, words) = (clip.start_sec, clip.as_text().map(|t| t.text.clone()).unwrap_or_default());
+    let mut edit = TextEdit::new(words);
+    edit.focused = true;
+    e.library.captions.editing = Some((id.to_string(), edit));
+    e.ed.selection.select_only(id);
+    if !app.playback.is_playing() {
+        crate::editor::seek(app, at, false);
     }
-    let empty = cues.is_empty();
+}
+
+fn captions_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
+    let panel = &e.library.captions;
+    let tracks = caption_tracks(e);
     let mut c = col().w_full().grow(1.0).min_h(0.0).gap(8.0).child(
         row()
             .gap(6.0)
-            .child(widgets::button("Auto captions…", Kind::Primary, t).on_press(|s: &mut AppState| crate::dialogs::captions::open(s)))
-            .child(widgets::button("Export…", Kind::Normal, t).on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::dialogs::export_captions(s, tx))),
+            .child(widgets::button("Auto captions…", Kind::Primary, t).help("Write what is said on the timeline as captions").on_press(|s: &mut AppState| crate::dialogs::captions::open(s)))
+            .child(widgets::button("Export…", Kind::Normal, t).help("Save the captions as SRT subtitles or a TXT transcript").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::dialogs::export_captions(s, tx))),
     );
-    if empty {
-        c = c.child(col().w_full().grow(1.0).center().gap(6.0).child(icon(&icons::CAPTIONS, 26.0).color(t.text_muted)).child(text("No captions yet").font(font(12.5, 500.0)).color(t.text_muted)));
-    } else {
-        c = c.child(widgets::note("Click a caption to edit its words in the inspector.", t)).child(scroll(list));
+    if tracks.is_empty() {
+        return c.child(
+            col()
+                .w_full()
+                .grow(1.0)
+                .center()
+                .gap(6.0)
+                .child(icon(&icons::CAPTIONS, 26.0).color(t.text_muted))
+                .child(text("No captions yet").font(font(12.5, 500.0)).color(t.text_muted))
+                .child(widgets::note("Auto captions listens to the timeline and writes what is said.", t)),
+        );
     }
-    c
+    let ti = panel.track.min(tracks.len() - 1);
+    if tracks.len() > 1 {
+        let names = tracks.iter().map(|t| t.1.clone()).collect::<Vec<_>>();
+        c = c.child(widgets::dropdown("lib.cap.track", names[ti].clone(), t).w_full().on_press(move |s: &mut AppState| {
+            let items = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    Item::new(n.clone(), move |s, _| {
+                        if let Some(p) = captions_panel(s) {
+                            p.track = i;
+                            p.editing = None;
+                        }
+                    })
+                })
+                .collect();
+            crate::menu::open_below(s, "lib.cap.track", items);
+        }));
+    }
+    // find and replace
+    let find = panel.find.text.clone();
+    let matches = |words: &str| {
+        find.is_empty() || if panel.match_case { words.contains(&find) } else { words.to_lowercase().contains(&find.to_lowercase()) }
+    };
+    let track = e.ed.find_track(&tracks[ti].0);
+    let captions: Vec<&fig_timeline::Clip> = track.map(fig_edit::captions_on).unwrap_or_default().into_iter().filter(|c| matches(&c.as_text().unwrap().text)).collect();
+    c = c
+        .child(widgets::text_box(&panel.find, "Find in captions", |s| &mut s.editor.as_mut().unwrap().library.captions.find, t).w_full())
+        .children((!find.is_empty()).then(|| {
+            let track_id = tracks[ti].0.clone();
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(widgets::text_box(&panel.replace, "Replace with", |s| &mut s.editor.as_mut().unwrap().library.captions.replace, t).w_full())
+                .child(
+                    row()
+                        .w_full()
+                        .gap(8.0)
+                        .center_y()
+                        .child(widgets::checkbox(panel.match_case, "Match case", t).on_press(|s: &mut AppState| {
+                            if let Some(p) = captions_panel(s) {
+                                p.match_case = !p.match_case;
+                            }
+                        }))
+                        .child(text(if captions.len() == 1 { "1 caption".to_string() } else { format!("{} captions", captions.len()) }).font(font(11.0, 400.0)).color(t.text_muted).grow(1.0))
+                        .child(widgets::button("Replace all", Kind::Normal, t).h(26.0).on_press(move |s: &mut AppState| {
+                            let Some(e) = s.editor.as_mut() else { return };
+                            let p = &e.library.captions;
+                            let (find, with, case) = (p.find.text.clone(), p.replace.text.clone(), p.match_case);
+                            let n = e.ed.replace_in_captions(&find, &with, case, Some(&track_id));
+                            e.library.captions.editing = None;
+                            e.say(if n == 0 { format!("\u{201c}{find}\u{201d} isn't in the captions") } else { format!("Replaced {n} \u{d7} \u{201c}{find}\u{201d}") });
+                        })),
+                )
+        }));
+    let mut list = col().w_full().gap(4.0);
+    for cap in &captions {
+        let words = cap.as_text().unwrap().text.clone();
+        let (at, end) = (cap.start_sec, cap.end_sec());
+        let current = e.playhead >= at && e.playhead < end;
+        let picked = e.ed.selection.is_selected(&cap.id);
+        let editing = panel.editing.as_ref().filter(|(id, _)| *id == cap.id).map(|(_, edit)| edit);
+        let id = cap.id.clone();
+        let mut card = col()
+            .w_full()
+            .padding(8.0)
+            .gap(4.0)
+            .radius(6.0)
+            .fill(if picked { hex("#222f48") } else { t.card_bg })
+            .border(1.0, if current { t.accent } else { Color::TRANSPARENT })
+            .child(text(format!("{} \u{2192} {}", e.timecode(at), e.timecode(end))).font(mono(10.5, 400.0)).color(t.text_muted));
+        match editing {
+            Some(edit) => {
+                let (m, sp, d) = (id.clone(), id.clone(), id.clone());
+                card = card
+                    .child(
+                        text_input(edit, font(12.5, 400.0))
+                            .w_full()
+                            .padding(6.0)
+                            .radius(6.0)
+                            .fill(hex("#1b1d22"))
+                            .border(1.0, t.accent)
+                            .color(t.text_primary)
+                            .on_edit(|s: &mut AppState| &mut s.editor.as_mut().unwrap().library.captions.editing.as_mut().unwrap().1)
+                            .on_input_change(|s: &mut AppState, _tx: &mut Tx| {
+                                let Some(e) = s.editor.as_mut() else { return };
+                                let Some((id, edit)) = e.library.captions.editing.clone() else { return };
+                                e.ed.set_text(&[id], &edit.text);
+                            })
+                            .on_submit(|s: &mut AppState, _tx: &mut Tx| {
+                                // Enter: on to the next caption
+                                let Some(e) = s.editor.as_ref() else { return };
+                                let Some((id, _)) = e.library.captions.editing.clone() else { return };
+                                let next = e.ed.find_clip_track(&id).and_then(|tr| {
+                                    let start = e.ed.find_clip(&id).map_or(0.0, |c| c.start_sec);
+                                    fig_edit::captions_on(tr).into_iter().find(|c| c.start_sec > start + 1e-6).map(|c| c.id.clone())
+                                });
+                                match next {
+                                    Some(n) => edit_caption(s, &n),
+                                    None => {
+                                        if let Some(p) = captions_panel(s) {
+                                            p.editing = None;
+                                        }
+                                    }
+                                }
+                            }),
+                    )
+                    .child(
+                        row()
+                            .w_full()
+                            .gap(4.0)
+                            .child(widgets::note("Enter: next caption", t).grow(1.0))
+                            .child(widgets::icon_button(&icons::MERGE, 13.0, 24.0, t).help("Merge with the next caption").on_press(move |s: &mut AppState| {
+                                let Some(e) = s.editor.as_mut() else { return };
+                                let joined = e.ed.merge_caption_with_next(&m);
+                                match joined {
+                                    Some(id) => edit_caption(s, &id),
+                                    None => e.say("There is no caption after this one"),
+                                }
+                            }))
+                            .child(widgets::icon_button(&icons::SCISSORS, 13.0, 24.0, t).help("Split at the cursor").on_press(move |s: &mut AppState| {
+                                let Some(e) = s.editor.as_mut() else { return };
+                                let caret = e.library.captions.editing.as_ref().map_or(0, |(_, ed)| ed.text[..ed.focus.min(ed.text.len())].chars().count());
+                                match e.ed.split_caption(&sp, caret) {
+                                    Some((_, right)) => edit_caption(s, &right),
+                                    None => e.say("Put the cursor between two words to split the caption there."),
+                                }
+                            }))
+                            .child(widgets::icon_button(&icons::TRASH_2, 13.0, 24.0, t).help("Delete this caption").on_press(move |s: &mut AppState| {
+                                if let Some(e) = s.editor.as_mut() {
+                                    e.ed.remove_caption(&d);
+                                    e.library.captions.editing = None;
+                                }
+                            })),
+                    );
+            }
+            None => {
+                card = card.child(text(words).font(font(12.0, 400.0)).color(t.text_secondary).wrap()).hover(t.card_bg_alt).on_press(move |s: &mut AppState| edit_caption(s, &id));
+            }
+        }
+        list = list.child(card);
+    }
+    c.child(
+        widgets::checkbox(app.preferences.captions.style_all, "Style all captions together", t)
+            .help("A change to one caption's font, colours, size or position applies to every caption on its track. What each one says stays its own.")
+            .on_press(|s: &mut AppState| {
+                s.preferences.captions.style_all = !s.preferences.captions.style_all;
+                s.save_preferences();
+            }),
+    )
+    .child(scroll(list))
 }
