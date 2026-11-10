@@ -974,7 +974,7 @@ fn markers_tab(e: &Editor, t: &Tokens) -> El {
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
-        .child(widgets::button("Export marked ranges", Kind::Primary, t).help("Save each range marker as its own video").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::ExportRanges, tx)))
+        .child(widgets::button("Export marked ranges", Kind::Primary, t).key("lib.export_ranges").help("Save each range marker as its own video").on_press_tx(|s: &mut AppState, tx: &mut Tx| crate::actions::run(s, crate::commands::Command::ExportRanges, tx)))
         .child(search(e, "Search markers", t))
         .child(
             row()
