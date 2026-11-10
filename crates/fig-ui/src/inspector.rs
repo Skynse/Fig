@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use fig_timeline::properties::{self, ClipProperty};
 use fig_timeline::{Clip, Facet, ParamDef, ParamKind, ParamValue, SelectionGroup, clip_time};
-use rune::{Color, El, Phase, TextEdit, Tx, col, el, icon, row, text, text_input};
+use rune::{Color, Drag, El, Phase, TextEdit, Tx, col, el, icon, row, text, text_input};
 
 use crate::app::AppState;
 use crate::editor::Editor;
@@ -1128,5 +1128,93 @@ fn camera_card(app: &AppState, e: &Editor, owner: &str, fx: &fig_timeline::Effec
             }
         })));
     }
+    if animated {
+        let host = fig_edit::KeyframeHostRef::of_effect(owner, &fx.id);
+        let span = match (fx.start_sec, fx.dur_sec) {
+            (Some(s), Some(d)) => (s, s + d),
+            _ => (0.0, if span.is_finite() { span } else { times.last().copied().unwrap_or(1.0).max(1.0) }),
+        };
+        card = card.child(keyframe_ruler(e, host, span, origin, t));
+    }
     card.child(widgets::note(hint, t))
+}
+
+/// A keyframe host's keys on a ruler across what it covers (`KeyframeRuler`): big diamonds to pick and drag, the
+/// playhead. Click to move the playhead, double-click to add a keyframe there, right-click a diamond for its menu.
+fn keyframe_ruler(e: &Editor, host: fig_edit::KeyframeHostRef, (from, to): (f64, f64), origin: f64, t: &Tokens) -> El {
+    const PAD: f32 = 12.0;
+    let key = "insp.kfruler";
+    let w = crate::layout::rect(key).map_or(260.0, |r| r[2]);
+    let len = (to - from).max(1e-3);
+    let x_of = |sec: f64| PAD + ((sec - from) / len) as f32 * (w - 2.0 * PAD);
+    let times = e.ed.find_keyframe_host(&host).map(|h| h.times(e.doc())).unwrap_or_default();
+    let picked = e.ed.selection.keyframe().filter(|k| k.host == host).map(|k| k.time_sec);
+    let mut bar = el().w_full().h(52.0).radius(6.0).fill(hex("#131415")).border(1.0, hex("#2b2d31"));
+    bar = bar.child(el().absolute(PAD, 26.0).w((w - 2.0 * PAD).max(1.0)).h(1.0).fill(hex("#3a3c42")));
+    for &k in &times {
+        let hot = picked.is_some_and(|p| (p - k).abs() < 1e-4);
+        bar = bar.child(el().absolute(x_of(k) - 6.0, 20.0).w(12.0).h(12.0).rotate(std::f32::consts::FRAC_PI_4).fill(if hot { Color::WHITE } else { t.accent }).border(1.0, hex("#00000090")));
+    }
+    let ph = e.playhead - origin;
+    if ph >= from && ph <= to {
+        bar = bar.child(el().absolute(x_of(ph) - 0.5, 4.0).w(1.0).h(44.0).fill(hex("#ff6b5e")));
+    }
+    bar = bar
+        .child(text(e.timecode(origin + from)).font(mono(9.5, 400.0)).color(t.text_muted).absolute(PAD, 36.0))
+        .child(text(e.timecode(origin + to)).font(mono(9.5, 400.0)).color(t.text_muted).absolute(w - PAD - 66.0, 36.0));
+    let (h1, h2) = (host.clone(), host);
+    let at_x = move |x: f32| from + f64::from(((x - PAD) / (w - 2.0 * PAD).max(1.0)).clamp(0.0, 1.0)) * len;
+    let near = move |times: &[f64], x: f32| times.iter().copied().find(|k| (PAD + ((k - from) / len) as f32 * (w - 2.0 * PAD) - x).abs() <= 10.0);
+    let times2 = times.clone();
+    crate::layout::tracked(bar, key)
+        .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
+            thread_local! { static HELD: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) }; }
+            let Some(e) = s.editor.as_mut() else { return };
+            let local = at_x(d.x);
+            match d.phase {
+                Phase::Down => {
+                    let held = near(&times, d.start_x);
+                    HELD.set(held);
+                    match held {
+                        Some(k) => {
+                            use fig_timeline::{SelectionGroup, SelectionKey};
+                            let owner = SelectionKey::owned(SelectionGroup::Effect, h1.effect_id.clone().unwrap_or_default(), h1.owner_id.clone());
+                            e.ed.selection.select_keyframe(owner, fig_edit::KeyframeRef { host: h1.clone(), time_sec: k });
+                            crate::editor::seek(s, origin + k, false);
+                        }
+                        None if d.clicks >= 2 => {
+                            e.ed.add_keyframe(&h1, local);
+                        }
+                        None => crate::editor::seek(s, origin + local, true),
+                    }
+                }
+                Phase::Move => match HELD.get() {
+                    Some(k) => {
+                        let to = e.ed.snap_time(origin + local) - origin;
+                        if (to - k).abs() > 1e-6 && !times.iter().any(|t| (t - to).abs() < 1e-3) {
+                            e.ed.move_keyframes(&fig_edit::KeyframeRef { host: h1.clone(), time_sec: k }, to, "inspector-ruler");
+                            e.ed.selection.move_keyframe(to);
+                            HELD.set(Some(to));
+                        }
+                    }
+                    None => crate::editor::seek(s, origin + local, true),
+                },
+                Phase::Up => {
+                    if let Some(k) = HELD.take() {
+                        e.ed.break_coalescing();
+                        crate::editor::seek(s, origin + k, false);
+                    } else {
+                        let at = s.editor.as_ref().map_or(0.0, |e| e.playhead);
+                        crate::editor::seek(s, at, false);
+                    }
+                }
+            }
+            tx.instant();
+        })
+        .on_secondary_press_local(move |s: &mut AppState, p: rune::PointerEvent, _tx: &mut Tx| {
+            if let Some(k) = near(&times2, p.x) {
+                let items = crate::timeline::menu::keyframe_menu(s, h2.clone(), k);
+                crate::menu::open(s, crate::menu::Popup::at(p.window_x, p.window_y, items));
+            }
+        })
 }
