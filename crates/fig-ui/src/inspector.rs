@@ -161,7 +161,7 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         f if f == Facet::FADES => col().w_full().gap(4.0).child(property_groups(app, e, f, t)).child(fade_envelope(e, t)),
         f => property_groups(app, e, f, t),
     };
-    body.child(el().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(content.w_full().pb(16.0)))
+    body.child(col().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(content.w_full().pb(16.0)))
 }
 
 /// The selected clips that have this kind of setting.

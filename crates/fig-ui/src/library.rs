@@ -157,7 +157,7 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .h_full()
         .child(rail(e, t))
         .child(el().w(1.0).h_full().fill(t.border))
-        .child(col().grow(1.0).min_w(0.0).h_full().padding(10.0).gap(8.0).child(header).child(content))
+        .child(col().grow(1.0).min_w(0.0).min_h(0.0).h_full().padding(10.0).gap(8.0).child(header).child(content))
 }
 
 fn search(e: &Editor, placeholder: &str, t: &Tokens) -> El {
@@ -170,7 +170,7 @@ fn matches(e: &Editor, name: &str) -> bool {
 }
 
 fn scroll(content: El) -> El {
-    el().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(content.w_full())
+    col().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(content.w_full())
 }
 
 // ---- dragging onto the timeline --------------------------------------------------------------
@@ -341,7 +341,7 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
         return col().w_full().gap(8.0).child(top).child(text("No media matches your search").font(font(12.0, 400.0)).color(t.text_muted));
     }
     let selected: Vec<String> = e.ed.selection.items().iter().filter(|k| k.group == SelectionGroup::Media).map(|k| k.id.clone()).collect();
-    let mut grid = row().w_full().flex_wrap().gap(8.0);
+    let mut grid = row().w_full().flex_wrap().items_start().gap(8.0);
     for m in media {
         let thumb = m.thumbnail.as_deref().and_then(|p| app.media.thumbnail(p)).or_else(|| (m.kind == MediaKind::Image).then(|| app.media.thumbnail(&m.url)).flatten());
         let picked = selected.contains(&m.id);
@@ -383,7 +383,19 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
             .hover(t.card_bg_alt)
             .cursor(Cursor::Pointer)
             .child(well.child(
-                el().absolute(96.0, 46.0).w(22.0).h(22.0).radius(11.0).fill(t.accent).center().help("Add to the timeline at the playhead").child(icon(&icons::PLUS, 13.0).color(t.on_accent)).on_press(move |s: &mut AppState| crate::media::add_to_timeline(s, &id_add)),
+                // the add button in the picture's lower right corner, inside it
+                el().absolute(0.0, 46.0).w_full().pr(4.0).child(
+                    row().w_full().justify_end().child(
+                        el().w(22.0)
+                            .h(22.0)
+                            .radius(11.0)
+                            .fill(t.accent)
+                            .center()
+                            .help("Add to the timeline at the playhead")
+                            .child(icon(&icons::PLUS, 13.0).color(t.on_accent))
+                            .on_press(move |s: &mut AppState| crate::media::add_to_timeline(s, &id_add)),
+                    ),
+                ),
             ))
             .child(text(name.clone()).font(font(12.0, 400.0)).color(t.text_secondary).truncate().help(name.clone()))
             .on_double_press(move |s: &mut AppState| crate::media::add_to_timeline(s, &id_dbl))
@@ -497,7 +509,7 @@ fn save_template(app: &mut AppState) {
 }
 
 fn text_tab(e: &Editor, t: &Tokens) -> El {
-    let mut grid = row().w_full().flex_wrap().gap(8.0);
+    let mut grid = row().w_full().flex_wrap().items_start().gap(8.0);
     for (i, p) in fig_timeline::text_presets().into_iter().enumerate() {
         if !matches(e, p.name) {
             continue;
@@ -552,7 +564,7 @@ fn text_tab(e: &Editor, t: &Tokens) -> El {
 }
 
 fn transitions_tab(e: &Editor, t: &Tokens) -> El {
-    let mut grid = row().w_full().flex_wrap().gap(8.0);
+    let mut grid = row().w_full().flex_wrap().items_start().gap(8.0);
     for entry in fig_fx::transitions::all() {
         if !matches(e, entry.display_name) {
             continue;

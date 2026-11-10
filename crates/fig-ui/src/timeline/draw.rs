@@ -47,11 +47,11 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
             continue;
         }
         let selected = tl.track_selected.as_deref() == Some(track.id.as_str());
-        c = c.child(el().absolute(0.0, y).w(w).h(lane.height).fill(if i % 2 == 0 { hex("#202226") } else { hex("#1d1f22") }));
+        c = c.child(el().key(format!("tl.lane.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(if i % 2 == 0 { hex("#202226") } else { hex("#1d1f22") }));
         if selected {
-            c = c.child(el().absolute(0.0, y).w(w).h(lane.height).fill(hex("#147b9fc6")));
+            c = c.child(el().key(format!("tl.lanesel.{}", track.id)).absolute(0.0, y).w(w).h(lane.height).fill(hex("#147b9fc6")));
         }
-        c = c.child(el().absolute(0.0, y + lane.height - 1.0).w(w).h(1.0).fill(hex("#00000040")));
+        c = c.child(el().key(format!("tl.lanerule.{}", track.id)).absolute(0.0, y + lane.height - 1.0).w(w).h(1.0).fill(hex("#00000040")));
     }
 
     // snap grid while dragging with snapping on
@@ -62,7 +62,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         while s <= end {
             let x = tl.x_of(s);
             let is_major = ((s / major) - (s / major).round()).abs() < 1e-6;
-            c = c.child(el().absolute(x, RULER_H).w(1.0).h(h - RULER_H).fill(Color::WHITE.alpha(if is_major { 0.12 } else { 0.055 })));
+            c = c.child(el().key(format!("tl.grid.{}", (s / minor).round() as i64)).absolute(x, RULER_H).w(1.0).h(h - RULER_H).fill(Color::WHITE.alpha(if is_major { 0.12 } else { 0.055 })));
             s += minor;
         }
     }
@@ -81,23 +81,23 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 continue;
             }
             let touching_next = track.clips.get(ci + 1).is_some_and(|n| (n.start_sec - clip.end_sec()).abs() < 1e-4);
-            c = c.child(clip_view(app, e, track, clip, &lane, y, touching_next, t));
+            c = c.child(clip_view(app, e, track, clip, &lane, y, touching_next, t).key(format!("tl.clip.{}", clip.id)));
         }
         // the racks under the clips: each clip's, then the track's own
         for clip in track.clips.iter().filter(|c| c.end_sec() >= t0 && c.start_sec <= t1) {
             let x0 = tl.x_of(clip.start_sec + tl.slide_offset(&clip.id));
-            c = c.children(rack_bars(e, super::rack::Owner::Clip(clip), x0, lane.clip_rack_top() - oy, lane.rack_open, w, t));
+            c = c.children(rack_bars(e, super::rack::Owner::Clip(clip), x0, lane.clip_rack_top() - oy, lane.rack_open, w, t).into_iter().enumerate().map(|(i, b)| b.key(format!("tl.bar.{}.{i}", clip.id))));
         }
-        c = c.children(rack_bars(e, super::rack::Owner::Track(track), tl.x_of(0.0), lane.track_rack_top() - oy, lane.rack_open, w, t));
+        c = c.children(rack_bars(e, super::rack::Owner::Track(track), tl.x_of(0.0), lane.track_rack_top() - oy, lane.rack_open, w, t).into_iter().enumerate().map(|(i, b)| b.key(format!("tl.bar.{}.{i}", track.id))));
         for cut in fig_edit::transitions::transitions_on(doc, &track.id) {
             let cx = tl.x_of(cut.cut_sec);
             let half = (cut.duration_sec / 2.0) as f32 * tl.pps;
             let body_top = y + lane.label;
             let selected = e.ed.selection.selected_transition_key() == Some(cut.key().as_str());
             c = c
-                .child(el().absolute(cx - half, body_top).w((half * 2.0).max(2.0)).h(lane.body).fill(hex("#46e0a308")).inert())
+                .child(el().key(format!("tl.trband.{}", cut.key())).absolute(cx - half, body_top).w((half * 2.0).max(2.0)).h(lane.body).fill(hex("#46e0a308")).inert())
                 .child(
-                    el().absolute(cx - 13.0, body_top + lane.body / 2.0 - 8.0)
+                    el().key(format!("tl.tr.{}", cut.key())).absolute(cx - 13.0, body_top + lane.body / 2.0 - 8.0)
                         .w(26.0)
                         .h(16.0)
                         .radius(8.0)
@@ -205,20 +205,20 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     }
 
     // header column over the lanes
-    c = c.child(el().absolute(0.0, 0.0).w(HEADER_W).h(h).fill(hex("#191b1e")));
+    c = c.child(el().key("tl.headers").absolute(0.0, 0.0).w(HEADER_W).h(h).fill(hex("#191b1e")));
     for (i, track) in doc.tracks.iter().enumerate() {
         let lane = lanes[i];
         let y = lane.top - oy;
         if y + lane.height < RULER_H || y > h {
             continue;
         }
-        c = c.child(header_view(e, track, &lane, y, t));
+        c = c.child(header_view(e, track, &lane, y, t).key(format!("tl.hdr.{}", track.id)));
     }
-    c = c.child(el().absolute(HEADER_W - 1.0, 0.0).w(1.0).h(h).fill(hex("#34373c")));
+    c = c.child(el().key("tl.hdrrule").absolute(HEADER_W - 1.0, 0.0).w(1.0).h(h).fill(hex("#34373c")));
     let add = add_track_rect(&lanes);
     if add[1] - oy + add[3] > RULER_H && add[1] - oy < h {
         c = c.child(
-            el().absolute(add[0], add[1] - oy)
+            el().key("tl.addtrack").absolute(add[0], add[1] - oy)
                 .w(add[2])
                 .h(add[3])
                 .radius(6.0)
@@ -245,25 +245,25 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     }
 
     // the pinned ruler and marker lane
-    c = c.child(ruler_view(e, w, t));
+    c = c.child(ruler_view(e, w, t).key("tl.ruler"));
 
     // snap guide, blade line
     if let Some(at) = tl.snap_guide {
-        c = c.child(el().absolute(tl.x_of(at) - 0.75, MARKER_LANE_H).w(1.5).h(h).fill(hex("#e6ffd60a")).inert());
+        c = c.child(el().key("tl.snap").absolute(tl.x_of(at) - 0.75, MARKER_LANE_H).w(1.5).h(h).fill(hex("#e6ffd60a")).inert());
     }
     if e.tool == Tool::Blade
         && let Some((px, py)) = tl.pointer
         && px > HEADER_W
         && py > RULER_H
     {
-        c = c.child(el().absolute(px - 0.75, RULER_H).w(1.5).h(h - RULER_H).fill(hex("#f0ff5a5a")).inert());
+        c = c.child(el().key("tl.blade").absolute(px - 0.75, RULER_H).w(1.5).h(h - RULER_H).fill(hex("#f0ff5a5a")).inert());
     }
 
     // the playhead: a line and a cap on the ruler, moved by a live value while playing
     let x = tl.x_of(e.playhead);
     e.live_playhead.set([x, 0.0]);
     c = c.child(
-        el().absolute(0.0, MARKER_LANE_H + 6.0)
+        el().key("tl.playhead").absolute(0.0, MARKER_LANE_H + 6.0)
             .w(1.0)
             .h(h)
             .live_offset(&e.live_playhead)
@@ -591,10 +591,10 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
             let is_mid = div % 2 == 0 && i % i64::from(div) == i64::from(div / 2);
             let (len, color) = if is_major { (12.0, hex("#8b9098")) } else if is_mid { (8.0, hex("#5a5f67")) } else { (5.0, hex("#40444b")) };
             if minor * f64::from(tl.pps) >= 5.0 || is_major {
-                r = r.child(el().absolute(x, RULER_H - len).w(1.0).h(len).fill(color));
+                r = r.child(el().key(format!("tick.{i}")).absolute(x, RULER_H - len).w(1.0).h(len).fill(color));
             }
             if is_major {
-                r = r.child(text(ruler_label(s, major, fps)).font(mono(10.0, 400.0)).color(t.text_muted).absolute(x + 4.0, MARKER_LANE_H + 2.0));
+                r = r.child(text(ruler_label(s, major, fps)).key(format!("label.{i}")).font(mono(10.0, 400.0)).color(t.text_muted).absolute(x + 4.0, MARKER_LANE_H + 2.0));
             }
         }
         s += minor;
@@ -609,7 +609,7 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
             let xe = tl.x_of(m.end_sec());
             let bw = (xe - x).max(4.0);
             r = r.child(
-                el().absolute(x, 2.0)
+                el().key(format!("mk.{}", m.id)).absolute(x, 2.0)
                     .w(bw)
                     .h(16.0)
                     .radius(3.0)
@@ -619,9 +619,9 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
             );
         } else if x >= HEADER_W - 10.0 {
             r = r
-                .child(el().absolute(x, 2.0).w(1.0).h(MARKER_LANE_H - 2.0).fill(color))
-                .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 5.0], [0.0, 10.0]], color)).absolute(x + 1.0, 2.0).w(10.0).h(10.0))
-                .child(text(m.name.clone()).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(color).absolute(x + 13.0, 3.0));
+                .child(el().key(format!("mk.{}", m.id)).absolute(x, 2.0).w(1.0).h(MARKER_LANE_H - 2.0).fill(color))
+                .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 5.0], [0.0, 10.0]], color)).key(format!("mkflag.{}", m.id)).absolute(x + 1.0, 2.0).w(10.0).h(10.0))
+                .child(text(m.name.clone()).key(format!("mkname.{}", m.id)).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(color).absolute(x + 13.0, 3.0));
         }
     }
     // beat preview: dashed blue poles (not yet applied)
@@ -630,12 +630,12 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
     {
         for local in &preview.local_times {
             let x = tl.x_of(clip.start_sec + local);
-            r = r.child(el().absolute(x, 2.0).w(1.0).h(RULER_H - 2.0).fill(hex("#5ac8fa")));
+            r = r.child(el().key(format!("beat.{x}")).absolute(x, 2.0).w(1.0).h(RULER_H - 2.0).fill(hex("#5ac8fa")));
         }
     }
-    r.child(el().absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(hex("#181a1d")))
-        .child(el().absolute(HEADER_W - 1.0, 0.0).w(1.0).h(RULER_H).fill(hex("#34373c")))
-        .child(text("").live_text(&e.live_time).font(mono(11.0, 500.0)).color(t.text_secondary).absolute(10.0, 14.0).w(120.0))
+    r.child(el().key("cover").absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(hex("#181a1d")))
+        .child(el().key("coverrule").absolute(HEADER_W - 1.0, 0.0).w(1.0).h(RULER_H).fill(hex("#34373c")))
+        .child(text("").key("timecode").live_text(&e.live_time).font(mono(11.0, 500.0)).color(t.text_secondary).absolute(10.0, 14.0).w(120.0))
 }
 
 /// The bars of one owner's rack (`DrawRack`): `x0` is its origin on screen, `top` its first row (canvas coordinates).

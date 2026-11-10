@@ -167,7 +167,7 @@ fn shortcuts(app: &AppState, t: &Tokens) -> El {
     }
     card(520.0, t)
         .child(title_row("Keyboard shortcuts", t))
-        .child(el().w_full().h(460.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
+        .child(col().w_full().h(460.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
         .child(widgets::note("Change them in Preferences ▸ Keyboard.", t))
 }
 
@@ -189,7 +189,7 @@ fn bookmarks(app: &AppState, include_bounds: bool, t: &Tokens) -> El {
     }
     card(460.0, t)
         .child(title_row("Create ranges from bookmarks", t))
-        .child(el().w_full().max_h(320.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
+        .child(col().w_full().max_h(320.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
         .child(widgets::checkbox(include_bounds, "Include the start and end of the sequence", t).on_press(|s: &mut AppState| {
             if let Some(Dialog::Bookmarks { include_bounds }) = s.dialog.as_mut() {
                 *include_bounds = !*include_bounds;

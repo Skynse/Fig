@@ -74,7 +74,7 @@ pub fn view(app: &AppState, t: &Tokens) -> El {
     }
     super::card(560.0, t)
         .child(super::title_row("Export jobs", t))
-        .child(el().w_full().max_h(480.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
+        .child(col().w_full().max_h(480.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
         .child(
             row()
                 .w_full()

@@ -212,7 +212,7 @@ pub fn overlay(app: &AppState, st: &PreferencesState, t: &Tokens) -> El {
                         }))
                         .child(widgets::icon_button(&icons::X, 14.0, 28.0, t).on_press(|s: &mut AppState| s.preferences_open = None)),
                 )
-                .child(el().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(page.w_full())),
+                .child(col().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(page.w_full())),
         );
     el().absolute(0.0, 46.0).w_full().h_full().fill(Color::BLACK.alpha(0.35)).center().child(card.modal(true, |s: &mut AppState| s.preferences_open = None))
 }

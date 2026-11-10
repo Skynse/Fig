@@ -33,6 +33,11 @@ struct Feed {
 struct Inner {
     queue: Mutex<VecDeque<f32>>,
     played: AtomicU64,
+    /// Frames the device wanted while running and found nothing queued (each one is a click).
+    starved: AtomicU64,
+    /// Device callbacks, and the most frames one asked for.
+    callbacks: AtomicU64,
+    largest: AtomicU64,
     /// The device takes from the queue (otherwise it plays silence and the clock stands still).
     running: AtomicBool,
     volume: AtomicU32,
@@ -51,6 +56,9 @@ impl Output {
         let inner = Arc::new(Inner {
             queue: Mutex::new(VecDeque::new()),
             played: AtomicU64::new(0),
+            starved: AtomicU64::new(0),
+            callbacks: AtomicU64::new(0),
+            largest: AtomicU64::new(0),
             running: AtomicBool::new(false),
             volume: AtomicU32::new(1f32.to_bits()),
             muted: AtomicBool::new(false),
@@ -59,6 +67,31 @@ impl Output {
             wake: Condvar::new(),
         });
         device::start(inner.clone());
+        // FIG_AUDIO_TRACE=1: silent output and a line a second about how the device is fed
+        if std::env::var_os("FIG_AUDIO_TRACE").is_some() {
+            inner.muted.store(true, Ordering::Relaxed);
+            let tracer = inner.clone();
+            std::thread::spawn(move || {
+                let t0 = Instant::now();
+                let (mut last_played, mut last_starved) = (0, 0);
+                loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                    tracer.muted.store(true, Ordering::Relaxed);
+                    let (played, starved) = (tracer.played.load(Ordering::Relaxed), tracer.starved.load(Ordering::Relaxed));
+                    eprintln!(
+                        "audio {:5.1}s played {:6} starved {:6} queued {:6} callbacks {:5} largest {:5} running {}",
+                        t0.elapsed().as_secs_f64(),
+                        played - last_played,
+                        starved - last_starved,
+                        tracer.queue.lock().unwrap().len() / 2,
+                        tracer.callbacks.swap(0, Ordering::Relaxed),
+                        tracer.largest.swap(0, Ordering::Relaxed),
+                        tracer.running.load(Ordering::Relaxed),
+                    );
+                    (last_played, last_starved) = (played, starved);
+                }
+            });
+        }
         let feeder = inner.clone();
         std::thread::Builder::new()
             .name("fig-audio-feed".into())
@@ -191,10 +224,14 @@ fn pull(inner: &Inner, out: &mut [f32], channels: usize, step: f64, phase: &mut 
     let running = inner.running.load(Ordering::Relaxed);
     let mut queue = inner.queue.lock().unwrap();
     let mut played = 0u64;
+    let mut starved = 0u64;
+    inner.callbacks.fetch_add(1, Ordering::Relaxed);
+    inner.largest.fetch_max((out.len() / channels) as u64, Ordering::Relaxed);
     for frame in out.chunks_mut(channels) {
         // linear resampling from the mixer's 48 kHz to the device's rate (step = 48k / device rate)
         while running && *phase >= 1.0 {
             if queue.len() < 2 {
+                starved += 1;
                 break;
             }
             held[0] = held[2];
@@ -223,6 +260,7 @@ fn pull(inner: &Inner, out: &mut [f32], channels: usize, step: f64, phase: &mut 
     }
     drop(queue);
     inner.played.fetch_add(played, Ordering::Relaxed);
+    inner.starved.fetch_add(starved, Ordering::Relaxed);
 }
 
 #[cfg(feature = "audio")]
@@ -298,6 +336,9 @@ mod tests {
         Inner {
             queue: Mutex::new(samples.iter().copied().collect()),
             played: AtomicU64::new(0),
+            starved: AtomicU64::new(0),
+            callbacks: AtomicU64::new(0),
+            largest: AtomicU64::new(0),
             running: AtomicBool::new(true),
             volume: AtomicU32::new(1f32.to_bits()),
             muted: AtomicBool::new(false),

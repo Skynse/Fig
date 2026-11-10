@@ -275,7 +275,7 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
         }));
         body = body
             .children((!s.chapters.is_empty()).then_some(tools))
-            .child(el().w_full().max_h(220.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
+            .child(col().w_full().max_h(220.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
             .child(widgets::button("Create ranges from bookmarks…", Kind::Ghost, t).on_press(|a: &mut AppState| a.dialog = Some(Dialog::Bookmarks { include_bounds: true })));
     }
     body = body

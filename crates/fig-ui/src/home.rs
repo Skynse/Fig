@@ -141,7 +141,7 @@ pub fn view(app: &AppState, t: &Tokens) -> El {
                 .child(widgets::button("Clear search", Kind::Normal, t).on_press(|s: &mut AppState| s.home.search = TextEdit::new(""))),
         );
     }
-    let mut items = if h.list { col().w_full().px(24.0).gap(6.0) } else { row().w_full().px(24.0).flex_wrap().gap(16.0) };
+    let mut items = if h.list { col().w_full().px(24.0).gap(6.0) } else { row().w_full().px(24.0).flex_wrap().items_start().gap(16.0) };
     for i in visible {
         let p = &h.projects[i];
         let id = p.id.clone();
@@ -181,7 +181,7 @@ pub fn view(app: &AppState, t: &Tokens) -> El {
                 .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| project_menu(s, &menu_id, at.x, at.y)),
         );
     }
-    root.child(el().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(items.pb(24.0))).child(
+    root.child(col().w_full().grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(items.pb(24.0))).child(
         row()
             .w_full()
             .px(24.0)
