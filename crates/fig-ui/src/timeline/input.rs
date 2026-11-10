@@ -512,7 +512,7 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods, tx: &mut T
                 Item::new("Video track", |s, _| add_track(s, TrackKind::Video)),
                 Item::new("Audio track", |s, _| add_track(s, TrackKind::Audio)),
             ];
-            let origin = rune::memo::window_layout("timeline.canvas").unwrap_or([0.0; 4]);
+            let origin = crate::layout::rect("timeline.canvas").unwrap_or([0.0; 4]);
             crate::menu::open(app, Popup::at(origin[0] + x, origin[1] + y, items));
         }
         Hit::Header { track, button } => {

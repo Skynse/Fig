@@ -29,6 +29,7 @@ pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .clip_rounded(8.0)
         .cursor(if e.tool == Tool::Blade { Cursor::Crosshair } else { Cursor::Default })
         .on_layout(|s: &mut AppState, r: [f32; 4]| {
+            crate::layout::remember("timeline.canvas", r);
             if let Some(e) = s.editor.as_mut() {
                 e.tl.width = r[2];
                 e.tl.height = r[3];

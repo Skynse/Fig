@@ -72,8 +72,7 @@ fn grip(which: Grip, x: f32, y: f32, w: f32, h: f32) -> El {
 fn on_drag(state: &mut AppState, grip: Grip, drag: &mut Drag, tx: &mut Tx) {
     match drag.phase {
         Phase::Down => {
-            let size = rune::memo::layout_size("app.root").unwrap_or([1200.0, 700.0]);
-            state.resize_origin = Some((size[0], size[1]));
+            state.resize_origin = Some(state.window_size);
         }
         Phase::Move => {
             let Some((w0, h0)) = state.resize_origin else { return };

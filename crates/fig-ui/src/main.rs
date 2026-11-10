@@ -13,6 +13,7 @@ mod home;
 mod icons;
 mod inspector;
 mod keys;
+mod layout;
 mod library;
 mod media;
 mod menu;

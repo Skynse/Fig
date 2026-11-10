@@ -80,11 +80,13 @@ pub struct Popup {
     pub sub: Option<usize>,
     /// The element the menu hangs from, so pressing it again closes rather than reopens.
     pub owner: Option<String>,
+    /// Hang under this element (placed when drawn: a handler can't read where things are laid out).
+    pub anchor: Option<String>,
 }
 
 impl Popup {
     pub fn at(x: f32, y: f32, items: Vec<Item>) -> Popup {
-        Popup { items, x, y, min_w: 220.0, sub: None, owner: None }
+        Popup { items, x, y, min_w: 220.0, sub: None, owner: None, anchor: None }
     }
 
     pub fn width(mut self, w: f32) -> Popup {
@@ -109,8 +111,8 @@ pub fn open(app: &mut AppState, popup: Popup) {
 
 /// Opens a menu under the element keyed `key` (its rect as last laid out).
 pub fn open_below(app: &mut AppState, key: &str, items: Vec<Item>) {
-    let rect = rune::memo::window_layout(key).unwrap_or([0.0, 0.0, 0.0, 0.0]);
-    let popup = Popup::at(rect[0], rect[1] + rect[3] + 4.0, items).width(rect[2].max(160.0)).owner(key);
+    let mut popup = Popup::at(0.0, 0.0, items).width(160.0).owner(key);
+    popup.anchor = Some(key.to_string());
     open(app, popup);
 }
 
@@ -222,9 +224,16 @@ pub fn overlay(app: &AppState, t: &Tokens) -> Option<El> {
     let popup = app.popup.as_ref()?;
     let (ww, wh) = app.window_size;
     let h = height_of(&popup.items);
-    let w = popup.min_w.max(220.0);
-    let x = popup.x.min(ww - w - 8.0).max(4.0);
-    let y = if popup.y + h > wh - 8.0 { (popup.y - h).max(4.0) } else { popup.y };
+    let (mut px, mut py, mut min_w) = (popup.x, popup.y, popup.min_w);
+    let mut above = None;
+    if let Some(key) = &popup.anchor {
+        let r = crate::layout::rect(key)?;
+        (px, py, min_w) = (r[0], r[1] + r[3] + 4.0, r[2].max(160.0));
+        above = Some(r[1] - 4.0);
+    }
+    let w = min_w.max(220.0);
+    let x = px.min(ww - w - 8.0).max(4.0);
+    let y = if py + h > wh - 8.0 { (above.unwrap_or(py) - h).max(4.0) } else { py };
     let mut layer = el()
         .absolute(0.0, 0.0)
         .w(ww)

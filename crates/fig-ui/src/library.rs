@@ -179,8 +179,8 @@ fn scroll(content: El) -> El {
 /// without a drag runs `click`.
 fn draggable(card: El, key: String, payload: Payload, label: String, click: fn(&mut AppState, &Payload)) -> El {
     let k = key.clone();
-    card.key(key).drag_threshold(0.0).on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
-        let origin = rune::memo::window_layout(&k).unwrap_or([0.0; 4]);
+    crate::layout::tracked(card, key).drag_threshold(0.0).on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| {
+        let origin = crate::layout::rect(&k).unwrap_or([0.0; 4]);
         let (x, y) = (origin[0] + d.start_x + d.dx, origin[1] + d.start_y + d.dy);
         match d.phase {
             Phase::Down => {
@@ -211,7 +211,7 @@ fn draggable(card: El, key: String, payload: Payload, label: String, click: fn(&
 }
 
 fn canvas_point(x: f32, y: f32) -> Option<(f32, f32)> {
-    let r = rune::memo::window_layout("timeline.canvas")?;
+    let r = crate::layout::rect("timeline.canvas")?;
     (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]).then(|| (x - r[0], y - r[1]))
 }
 
@@ -686,7 +686,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                 .w_full()
                 .gap(6.0)
                 .child(search(e, "Search effects", t).grow(1.0))
-                .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).help("Build a new effect from nodes").on_press(|s: &mut AppState| crate::graph::open(s, None)))
+                .child(widgets::icon_button(&icons::PLUS, 14.0, 30.0, t).key("lib.fx.new").help("Build a new effect from nodes").on_press(|s: &mut AppState| crate::graph::open(s, None)))
                 .child(widgets::icon_button(&icons::IMPORT, 14.0, 30.0, t).help("Import an effect file").on_press_tx(|_s: &mut AppState, tx: &mut Tx| import_graph(tx))),
         )
         .child(widgets::dropdown("lib.fx.category", pick, t).w_full().on_press(|s: &mut AppState| {

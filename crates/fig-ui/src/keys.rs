@@ -49,8 +49,7 @@ fn escape(app: &mut AppState) -> bool {
     }
     let Some(e) = app.editor.as_mut() else { return false };
     if e.graph.is_some() {
-        e.graph = None;
-        return true;
+        return crate::graph::escape(app);
     }
     if crate::timeline::input::cancel(e) {
         return true;
