@@ -243,7 +243,7 @@ fn toolbar(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 t,
             )),
         )
-        .child(text(format!("{:.0}%", e.tl.pps)).font(font(11.0, 400.0)).color(t.text_muted).min_w(44.0))
+        .child(text(if e.tl.pps < 1.0 { format!("{:.1}%", e.tl.pps) } else { format!("{:.0}%", e.tl.pps) }).font(font(11.0, 400.0)).color(t.text_muted).min_w(44.0))
         .child(widgets::icon_button(&icons::ZOOM_IN, 15.0, 30.0, t).help("Zoom in (Ctrl++)").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::ZoomIn, tx)))
         .child(widgets::icon_button(&icons::FOLD_VERTICAL, 13.0, 30.0, t).help("Shorter tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::ShorterTracks, tx)))
         .child(widgets::icon_button(&icons::ROWS_3, 13.0, 30.0, t).help("Fit tracks").on_press_tx(|s: &mut AppState, tx: &mut Tx| actions::run(s, Command::FitTracks, tx)))

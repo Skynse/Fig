@@ -91,24 +91,42 @@ fn build_canvas(app: &AppState, e: &Editor, t: &Tokens) -> El {
         if y + lane.clip_height() < RULER_H || y > h {
             continue;
         }
+        // clips too thin to show anything are one shape per colour, one rect per pixel column at most
+        let mut slivers = Slivers::default();
         for (ci, clip) in track.clips.iter().enumerate() {
             if clip.end_sec() < t0 || clip.start_sec > t1 {
+                continue;
+            }
+            let cw = clip.dur_sec as f32 * tl.pps;
+            if cw < DETAIL_W && !e.ed.selection.is_selected(&clip.id) && tl.hover.as_ref().is_none_or(|(id, _)| *id != clip.id) {
+                let x = tl.x_of(clip.start_sec + tl.slide_offset(&clip.id));
+                slivers.add(clip_color(clip.kind(), t).0, x, cw.max(1.0));
                 continue;
             }
             let touching_next = track.clips.get(ci + 1).is_some_and(|n| (n.start_sec - clip.end_sec()).abs() < 1e-4);
             c = c.child(clip_view(app, e, track, clip, &lane, y, touching_next, t).key(format!("tl.clip.{}", clip.id)));
         }
+        c = c.children(slivers.into_els(y, lane.clip_height(), &format!("tl.slivers.{}", track.id)));
         // the racks under the clips: each clip's, then the track's own
         for clip in track.clips.iter().filter(|c| c.end_sec() >= t0 && c.start_sec <= t1) {
             let x0 = tl.x_of(clip.start_sec + tl.slide_offset(&clip.id));
             c = c.children(rack_bars(e, super::rack::Owner::Clip(clip), x0, lane.clip_rack_top() - oy, lane.rack_open, w, t).into_iter().enumerate().map(|(i, b)| b.key(format!("tl.bar.{}.{i}", clip.id))));
         }
         c = c.children(rack_bars(e, super::rack::Owner::Track(track), tl.x_of(0.0), lane.track_rack_top() - oy, lane.rack_open, w, t).into_iter().enumerate().map(|(i, b)| b.key(format!("tl.bar.{}.{i}", track.id))));
+        let mut last_badge = f32::NEG_INFINITY;
         for cut in fig_edit::transitions::transitions_on(doc, &track.id) {
             let cx = tl.x_of(cut.cut_sec);
             let half = (cut.duration_sec / 2.0) as f32 * tl.pps;
-            let body_top = y + lane.label;
+            if cx + half < HEADER_W - 20.0 || cx - half > w + 20.0 {
+                continue;
+            }
+            // zoomed out, badges would pile on each other: one in each 30 points
             let selected = e.ed.selection.selected_transition_key() == Some(cut.key().as_str());
+            if cx - last_badge < 30.0 && !selected {
+                continue;
+            }
+            last_badge = cx;
+            let body_top = y + lane.label;
             c = c
                 .child(el().key(format!("tl.trband.{}", cut.key())).absolute(cx - half, body_top).w((half * 2.0).max(2.0)).h(lane.body).fill(hex("#46e0a308")).inert())
                 .child(
@@ -500,8 +518,9 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
             }
         }
     }
-    // keyframe diamonds on the body's top edge
-    for k in input::clip_keyframe_times(clip) {
+    // keyframe diamonds on the body's top edge, and clip markers, where the clip has room for them
+    let roomy = w >= 24.0;
+    for k in input::clip_keyframe_times(clip).into_iter().filter(|_| roomy) {
         let kx = k as f32 * tl.pps;
         c = c.child(
             el().absolute(kx - 4.0, body_top - 4.0)
@@ -514,7 +533,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
         );
     }
     // clip markers: a pennant at the top, a pole down the picture
-    for m in &clip.markers {
+    for m in clip.markers.iter().filter(|_| roomy) {
         let mx = m.start_sec as f32 * tl.pps;
         let color = if m.color.is_empty() { t.marker_default } else { hex(&m.color) };
         c = c
@@ -635,9 +654,13 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
         s += minor;
         i += 1;
     }
-    // timeline markers in the top lane
+    // timeline markers in the top lane: only those on screen, and a point's name only where there is room for it
+    let mut last_name = f32::NEG_INFINITY;
     for m in &e.doc().markers {
         let x = tl.x_of(m.start_sec);
+        if x > w || (if m.is_range() { tl.x_of(m.end_sec()) } else { x + 80.0 } < HEADER_W - 10.0) {
+            continue;
+        }
         let color = if m.color.is_empty() { t.marker_default } else { hex(&m.color) };
         let hot = e.ed.selection.is_marker_selected(&m.id);
         if m.is_range() {
@@ -653,8 +676,12 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
                     .child(text(m.name.clone()).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(Color::WHITE).truncate().absolute(4.0, 1.5).max_w((bw - 8.0).max(0.0))),
             );
         } else if x >= HEADER_W - 10.0 {
+            r = r.child(el().key(format!("mk.{}", m.id)).absolute(x, 2.0).w(1.0).h(MARKER_LANE_H - 2.0).fill(color));
+            if x - last_name < 70.0 && !hot {
+                continue;
+            }
+            last_name = x;
             r = r
-                .child(el().key(format!("mk.{}", m.id)).absolute(x, 2.0).w(1.0).h(MARKER_LANE_H - 2.0).fill(color))
                 .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 5.0], [0.0, 10.0]], color)).key(format!("mkflag.{}", m.id)).absolute(x + 1.0, 2.0).w(10.0).h(10.0))
                 .child(text(m.name.clone()).key(format!("mkname.{}", m.id)).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(color).absolute(x + 13.0, 3.0));
         }
@@ -679,6 +706,7 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
     use super::rack;
     let tl = &e.tl;
     let mut out = Vec::new();
+    let mut slivers: std::collections::BTreeMap<usize, Slivers> = Default::default();
     let items = rack::items(owner);
     for item in items.iter() {
         let r = rack::bar_rect(&item, x0, top, tl.pps, open);
@@ -688,8 +716,8 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
         let alpha = if item.enabled { 1.0 } else { 0.43 };
         let edge = hex(item.edge).alpha(alpha);
         if r[2] < DETAIL_W {
-            // a sliver of a bar: its colour only
-            out.push(el().absolute(r[0], r[1]).w(r[2]).h(r[3]).fill(edge).inert());
+            // a sliver of a bar: its colour only, gathered with the others into one shape per row
+            slivers.entry(item.row).or_default().add(edge, r[0], r[2]);
             continue;
         }
         let selected = item.effect.as_deref().is_some_and(|id| e.ed.selection.is_effect_selected(id));
@@ -758,7 +786,59 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
         let _ = t;
         out.push(bar);
     }
+    for (row, sl) in slivers {
+        let rtop = top + row as f32 * rack::row_h(open);
+        out.extend(sl.into_els(rtop, rack::bar_h(open), &format!("slivers.{}.{row}", owner.id())));
+    }
     out
+}
+
+/// Thin things gathered into one shape per colour: at most one rect per pixel column, so a zoomed-out timeline of
+/// thousands of clips draws a handful of elements.
+#[derive(Default)]
+struct Slivers {
+    by_color: Vec<(Color, Vec<[f32; 2]>, f32)>,
+}
+
+impl Slivers {
+    fn add(&mut self, color: Color, x: f32, w: f32) {
+        let i = match self.by_color.iter().position(|(c, _, _)| *c == color) {
+            Some(i) => i,
+            None => {
+                self.by_color.push((color, Vec::new(), f32::NEG_INFINITY));
+                self.by_color.len() - 1
+            }
+        };
+        let (_, spans, last) = &mut self.by_color[i];
+        let (x0, x1) = (x.floor(), (x + w).ceil().max(x.floor() + 1.0));
+        // touching or within the last span: widen it
+        if let Some(prev) = spans.last_mut()
+            && x0 <= *last
+        {
+            prev[1] = prev[1].max(x1);
+            *last = prev[1];
+            return;
+        }
+        spans.push([x0, x1]);
+        *last = x1;
+    }
+
+    fn into_els(self, top: f32, h: f32, key: &str) -> Vec<El> {
+        self.by_color
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (_, spans, _))| !spans.is_empty())
+            .map(|(i, (color, spans, _))| {
+                let left = spans[0][0];
+                let right = spans.iter().map(|s| s[1]).fold(left, f32::max);
+                let mut shape = Shape::new();
+                for [a, b] in spans {
+                    shape = shape.fill(vec![[a - left, 0.0], [b - left, 0.0], [b - left, h], [a - left, h]], color);
+                }
+                canvas(shape).key(format!("{key}.{i}")).absolute(left, top).w((right - left).max(1.0)).h(h).inert()
+            })
+            .collect()
+    }
 }
 
 /// The speed line of a clip with a speed curve (`DrawSpeedCurve`), over its picture: up is faster on a log scale, 1×

@@ -272,8 +272,9 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
         }
         return Hit::Header { track: ti, button: None };
     }
-    // transition badges on cuts
-    for cut in fig_edit::transitions::transitions_on(doc, &track.id) {
+    // transition badges on cuts (only worth listing when a clip with a transition ends near the pointer)
+    let near_cut = track.clips.iter().any(|c| c.transition_out.is_some() && (tl.x_of(c.end_sec()) - x).abs() <= 16.0);
+    for cut in fig_edit::transitions::transitions_on(doc, &track.id).into_iter().filter(|_| near_cut) {
         let cx = tl.x_of(cut.cut_sec);
         let body_mid = lane.clip_top() + lane.label + lane.body / 2.0;
         if (x - cx).abs() <= 15.0 && (cy - body_mid).abs() <= 16.0 {

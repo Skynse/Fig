@@ -26,7 +26,8 @@ pub const MIN_LABEL_W: f32 = 24.0;
 pub const DETAIL_W: f32 = 6.0;
 pub const HEADER_BUTTON: f32 = 22.0;
 pub const AUTO_SCROLL_ZONE: f32 = 48.0;
-pub const MIN_PPS: f32 = 1.0;
+/// Low enough that a two-hour timeline fits the window (the C# build stopped at 1, about 25 minutes).
+pub const MIN_PPS: f32 = 0.05;
 pub const MAX_PPS: f32 = 2000.0;
 pub const ZOOM_STEP: f32 = 1.25;
 
