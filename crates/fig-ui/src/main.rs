@@ -59,7 +59,7 @@ fn main() {
         .on_modifiers(|s: &mut AppState, mods: rune::Mods, _tx: &mut Tx| s.mods = mods)
         // the window manager's close can't wait for an answer: keep the changes
         .on_close(|s: &mut AppState, _tx: &mut Tx| s.close_project_quietly())
-        .window_options(WindowOptions { borderless: true, min_size: Some((ui::theme::WINDOW_MIN_W, ui::theme::WINDOW_MIN_H)), ..Default::default() });
+        .window_options(WindowOptions { borderless: !ui::window_edges::decorated(), min_size: Some((ui::theme::WINDOW_MIN_W, ui::theme::WINDOW_MIN_H)), ..Default::default() });
     app::set_handle(app.handle());
     app.run();
 }

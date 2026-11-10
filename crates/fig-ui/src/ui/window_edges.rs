@@ -7,6 +7,13 @@
 
 use rune::{Drag, El, Phase, Tx};
 
+/// FIG_DECORATED=1: the system's own window frame (title bar and borders, resized by the compositor) instead of
+/// Fig's. Then Fig draws no window buttons and no grips.
+pub fn decorated() -> bool {
+    static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| std::env::var_os("FIG_DECORATED").is_some());
+    *ON
+}
+
 use crate::app::AppState;
 
 const EDGE: f32 = 5.0;
@@ -33,6 +40,9 @@ impl Grip {
 /// initial 1200×700). Only the right, bottom and their corner: Rune resizes keeping the top-left corner where it is
 /// and can't move a window on Wayland, so a left or top grip would grow the window away from the pointer.
 pub fn resize_handles() -> Vec<El> {
+    if decorated() {
+        return Vec::new();
+    }
     let [w, h] = rune::memo::layout_size("app.root").unwrap_or([1200.0, 700.0]);
     let (c, e) = (CORNER, EDGE);
     vec![
