@@ -29,4 +29,4 @@ chrono = { workspace = true }
 indexmap = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 cpal = { version = "0.18", optional = true, features = ["pulseaudio"] }
-rune = { git = "https://github.com/anomalyco/rune", rev = "39301f6793266450a057f270da06b048a689be96", features = ["native-file-dialog"] }
+rune = { git = "https://github.com/anomalyco/rune", rev = "54243c96b6d277b7aa26a32affbe49d4108dc2e9", features = ["native-file-dialog"] }
