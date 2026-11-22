@@ -70,7 +70,7 @@ fn finalize(app: &mut AppState, lib: &Library, asset: MediaAsset) {
             let wants_proxy = asset.kind == MediaKind::Video
                 && !asset.offline
                 && asset.proxy_status != fig_timeline::ProxyStatus::Ready
-                && fig_media::artifacts::should_generate_proxy(asset.width as u32, asset.height as u32, 720);
+                && asset.width.min(asset.height) > AUTO_PROXY_ABOVE;
             e.update_media(asset.clone());
             load_pictures(app);
             if wants_proxy {
@@ -81,11 +81,16 @@ fn finalize(app: &mut AppState, lib: &Library, asset: MediaAsset) {
 }
 
 /// Makes (or, forced, remakes) a video's playback proxy in the background.
+/// Imports make a proxy on their own only for footage bigger than 1080p (by its short side): smaller video plays and
+/// scrubs well from the original, and its proxy would only soften the preview. Any video can still get one by hand.
+const AUTO_PROXY_ABOVE: i32 = 1080;
+
 pub fn request_proxy(app: &mut AppState, asset_id: &str, force: bool) {
     let Some(lib) = library(app) else { return };
     let Some(e) = app.editor.as_mut() else { return };
     let Some(asset) = e.project.media.iter_mut().find(|m| m.id == asset_id) else { return };
     asset.proxy_status = fig_timeline::ProxyStatus::Pending;
+    asset.proxy_off = false;
     let mut copy = asset.clone();
     e.media_rev += 1;
     crate::app::spawn(
@@ -100,6 +105,15 @@ pub fn request_proxy(app: &mut AppState, asset_id: &str, force: bool) {
             app.playback.reset_sources();
         },
     );
+}
+
+/// Turns a video's proxy off (previews play the original) or back on.
+pub fn set_proxy_off(app: &mut AppState, asset_id: &str, off: bool) {
+    let Some(e) = app.editor.as_mut() else { return };
+    let Some(mut asset) = e.find_media(asset_id).cloned() else { return };
+    asset.proxy_off = off;
+    e.update_media(asset);
+    app.playback.reset_sources();
 }
 
 /// Loads (in the background) the thumbnails and filmstrips not decoded yet.

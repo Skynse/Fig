@@ -68,6 +68,10 @@ pub struct MediaAsset {
     pub proxy_url: Option<String>,
     #[serde(default)]
     pub proxy_status: ProxyStatus,
+    /// Turned off by the user: previews decode the original even when a proxy is ready. Saved only when set, so a
+    /// project without it reads as before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub proxy_off: bool,
 
     /// Set on a reversed copy (made when a clip is reversed): the id of the media it is a backwards copy of. Copies
     /// stay out of the media bin; a reversed clip plays its copy.
@@ -115,6 +119,7 @@ impl Default for MediaAsset {
             waveform_peaks: None,
             proxy_url: None,
             proxy_status: ProxyStatus::None,
+            proxy_off: false,
             reverse_of: None,
             in_project: false,
             offline: false,
@@ -136,11 +141,16 @@ impl MediaAsset {
             && self.proxy_url.as_deref().is_some_and(|p| !p.is_empty() && Path::new(p).exists())
     }
 
-    /// Path to use for preview video decode: the proxy when ready, otherwise the original. Audio and derived
+    /// True when previews play from the proxy: one is ready and it isn't turned off.
+    pub fn uses_proxy(&self) -> bool {
+        !self.proxy_off && self.has_proxy()
+    }
+
+    /// Path to use for preview video decode: the proxy when it's in use, otherwise the original. Audio and derived
     /// artifacts (filmstrip/peaks) always use `url`.
     pub fn playback_video_path(&self) -> &str {
         match &self.proxy_url {
-            Some(p) if self.has_proxy() => p,
+            Some(p) if self.uses_proxy() => p,
             _ => &self.url,
         }
     }
@@ -158,4 +168,8 @@ impl Selectable for MediaAsset {
     fn facets(&self) -> Facet {
         Facet::SOURCE
     }
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }

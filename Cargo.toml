@@ -14,3 +14,12 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 bitflags = "2"
 thiserror = "2"
 rayon = "1"
+
+# Rune's vendored crates: an app building Rune patches them as Rune's own workspace does
+# (parley_engine is required; Rune uses features the published one lacks). Keep the rev in step
+# with fig-ui's rune dependency.
+[patch.crates-io]
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "c853811c8e0e60a632eaa2e72992f871225737ef" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "c853811c8e0e60a632eaa2e72992f871225737ef" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "c853811c8e0e60a632eaa2e72992f871225737ef" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "c853811c8e0e60a632eaa2e72992f871225737ef" }

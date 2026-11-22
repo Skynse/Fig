@@ -251,7 +251,9 @@ fn drop_on_timeline(app: &mut AppState, payload: &Payload, x: f32, y: f32) {
                 _ => track,
             };
             match owner {
-                Some(owner) => add_effect(app, &owner, type_id),
+                Some(owner) => {
+                    add_effect(app, &owner, type_id);
+                }
                 None => e.say("Drop an effect on a clip or a track"),
             }
         }
@@ -282,21 +284,30 @@ fn apply_transition_near(app: &mut AppState, type_id: &str, track: Option<&str>,
     }
 }
 
-pub fn add_effect(app: &mut AppState, owner: &str, type_id: &str) {
-    let Some(e) = app.editor.as_mut() else { return };
-    let Some(entry) = fig_fx::effects::find(type_id) else { return };
-    let mut fx = entry.create_instance();
+/// Adds an effect to a clip or a track and shows it in the inspector. Returns its id.
+pub fn add_effect(app: &mut AppState, owner: &str, type_id: &str) -> Option<String> {
+    let e = app.editor.as_mut()?;
+    let mut fx = fig_fx::effects::find(type_id)?.create_instance();
     // on a track, an effect covers three seconds from the playhead
     if e.ed.find_track(owner).is_some() {
         fx.start_sec = Some(e.playhead);
         fx.dur_sec = Some(3.0);
     }
+    add_effect_instance(app, owner, fx)
+}
+
+/// Adds an effect made elsewhere and shows it in the inspector; returns its id.
+pub fn add_effect_instance(app: &mut AppState, owner: &str, fx: fig_timeline::EffectInstance) -> Option<String> {
+    let e = app.editor.as_mut()?;
+    let name = fig_fx::effects::find(&fx.type_id)?.display_name.clone();
     let id = fx.id.clone();
     if e.ed.add_effect(owner, fx) {
-        e.inspector.effect = Some(id);
+        e.inspector.effect = Some(id.clone());
         e.inspector.tab = Some(fig_timeline::Facet::EFFECTS);
-        e.say(format!("Added {}", entry.display_name));
+        e.say(format!("Added {name}"));
+        return Some(id);
     }
+    None
 }
 
 pub fn drag_ghost(d: &LibDrag, t: &Tokens) -> El {
@@ -368,7 +379,7 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
                 .help(if m.offline { "The file is missing" } else if m.in_project { "In the project folder" } else { "Linked from elsewhere" })
                 .child(icon(if m.offline { &icons::CIRCLE_ALERT } else if m.in_project { &icons::FOLDER_CHECK } else { &icons::LINK }, 11.0).color(if m.offline { hex("#ff6b6b") } else { Color::WHITE })),
         );
-        if m.proxy_status == fig_timeline::ProxyStatus::Ready {
+        if m.uses_proxy() {
             well = well.child(el().absolute(4.0, 52.0).px(5.0).h(15.0).radius(4.0).fill(t.accent_soft).center().child(text("Proxy").font(font(9.5, 600.0)).color(t.accent_text)));
         }
         let (id_add, id_menu, id_dbl) = (m.id.clone(), m.id.clone(), m.id.clone());
@@ -400,8 +411,9 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
             .child(text(name.clone()).font(font(12.0, 400.0)).color(t.text_secondary).truncate().help(name.clone()))
             .on_double_press(move |s: &mut AppState| crate::editor::media::add_to_timeline(s, &id_dbl))
             .on_secondary_press(move |s: &mut AppState, p: rune::PointerPress, _tx: &mut Tx| {
-                let (a, b, c, d) = (id_menu.clone(), id_menu.clone(), id_menu.clone(), id_menu.clone());
-                let items = vec![
+                let (a, b, c, d, f) = (id_menu.clone(), id_menu.clone(), id_menu.clone(), id_menu.clone(), id_menu.clone());
+                let proxy = s.editor.as_ref().and_then(|e| e.find_media(&id_menu)).filter(|m| m.has_proxy()).map(|m| m.proxy_off);
+                let mut items = vec![
                     Item::new("Add to timeline at the playhead", move |s, _| crate::editor::media::add_to_timeline(s, &a)),
                     Item::new("Show in folder", move |s, _| {
                         let url = s.editor.as_ref().and_then(|e| e.find_media(&b)).map(|m| m.url.clone()).unwrap_or_default();
@@ -409,10 +421,12 @@ fn media_tab(app: &AppState, e: &Editor, t: &Tokens) -> El {
                             crate::ui::toasts::show(s, err);
                         }
                     }),
-                    Item::new("Generate proxy", move |s, _| crate::editor::media::request_proxy(s, &c, true)),
-                    Item::Separator,
-                    Item::new("Remove", move |s, _| remove_media(s, &d)).danger(),
+                    Item::new(if proxy.is_some() { "Remake proxy" } else { "Generate proxy" }, move |s, _| crate::editor::media::request_proxy(s, &c, true)),
                 ];
+                if let Some(off) = proxy {
+                    items.push(Item::new("Use proxy", move |s, _| crate::editor::media::set_proxy_off(s, &f, !off)).checked(!off));
+                }
+                items.extend([Item::Separator, Item::new("Remove", move |s, _| remove_media(s, &d)).danger()]);
                 crate::ui::menu::open(s, crate::ui::menu::Popup::at(p.x, p.y, items));
             });
         grid = grid.child(draggable(card, format!("lib.media.{}", m.id), Payload::Media(m.id.clone()), name, |s, p| {
@@ -828,7 +842,9 @@ fn add_to_selection(app: &mut AppState, type_id: &str) {
     let Some(e) = app.editor.as_ref() else { return };
     let owner = e.ed.selection.selected_clip_ids().into_iter().next().or_else(|| e.tl.track_selected.clone());
     match owner {
-        Some(owner) => add_effect(app, &owner, type_id),
+        Some(owner) => {
+            add_effect(app, &owner, type_id);
+        }
         None => {
             if let Some(e) = app.editor.as_mut() {
                 e.say("Select a clip or a track first");

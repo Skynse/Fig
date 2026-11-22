@@ -47,9 +47,11 @@ pub enum Gesture {
         cut: f64,
         max: f64,
     },
+    /// A track header held: `to` is where it would be inserted; it moves once the pointer leaves `y0` by a few points.
     Track {
         id: String,
         to: usize,
+        y0: f32,
         moved: bool,
     },
     /// A keyframe diamond held: where it is now (from its host's start); a copy lands on release; a speed point also
@@ -240,7 +242,7 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
                 };
                 return Hit::Marker { id: m.id.clone(), grab };
             }
-            let d = (x - (mx + 4.0)).abs();
+            let d = (x - mx).abs();
             if d <= 8.0 && best.as_ref().is_none_or(|b| d < b.0) {
                 best = Some((d, m.id.clone(), RangeGrab::None));
             }
@@ -272,6 +274,24 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
         }
         return Hit::Header { track: ti, button: None };
     }
+    // clip markers (`HitsClipMarker`): a generous target round the pin, and a thin one down the clip, so the body stays
+    // clickable
+    let top = lane.clip_top();
+    if cy >= top - 7.0 && cy <= top + lane.clip_height() {
+        let mut best: Option<(f32, &str)> = None;
+        for clip in track.clips.iter().filter(|c| !c.markers.is_empty()) {
+            for m in clip.markers.iter().filter(|m| (0.0..=clip.dur_sec).contains(&m.start_sec)) {
+                let d = (x - tl.x_of(clip.start_sec + m.start_sec)).abs();
+                let on_pin = d <= 11.0 && cy <= top + lane.label + 14.0;
+                if (on_pin || d <= 4.0) && best.is_none_or(|b| d < b.0) {
+                    best = Some((d, &m.id));
+                }
+            }
+        }
+        if let Some((_, id)) = best {
+            return Hit::Marker { id: id.to_string(), grab: RangeGrab::None };
+        }
+    }
     // transition badges on cuts (only worth listing when a clip with a transition ends near the pointer)
     let near_cut = track.clips.iter().any(|c| c.transition_out.is_some() && (tl.x_of(c.end_sec()) - x).abs() <= 16.0);
     for cut in fig_edit::transitions::transitions_on(doc, &track.id).into_iter().filter(|_| near_cut) {
@@ -281,7 +301,6 @@ pub fn hit(e: &Editor, x: f32, y: f32) -> Hit {
             return Hit::Transition { key: cut.key(), cut: cut.cut_sec };
         }
     }
-    let top = lane.clip_top();
     if cy >= top && cy <= top + lane.clip_height() {
         // the latest clip drawn wins where they overlap
         for clip in track.clips.iter().rev() {
@@ -538,7 +557,7 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods) {
                 None => {
                     e.tl.track_selected = Some(tr.id.clone());
                     e.ed.selection.replace(fig_timeline::SelectionKey::new(fig_timeline::SelectionGroup::Track, &tr.id));
-                    e.tl.gesture = Gesture::Track { id: tr.id.clone(), to: track, moved: false };
+                    e.tl.gesture = Gesture::Track { id: tr.id.clone(), to: track, y0: y, moved: false };
                 }
             }
         }
@@ -918,11 +937,11 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
             drag_rack(e, &mut r, t, mods.alt);
             Gesture::Rack(r)
         }
-        Gesture::Track { id, moved, .. } => {
+        Gesture::Track { id, y0, moved, .. } => {
             let lanes = e.lanes();
             let cy = e.tl.content_y(y);
             let to = lanes.iter().position(|l| cy < l.top + l.height / 2.0).unwrap_or(lanes.len());
-            Gesture::Track { id, to, moved: moved || (y - e.tl.pointer.map_or(y, |p| p.1)).abs() > 0.0 }
+            Gesture::Track { id, to, y0, moved: moved || (y - y0).abs() >= 3.0 }
         }
         Gesture::Copy(mut c) => {
             if !c.started && (x - c.x0).abs() < 4.0 && (y - c.y0).abs() < 4.0 {
@@ -1350,12 +1369,10 @@ fn released(app: &mut AppState, x: f32, y: f32, cancelled: bool, mods: Mods) {
                 e.ed.selection.select_effect(&owner, &fx);
             }
         }
-        Gesture::Track { id, to, moved } => {
-            if moved && let Some(from) = e.doc().tracks.iter().position(|t| t.id == id) {
-                let to = if to > from { to - 1 } else { to };
-                if to != from {
-                    e.ed.edit(|ed| ed.move_track(&id, to));
-                }
+        Gesture::Track { id, to, moved, .. } => {
+            // `to` is an insertion index, as move_track takes it; a drop in place moves nothing
+            if moved {
+                e.ed.edit(|ed| ed.move_track(&id, to));
             }
         }
         Gesture::Copy(c) => {

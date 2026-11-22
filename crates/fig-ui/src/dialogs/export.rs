@@ -134,14 +134,7 @@ pub fn open(app: &mut AppState, ranges: bool) {
     let Some(e) = app.editor.as_ref() else { return };
     let folder = default_folder(app);
     let output = if ranges { folder } else { folder.join(format!("{}.mp4", safe_name(&e.project.name))) };
-    let encoder = match app.preferences.export.encoder {
-        crate::settings::EncoderChoice::Nvenc => EncoderChoice::Nvenc,
-        crate::settings::EncoderChoice::QuickSync => EncoderChoice::QuickSync,
-        crate::settings::EncoderChoice::Amf => EncoderChoice::Amf,
-        crate::settings::EncoderChoice::Vaapi => EncoderChoice::Vaapi,
-        crate::settings::EncoderChoice::Software => EncoderChoice::Software,
-        crate::settings::EncoderChoice::Automatic => EncoderChoice::Automatic,
-    };
+    let encoder = preferred_encoder(app);
     app.dialog = Some(Dialog::Export(Box::new(ExportState {
         ranges,
         short_side: 0,
@@ -153,6 +146,18 @@ pub fn open(app: &mut AppState, ranges: bool) {
     })));
 }
 
+/// The encoder Preferences ask for.
+pub fn preferred_encoder(app: &AppState) -> EncoderChoice {
+    match app.preferences.export.encoder {
+        crate::settings::EncoderChoice::Nvenc => EncoderChoice::Nvenc,
+        crate::settings::EncoderChoice::QuickSync => EncoderChoice::QuickSync,
+        crate::settings::EncoderChoice::Amf => EncoderChoice::Amf,
+        crate::settings::EncoderChoice::Vaapi => EncoderChoice::Vaapi,
+        crate::settings::EncoderChoice::Software => EncoderChoice::Software,
+        crate::settings::EncoderChoice::Automatic => EncoderChoice::Automatic,
+    }
+}
+
 fn state(app: &mut AppState) -> Option<&mut ExportState> {
     match app.dialog.as_mut() {
         Some(Dialog::Export(s)) => Some(s),
@@ -161,7 +166,7 @@ fn state(app: &mut AppState) -> Option<&mut ExportState> {
 }
 
 /// The size a setting gives for the timeline (even numbers).
-fn size_for(app: &AppState, short_side: u32) -> (u32, u32) {
+pub fn size_for(app: &AppState, short_side: u32) -> (u32, u32) {
     let Some(e) = app.editor.as_ref() else { return (1920, 1080) };
     let (w, h) = crate::playback::render::frame_size(e.doc(), e.media());
     if short_side == 0 {
@@ -460,7 +465,6 @@ fn start(app: &mut AppState) {
     let Some(e) = app.editor.as_mut() else { return };
     e.commit_to_project();
     let (w, h) = size_for(app, s.short_side);
-    let e = app.editor.as_ref().unwrap();
     let base = ExportSettings { width: w, height: h, quality: s.crf as u32, encoder: s.encoder, turn: s.turn, range: None };
     let out = PathBuf::from(s.output.text.trim());
     let mut jobs: Vec<(String, PathBuf, ExportSettings)> = Vec::new();
@@ -472,13 +476,21 @@ fn start(app: &mut AppState) {
     } else {
         jobs.push((out.file_name().map_or("export".into(), |n| n.to_string_lossy().into_owned()), out.clone(), base));
     }
-    let timeline = e.doc().clone();
-    let media = e.project.media.clone();
     app.preferences.export.quality = s.crf;
     if let Some(dir) = if s.ranges { Some(out.clone()) } else { out.parent().map(PathBuf::from) } {
         app.preferences.export.folder = Some(dir.to_string_lossy().into_owned());
     }
     app.save_preferences();
+    start_jobs(app, jobs);
+    app.dialog = Some(Dialog::Jobs);
+}
+
+/// Exports the open project's timeline as background jobs: (name shown, file, settings) each.
+pub fn start_jobs(app: &mut AppState, jobs: Vec<(String, PathBuf, ExportSettings)>) {
+    let Some(e) = app.editor.as_mut() else { return };
+    e.commit_to_project();
+    let timeline = e.doc().clone();
+    let media = e.project.media.clone();
     for (name, path, settings) in jobs {
         let progress = Arc::new(AtomicU64::new(0f64.to_bits()));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -516,5 +528,4 @@ fn start(app: &mut AppState) {
             },
         );
     }
-    app.dialog = Some(Dialog::Jobs);
 }

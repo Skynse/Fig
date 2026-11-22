@@ -18,6 +18,11 @@ pub fn set_handle(handle: AppHandle<AppState>) {
     let _ = HANDLE.set(handle);
 }
 
+/// The app's handle, once the window is made: runs closures on the UI thread from any thread.
+pub fn handle() -> Option<&'static AppHandle<AppState>> {
+    HANDLE.get()
+}
+
 /// Runs `work` on a worker thread, then `done` with its result on the UI thread.
 pub fn spawn<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
@@ -264,6 +269,11 @@ impl AppState {
             "Discard",
             move |s| s.pending_leave = Some((false, quit)),
         );
+    }
+
+    /// Saves the project and goes back to Home, without asking.
+    pub fn close_project_saving(&mut self, tx: &mut Tx) {
+        self.finish_leaving(true, false, tx);
     }
 
     fn finish_leaving(&mut self, save: bool, quit: bool, tx: &mut Tx) {

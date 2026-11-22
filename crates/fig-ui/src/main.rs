@@ -1,5 +1,6 @@
 //! Fig: a video editor for short art reels.
 
+mod api;
 mod app;
 mod commands;
 mod desktop;
@@ -16,8 +17,23 @@ use rune::{App, AppSpec, KeyEvent, Tx, Waker, WindowOptions};
 
 use crate::app::AppState;
 
+/// The extensions built in: each gets the command line first, and the API once the window is up.
+fn extensions() -> &'static [Box<dyn fig_api::Extension>] {
+    static ALL: std::sync::OnceLock<Vec<Box<dyn fig_api::Extension>>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| {
+        #[allow(unused_mut)]
+        let mut all: Vec<Box<dyn fig_api::Extension>> = Vec::new();
+        #[cfg(feature = "mcp")]
+        all.push(Box::new(fig_mcp::Mcp));
+        all
+    })
+}
+
 fn setup(app: &mut AppState, waker: Waker) {
     app.surface.set_waker(waker);
+    for extension in extensions() {
+        extension.start(std::sync::Arc::new(api::LiveApi));
+    }
 }
 
 fn poll(app: &mut AppState, _now: f64, tx: &mut Tx) -> bool {
@@ -36,6 +52,12 @@ fn main() {
     if std::env::args().nth(1).as_deref() == Some("--uninstall") {
         desktop::remove_from_app_menu();
         return;
+    }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    for extension in extensions() {
+        if let Some(code) = extension.run_cli(&args) {
+            std::process::exit(code);
+        }
     }
     desktop::install_crash_log();
     desktop::on_startup();

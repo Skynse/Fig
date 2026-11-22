@@ -11,6 +11,17 @@ use crate::editor::{Editor, Tool};
 use crate::ui::icons;
 use crate::ui::theme::{Tokens, font, hex, mono};
 
+const PIN_W: f32 = 16.0;
+
+/// A marker's pin (`DrawClipMarkers`): 14 wide, its point 16 below its top, centred on the marker's time. Outlined in
+/// white when selected; `open` (a beat preview's candidate) only outlined.
+fn marker_pin(color: Color, selected: bool, open: bool) -> El {
+    let pts = vec![[1.0, 1.0], [15.0, 1.0], [15.0, 10.0], [8.0, 17.0], [1.0, 10.0], [1.0, 1.0]];
+    let (edge, width) = if selected { (Color::WHITE, 2.0) } else if open { (color, 1.5) } else { (hex("#000000a0"), 1.0) };
+    let shape = if open { Shape::new() } else { Shape::new().fill(pts.clone(), color) };
+    canvas(shape.stroke(pts, width, edge)).w(PIN_W).h(18.0).inert()
+}
+
 /// The canvas: everything below the toolbar.
 pub fn canvas_view(app: &AppState, e: &Editor, t: &Tokens) -> El {
     // FIG_PROFILE=1: how long each timeline build takes
@@ -532,13 +543,19 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
                 .inert(),
         );
     }
-    // clip markers: a pennant at the top, a pole down the picture
-    for m in clip.markers.iter().filter(|_| roomy) {
-        let mx = m.start_sec as f32 * tl.pps;
+    // clip markers (`DrawClipMarkers`): a pin hanging from the clip's top edge at its time (the clip cuts off what is
+    // drawn above it); a beat preview's candidates are open pins, which replace the beat markers they would
+    for m in clip.markers.iter().filter(|m| roomy && (0.0..=clip.dur_sec).contains(&m.start_sec) && !e.ed.is_superseded_by_preview(&clip.id, m)) {
         let color = if m.color.is_empty() { t.marker_default } else { hex(&m.color) };
-        c = c
-            .child(el().absolute(mx, 0.0).w(1.0).h(h).fill(color.alpha(0.7)).inert())
-            .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 3.5], [0.0, 7.0]], color)).absolute(mx, 0.0).w(10.0).h(7.0).inert());
+        c = c.child(marker_pin(color, e.ed.selection.is_marker_selected(&m.id), false).absolute(m.start_sec as f32 * tl.pps - PIN_W / 2.0, -1.0));
+    }
+    if let Some(preview) = e.ed.beat_preview().filter(|p| roomy && p.clip_id == clip.id) {
+        for local in &preview.local_times {
+            let mx = *local as f32 * tl.pps;
+            c = c
+                .child(el().absolute(mx, 11.0).w(1.0).h((h - 11.0).max(0.0)).fill(hex("#5ac8fa").alpha(0.55)).inert())
+                .child(marker_pin(hex("#5ac8fa"), false, true).absolute(mx - PIN_W / 2.0, -1.0));
+        }
     }
     if !clip.enabled {
         c = c.child(el().absolute(0.0, 0.0).w(w).h(h).fill(hex("#a6101012")).inert());
@@ -676,14 +693,12 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
                     .child(text(m.name.clone()).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(Color::WHITE).truncate().absolute(4.0, 1.5).max_w((bw - 8.0).max(0.0))),
             );
         } else if x >= HEADER_W - 10.0 {
-            r = r.child(el().key(format!("mk.{}", m.id)).absolute(x, 2.0).w(1.0).h(MARKER_LANE_H - 2.0).fill(color));
+            r = r.child(marker_pin(color, hot, false).key(format!("mk.{}", m.id)).absolute(x - PIN_W / 2.0, 1.0));
             if x - last_name < 70.0 && !hot {
                 continue;
             }
             last_name = x;
-            r = r
-                .child(canvas(Shape::new().fill(vec![[0.0, 0.0], [10.0, 5.0], [0.0, 10.0]], color)).key(format!("mkflag.{}", m.id)).absolute(x + 1.0, 2.0).w(10.0).h(10.0))
-                .child(text(m.name.clone()).key(format!("mkname.{}", m.id)).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(color).absolute(x + 13.0, 3.0));
+            r = r.child(text(m.name.clone()).key(format!("mkname.{}", m.id)).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(color).absolute(x + 11.0, 3.0));
         }
     }
     // beat preview: dashed blue poles (not yet applied)

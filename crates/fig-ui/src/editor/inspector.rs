@@ -765,7 +765,9 @@ fn effects_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         for entry in fig_fx::effects::all() {
             let owner = o.clone();
             let type_id = entry.type_id.clone();
-            let item = Item::new(entry.display_name.clone(), move |s, _| crate::editor::library::add_effect(s, &owner, &type_id));
+            let item = Item::new(entry.display_name.clone(), move |s, _| {
+                crate::editor::library::add_effect(s, &owner, &type_id);
+            });
             match by_cat.iter_mut().find(|(c, _)| *c == entry.category) {
                 Some((_, list)) => list.push(item),
                 None => by_cat.push((entry.category.clone(), vec![item])),
@@ -960,6 +962,7 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .and_then(|id| e.find_media(id));
     let Some(a) = asset else { return col() };
     let proxy = match a.proxy_status {
+        fig_timeline::ProxyStatus::Ready if a.proxy_off => "Off: previews play the original (sharper, heavier)",
         fig_timeline::ProxyStatus::Ready => "Ready: previews play from a lighter copy",
         fig_timeline::ProxyStatus::Pending => "Being made…",
         fig_timeline::ProxyStatus::Failed => "Couldn't be made",
@@ -967,6 +970,11 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
     };
     let id = a.id.clone();
     let url = a.url.clone();
+    let toggle = a.has_proxy().then(|| {
+        let (id, off) = (a.id.clone(), a.proxy_off);
+        widgets::button(if off { "Turn on" } else { "Turn off" }, Kind::Normal, t)
+            .on_press(move |s: &mut AppState| crate::editor::media::set_proxy_off(s, &id, !off))
+    });
     let _ = app;
     col()
         .w_full()
@@ -983,7 +991,8 @@ fn file_section(app: &AppState, e: &Editor, t: &Tokens) -> El {
         .child(
             row()
                 .gap(6.0)
-                .child(widgets::button("Make proxy", Kind::Normal, t).on_press(move |s: &mut AppState| crate::editor::media::request_proxy(s, &id, true)))
+                .child(widgets::button(if toggle.is_some() { "Remake" } else { "Make proxy" }, Kind::Normal, t).on_press(move |s: &mut AppState| crate::editor::media::request_proxy(s, &id, true)))
+                .children(toggle)
                 .child(widgets::button("Show in folder", Kind::Ghost, t).on_press(move |s: &mut AppState| {
                     if let Err(err) = crate::editor::media::reveal(&url) {
                         crate::ui::toasts::show(s, err);

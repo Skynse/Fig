@@ -155,7 +155,9 @@ fn card(items: &[Item], path: Vec<usize>, min_w: f32, t: &Tokens) -> El {
                     .child(el().w(14.0).h(14.0).center().children(
                         checked.filter(|c| *c).map(|_| icon(&icons::CHECK, 13.0).color(t.accent_text)),
                     ))
-                    .child(text(label.clone()).font(font(13.0, 400.0)).color(color).grow(1.0))
+                    // the label keeps its width (a grown label starts from 0 and spills out of a narrow card)
+                    .child(text(label.clone()).font(font(13.0, 400.0)).color(color))
+                    .child(el().grow(1.0))
                     .child(text(hint.clone()).font(font(12.0, 400.0)).color(t.text_muted).ml(24.0));
                 let parent = path.clone();
                 r = r.on_hover(move |s: &mut AppState| {
@@ -186,7 +188,8 @@ fn card(items: &[Item], path: Vec<usize>, min_w: f32, t: &Tokens) -> El {
                     .center_y()
                     .hover(hex("#323640"))
                     .child(el().w(14.0))
-                    .child(text(label.clone()).font(font(13.0, 400.0)).color(t.text_primary).grow(1.0))
+                    .child(text(label.clone()).font(font(13.0, 400.0)).color(t.text_primary))
+                    .child(el().grow(1.0))
                     .child(icon(&icons::CHEVRON_RIGHT, 13.0).color(t.text_muted))
                     .on_hover(move |s: &mut AppState| {
                         if let Some(popup) = s.popup.as_mut() {

@@ -206,7 +206,8 @@ fn track_menu(app: &AppState, index: usize) -> Vec<Item> {
         items.push(
             Item::new("Move track down", move |s, _| {
                 if let Some(e) = s.editor.as_mut() {
-                    e.ed.edit(|ed| ed.move_track(&id, index + 1));
+                    // before the track after the next one: move_track's index is where it's inserted
+                    e.ed.edit(|ed| ed.move_track(&id, index + 2));
                 }
             })
             .enabled(index + 1 < count),

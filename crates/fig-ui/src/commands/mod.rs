@@ -77,6 +77,22 @@ pub enum Command {
     Shortcuts,
 }
 
+/// Every command, in the enum's order.
+pub const ALL: &[Command] = &[
+    Command::Save, Command::SaveAs, Command::SavePackage, Command::CloseProject, Command::Preferences, Command::Exit,
+    Command::Import, Command::Export, Command::ExportRanges, Command::ExportCaptions, Command::Undo, Command::Redo,
+    Command::Cut, Command::Copy, Command::Paste, Command::Duplicate, Command::Split, Command::SplitAll,
+    Command::TrimStart, Command::TrimEnd, Command::Freeze, Command::RippleDelete, Command::LiftDelete, Command::Delete,
+    Command::ToggleEnabled, Command::Group, Command::Ungroup, Command::Magnet, Command::Snapping, Command::SelectTool,
+    Command::BladeTool, Command::SelectAll, Command::DetachAudio, Command::Reverse, Command::AddMarker,
+    Command::DeleteMarker, Command::RangesFromBookmarks, Command::AutoCaptions, Command::PlayPause, Command::Loop,
+    Command::FrameBack, Command::FrameForward, Command::SecondBack, Command::SecondForward, Command::ShuttleForward,
+    Command::ShuttleBack, Command::ShuttleStop, Command::AudioScrub, Command::PreviousEdit, Command::NextEdit,
+    Command::GoStart, Command::GoEnd, Command::MediaPanel, Command::Inspector, Command::ResetLayout, Command::ZoomIn,
+    Command::ZoomOut, Command::ZoomFit, Command::FitTracks, Command::TallerTracks, Command::ShorterTracks,
+    Command::Shortcuts,
+];
+
 pub struct Entry {
     pub command: Command,
     /// The key preferences.json stores a changed shortcut under (C#'s ShortcutCatalog ids).

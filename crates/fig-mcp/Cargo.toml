@@ -1,0 +1,14 @@
+[package]
+name = "fig-mcp"
+version = "0.1.0"
+edition.workspace = true
+description = "An MCP server for Fig: lets an MCP client drive the running editor through fig-api"
+
+[dependencies]
+fig-api = { path = "../fig-api" }
+rmcp = { version = "3.11", default-features = false, features = ["server", "macros", "schemars", "transport-async-rw"] }
+schemars = "1"
+tokio = { version = "1", features = ["rt", "net", "io-std", "io-util", "time", "macros"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = "0.22"
