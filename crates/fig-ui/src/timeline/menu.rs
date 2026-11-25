@@ -92,6 +92,7 @@ fn clip_menu(app: &AppState, clip_id: &str, t: f64) -> Vec<Item> {
     }
     if clip.as_ref().is_some_and(|c| c.as_video().is_some()) {
         items.push(Item::command(app, "Freeze frame at playhead", Command::Freeze));
+        items.push(Item::command(app, "Insert 3 s freeze frame", Command::FreezeInsert));
     }
     items.push(Item::command(app, "Reverse", Command::Reverse));
     if e.ed.can_detach_audio(std::slice::from_ref(&id)) {

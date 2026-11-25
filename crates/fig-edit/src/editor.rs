@@ -879,7 +879,7 @@ impl TimelineEditor {
     }
 
     /// Re-syncs each track's index with its place in the list (it is saved, and can be stale).
-    fn doc_refresh_track_indices(&mut self) {
+    pub(crate) fn doc_refresh_track_indices(&mut self) {
         for (i, track) in self.doc.tracks.iter_mut().enumerate() {
             track.index = i as i32;
         }
@@ -939,7 +939,7 @@ mod tests {
     use crate::TimelineEditor;
     use crate::magnet::in_time_order;
     use fig_timeline::fade::{self, FadeOf};
-    use fig_timeline::{AudioBody, Clip, FrameRate, MediaAsset, MediaKind, Timeline, TrackKind, VideoBody};
+    use fig_timeline::{AudioBody, Clip, ClipBody, FrameRate, MediaAsset, MediaKind, Timeline, TrackKind, VideoBody};
 
     fn video(id: &str, start: f64, dur: f64) -> Clip {
         Clip::new(VideoBody { source_id: "a".into(), src_out_sec: dur, ..Default::default() })
@@ -1098,12 +1098,40 @@ mod tests {
         let (mut ed, main) = magnet_setup();
         let still =
             MediaAsset { id: "still".into(), kind: MediaKind::Image, width: 1920, height: 1080, ..Default::default() };
-        let hold = ed.freeze_frame("c1", 3.0, &still).unwrap();
+        let hold = ed.insert_freeze_frame("c1", 3.0, &still).unwrap();
         let h = ed.find_clip(&hold).unwrap();
         assert!(close(h.start_sec, 3.0) && close(h.dur_sec, TimelineEditor::FREEZE_FRAME_SEC));
         assert_eq!(starts(&ed, &main), [0.0, 2.0, 3.0, 6.0, 7.0]);
         ed.undo();
         assert_eq!(starts(&ed, &main), [0.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn a_freeze_frame_holds_to_the_end_of_the_clip_and_moves_nothing() {
+        let (mut ed, main) = magnet_setup();
+        let still =
+            MediaAsset { id: "still".into(), kind: MediaKind::Image, width: 1920, height: 1080, ..Default::default() };
+        let before: Vec<(f64, f64)> =
+            ed.find_track(&main).unwrap().clips.iter().map(|c| (c.start_sec, c.end_sec())).collect();
+        let c1_end = ed.find_clip("c1").unwrap().end_sec();
+        let hold = ed.freeze_frame("c1", 3.0, &still).unwrap();
+        let h = ed.find_clip(&hold).unwrap();
+        assert!(matches!(&h.body, ClipBody::Image(i) if i.source_id == "still"));
+        assert!(close(h.start_sec, 3.0) && close(h.end_sec(), c1_end));
+        assert!(close(ed.find_clip("c1").unwrap().end_sec(), 3.0));
+        // the track ends where it did, and everything after the clip is where it was
+        let after: Vec<(f64, f64)> = ed
+            .find_track(&main)
+            .unwrap()
+            .clips
+            .iter()
+            .filter(|c| c.id != hold && c.id != "c1")
+            .map(|c| (c.start_sec, c.end_sec()))
+            .collect();
+        assert!(after.iter().all(|a| before.contains(a)));
+        ed.undo();
+        assert!(close(ed.find_clip("c1").unwrap().end_sec(), c1_end));
+        assert!(ed.find_clip(&hold).is_none());
     }
 
     #[test]

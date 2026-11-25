@@ -565,7 +565,7 @@ fn clip_view(app: &AppState, e: &Editor, track: &Track, clip: &Clip, lane: &Lane
     }
     // the resize handles (`DrawResizeHandle`): both edges of a selected clip, or the edge or fade under the pointer
     let hovered = tl.hover.as_ref().filter(|(id, _)| *id == clip.id).map(|(_, p)| *p);
-    let handle = |x: f32, top: f32, height: f32| el().absolute((x - 1.5).clamp(0.0, (w - 3.0).max(0.0)), top + 3.0).w(3.0).h((height - 6.0).max(2.0)).radius(1.5).fill(hex("#c84da3ff")).inert();
+    let handle = |x: f32, top: f32, height: f32| edge_handle(x, w, top, height);
     if selected || hovered == Some(Part::Left) {
         c = c.child(handle(0.0, 0.0, h));
     }
@@ -683,15 +683,23 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
         if m.is_range() {
             let xe = tl.x_of(m.end_sec());
             let bw = (xe - x).max(4.0);
-            r = r.child(
-                el().key(format!("mk.{}", m.id)).absolute(x, 2.0)
-                    .w(bw)
-                    .h(16.0)
-                    .radius(3.0)
-                    .fill(color.alpha(0.35))
-                    .border(if hot { 1.5 } else { 1.0 }, color)
-                    .child(text(m.name.clone()).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(Color::WHITE).truncate().absolute(4.0, 1.5).max_w((bw - 8.0).max(0.0))),
-            );
+            let mut range = el()
+                .key(format!("mk.{}", m.id))
+                .absolute(x, 2.0)
+                .w(bw)
+                .h(16.0)
+                .radius(3.0)
+                .fill(color.alpha(0.35))
+                .border(if hot { 1.5 } else { 1.0 }, color)
+                .child(text(m.name.clone()).font(font(9.5, if hot { 700.0 } else { 500.0 })).color(Color::WHITE).truncate().absolute(4.0, 1.5).max_w((bw - 8.0).max(0.0)));
+            // its ends resize it, handles showing as a clip's do
+            let hovered = tl.hover.as_ref().filter(|(h, _)| *h == m.id).map(|(_, p)| *p);
+            for (hx, part) in [(0.0, Part::Left), (bw, Part::Right)] {
+                if hot || hovered == Some(part) {
+                    range = range.child(edge_handle(hx, bw, 0.0, 16.0));
+                }
+            }
+            r = r.child(range);
         } else if x >= HEADER_W - 10.0 {
             r = r.child(marker_pin(color, hot, false).key(format!("mk.{}", m.id)).absolute(x - PIN_W / 2.0, 1.0));
             if x - last_name < 70.0 && !hot {
@@ -713,6 +721,17 @@ fn ruler_view(e: &Editor, w: f32, t: &Tokens) -> El {
     r.child(el().key("cover").absolute(0.0, 0.0).w(HEADER_W).h(RULER_H).fill(t.ruler_bg))
         .child(el().key("coverrule").absolute(HEADER_W - 1.0, 0.0).w(1.0).h(RULER_H).fill(hex("#34373c")))
         .child(text("").key("timecode").live_text(&e.live_time).font(mono(11.0, 500.0)).color(t.text_secondary).absolute(10.0, 14.0).w(120.0))
+}
+
+/// A resize handle on an edge `x` of something `w` wide, `top` and `height` its band (`DrawResizeHandle`).
+fn edge_handle(x: f32, w: f32, top: f32, height: f32) -> El {
+    let inset = if height > 12.0 { 3.0 } else { 1.0 };
+    el().absolute((x - 1.5).clamp(0.0, (w - 3.0).max(0.0)), top + inset)
+        .w(3.0)
+        .h((height - 2.0 * inset).max(2.0))
+        .radius(1.5)
+        .fill(hex("#c84da3ff"))
+        .inert()
 }
 
 /// The bars of one owner's rack (`DrawRack`): `x0` is its origin on screen, `top` its first row (canvas coordinates).
@@ -795,6 +814,15 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
                 for (b, glyph) in [(p, &icons::POWER), (x, &icons::X)] {
                     let (bx, by) = at(b);
                     bar = bar.child(el().absolute(bx, by).w(16.0).h(16.0).center().child(icon(glyph, 12.0).color(Color::WHITE)));
+                }
+            }
+        }
+        // the resize handles, as a clip's: both ends of a selected bar, or the end under the pointer
+        if let Some(id) = item.effect.as_deref() {
+            let hovered = tl.hover.as_ref().filter(|(h, _)| h == id).map(|(_, p)| *p);
+            for (x, part) in [(0.0, Part::Left), (r[2], Part::Right)] {
+                if selected || hovered == Some(part) {
+                    bar = bar.child(edge_handle(x, r[2], 0.0, r[3]));
                 }
             }
         }

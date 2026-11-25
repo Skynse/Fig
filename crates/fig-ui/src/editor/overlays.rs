@@ -68,6 +68,21 @@ pub fn view(e: &Editor, rect: [f32; 4], t: &Tokens) -> Vec<El> {
     out
 }
 
+thread_local! {
+    static PRESS: std::cell::Cell<[f32; 2]> = const { std::cell::Cell::new([0.0, 0.0]) };
+}
+
+/// Where the pointer is, in the preview's coordinates, during a drag on a handle drawn at `origin` there. A drag's
+/// press point is in the handle's own coordinates, so it is placed on the preview where the handle was at the press;
+/// after that the pointer's travel moves it.
+pub fn pointer(d: &Drag, origin: [f32; 2]) -> [f32; 2] {
+    if d.phase == Phase::Down {
+        PRESS.set([origin[0] + d.start_x, origin[1] + d.start_y]);
+    }
+    let p = PRESS.get();
+    [p[0] + d.dx, p[1] + d.dy]
+}
+
 fn chip(label: String, x: f32, y: f32, rect: [f32; 4]) -> El {
     let w = label.chars().count() as f32 * 6.4 + 18.0;
     let x = x.clamp(rect[0] + 2.0, (rect[0] + rect[2] - w - 2.0).max(rect[0] + 2.0));
@@ -113,24 +128,27 @@ fn camera(e: &Editor, rect: [f32; 4], t: &Tokens) -> Option<El> {
     }
     let on_key = times.iter().any(|k| (k - time).abs() < 1e-6);
     // the frame moves it; a corner zooms (the picture's shape stays)
+    // keyed: the dims and the route come and go, and a drag must stay with the handle it started on
     layer = layer.child(
-        el().absolute(f[0], f[1])
+        el().key("camera.frame")
+            .absolute(f[0], f[1])
             .w(f[2])
             .h(f[3])
             .border(1.5, t.accent)
             .cursor(Cursor::Move)
             .help("Drag to move the camera · drag a corner to zoom")
-            .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_camera(s, d, tx, rect, None)),
+            .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_camera(s, d, tx, rect, None, [f[0], f[1]])),
     );
     for (i, (hx, hy)) in [(f[0], f[1]), (f[0] + f[2], f[1]), (f[0], f[1] + f[3]), (f[0] + f[2], f[1] + f[3])].into_iter().enumerate() {
         layer = layer.child(
-            el().absolute(hx - 4.5, hy - 4.5)
+            el().key(format!("camera.corner{i}"))
+                .absolute(hx - 4.5, hy - 4.5)
                 .w(9.0)
                 .h(9.0)
                 .fill(Color::WHITE)
                 .border(1.0, t.accent)
                 .cursor(Cursor::Crosshair)
-                .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_camera(s, d, tx, rect, Some(i))),
+                .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_camera(s, d, tx, rect, Some(i), [hx - 4.5, hy - 4.5])),
         );
     }
     let label = format!("{:.2}×{}", view.zoom, if on_key { " · keyframe" } else { "" });
@@ -141,7 +159,8 @@ thread_local! {
     static CAMERA0: std::cell::Cell<Option<(f64, f64, f64)>> = const { std::cell::Cell::new(None) };
 }
 
-fn drag_camera(s: &mut AppState, d: &mut Drag, tx: &mut Tx, rect: [f32; 4], corner: Option<usize>) {
+fn drag_camera(s: &mut AppState, d: &mut Drag, tx: &mut Tx, rect: [f32; 4], corner: Option<usize>, origin: [f32; 2]) {
+    let p = pointer(d, origin);
     let Some(e) = s.editor.as_mut() else { return };
     let Some((_, fx, origin)) = selected_transform(e) else { return };
     let view = fig_fx::effects::transform_view_at(&fx, edit_time(e, &fx, origin));
@@ -163,8 +182,8 @@ fn drag_camera(s: &mut AppState, d: &mut Drag, tx: &mut Tx, rect: [f32; 4], corn
         None => set_camera(e, cx0 + f64::from(d.dx) / w, cy0 + f64::from(d.dy) / h, zoom0, None),
         Some(_) => {
             // the new size follows whichever axis the pointer is further along
-            let nx = (f64::from(d.start_x + d.dx - rect[0])) / w;
-            let ny = (f64::from(d.start_y + d.dy - rect[1])) / h;
+            let nx = f64::from(p[0] - rect[0]) / w;
+            let ny = f64::from(p[1] - rect[1]) / h;
             let size = ((nx - view.center_x).abs().max((ny - view.center_y).abs()) * 2.0).max(1.0 / 8.0);
             set_camera(e, view.center_x, view.center_y, 1.0 / size, None);
         }
@@ -233,13 +252,14 @@ fn swirl(e: &Editor, rect: [f32; 4], t: &Tokens) -> Option<El> {
     let rot = at(sweep);
     let rad = [c[0] - r * 0.5f32.sqrt(), c[1] + r * 0.5f32.sqrt()];
     let handle = |p: [f32; 2], size: f32, grab: SwirlGrab| {
-        el().absolute(p[0] - size / 2.0, p[1] - size / 2.0)
+        el().key(format!("swirl.{}", grab as u8))
+            .absolute(p[0] - size / 2.0, p[1] - size / 2.0)
             .w(size)
             .h(size)
             .fill(Color::WHITE)
             .border(1.5, t.accent)
             .cursor(Cursor::Move)
-            .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_swirl(s, d, tx, rect, grab))
+            .on_drag(move |s: &mut AppState, d: &mut Drag, tx: &mut Tx| drag_swirl(s, d, tx, rect, grab, [p[0] - size / 2.0, p[1] - size / 2.0]))
     };
     Some(
         el().absolute(0.0, 0.0)
@@ -256,14 +276,14 @@ fn swirl(e: &Editor, rect: [f32; 4], t: &Tokens) -> Option<El> {
     )
 }
 
-fn drag_swirl(s: &mut AppState, d: &mut Drag, tx: &mut Tx, rect: [f32; 4], grab: SwirlGrab) {
+fn drag_swirl(s: &mut AppState, d: &mut Drag, tx: &mut Tx, rect: [f32; 4], grab: SwirlGrab, origin: [f32; 2]) {
+    let p = pointer(d, origin);
     let Some(e) = s.editor.as_mut() else { return };
     let Some(sw) = selected_swirl(e) else { return };
     if d.phase == Phase::Up {
         e.ed.break_coalescing();
         return;
     }
-    let p = [d.start_x + d.dx, d.start_y + d.dy];
     let c = [rect[0] + sw.cx as f32 * rect[2], rect[1] + sw.cy as f32 * rect[3]];
     let mut set = |k: &str, v: f64| e.ed.set_transition_param(&sw.left, &sw.right, k, ParamValue::Double(v));
     match grab {

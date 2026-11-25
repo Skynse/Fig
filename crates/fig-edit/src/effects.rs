@@ -35,12 +35,12 @@ fn owner_span(doc: &Timeline, owner_id: &str) -> Option<(f64, f64)> {
 /// An effect on the clipboard; its range and keyframes are relative to the earliest copied one.
 #[derive(Clone, Debug)]
 pub(crate) struct CopiedEffect {
-    track_id: String,
-    kind: TrackKind,
-    effect: EffectInstance,
+    pub(crate) track_id: String,
+    pub(crate) kind: TrackKind,
+    pub(crate) effect: EffectInstance,
 }
 
-fn shift_keys(fx: &mut EffectInstance, by: f64) {
+pub(crate) fn shift_keys(fx: &mut EffectInstance, by: f64) {
     for keys in fx.keyframes.values_mut() {
         for k in keys {
             k.time_sec += by;
@@ -317,8 +317,35 @@ impl TimelineEditor {
 
     /// Copies the selected effect bars, keeping their spacing (relative to the earliest). Returns how many.
     pub fn copy_selected_effects(&mut self) -> usize {
+        let mut picked = self.selected_effects_in_timeline_time(&[]);
+        if picked.is_empty() {
+            return 0;
+        }
+        let anchor = picked
+            .iter()
+            .filter(|p| p.effect.has_range())
+            .filter_map(|p| p.effect.start_sec)
+            .fold(f64::INFINITY, f64::min);
+        let anchor = if anchor.is_finite() { anchor } else { 0.0 };
+        for p in &mut picked {
+            p.effect.start_sec = p.effect.start_sec.map(|s| s - anchor);
+            shift_keys(&mut p.effect, -anchor);
+        }
+        let count = picked.len();
+        self.clipboard.clips.clear();
+        self.clipboard.effects = picked;
+        self.clipboard.holds_effects = true;
+        count
+    }
+
+    /// The selected effect bars as copies placed on their tracks, in timeline seconds (a whole-clip effect becomes a
+    /// region over its clip).
+    pub(crate) fn selected_effects_in_timeline_time(&self, except_owners: &[String]) -> Vec<CopiedEffect> {
         let mut picked: Vec<CopiedEffect> = Vec::new();
         for (owner_id, effect_id) in self.selection.selected_effects() {
+            if except_owners.contains(&owner_id) {
+                continue;
+            }
             let Some(fx) = self.find_effect(&owner_id, &effect_id) else { continue };
             let on_track = self.find_track(&owner_id).is_some();
             // an older project's effect on a clip: its track, in timeline seconds
@@ -343,25 +370,7 @@ impl TimelineEditor {
             shift_keys(&mut copy, shift);
             picked.push(CopiedEffect { track_id: track.id.clone(), kind: track.kind, effect: copy });
         }
-        if picked.is_empty() {
-            return 0;
-        }
-        let anchor = picked
-            .iter()
-            .filter(|p| p.effect.has_range())
-            .filter_map(|p| p.effect.start_sec)
-            .fold(f64::INFINITY, f64::min);
-        let anchor = if anchor.is_finite() { anchor } else { 0.0 };
-        for p in &mut picked {
-            if p.effect.has_range() {
-                p.effect.start_sec = p.effect.start_sec.map(|s| s - anchor);
-            }
-            shift_keys(&mut p.effect, -anchor);
-        }
-        let count = picked.len();
-        self.clipboard.effects = picked;
-        self.clipboard.holds_effects = true;
-        count
+        picked
     }
 
     /// Pastes the copied effects so the earliest starts at `at_sec`, keeping their spacing. Each goes back on the

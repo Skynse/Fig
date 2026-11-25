@@ -27,7 +27,10 @@ pub fn view(app: &AppState, e: &Editor, t: &Tokens, cx: &mut Cx<AppState>) -> El
                 }
             }))
     };
-    top = top.child(panel(crate::editor::preview::view(app, e, t, cx)).grow((1.0 - p.left - p.right).max(0.2)).min_w(360.0).h_full());
+    // the growths across the row must add up to 1: below that, the row leaves the rest of its width empty, so a
+    // collapsed side's share goes to the preview
+    let sides = if p.left_collapsed { 0.0 } else { p.left } + if p.right_collapsed { 0.0 } else { p.right };
+    top = top.child(panel(crate::editor::preview::view(app, e, t, cx)).grow((1.0 - sides).max(0.2)).min_w(360.0).h_full());
     top = if p.right_collapsed {
         top.child(el().w(SPLIT)).child(panel(crate::editor::inspector::collapsed(t)).w(44.0).h_full())
     } else {

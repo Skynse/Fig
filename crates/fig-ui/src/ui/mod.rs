@@ -2,6 +2,7 @@
 //! edges, and where elements are laid out.
 
 pub mod icons;
+pub mod logo;
 pub mod layout;
 pub mod menu;
 pub mod theme;

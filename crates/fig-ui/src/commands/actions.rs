@@ -62,7 +62,18 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
         }
         Cut | Copy => {
             let e = app.editor.as_mut().unwrap();
-            if !e.ed.selection.selected_effects().is_empty() {
+            // clips win: their copy takes the selected effects and the ones over them along
+            let clips = !e.ed.selection.selected_clip_ids().is_empty();
+            if clips {
+                let effects = e.ed.selection.selected_effects();
+                let done = if command == Cut { e.ed.cut_selected() } else { e.ed.copy_selected() };
+                if command == Cut && !effects.is_empty() {
+                    e.ed.remove_effects(&effects);
+                }
+                if done {
+                    crate::ui::toasts::show(app, if command == Cut { "Cut" } else { "Copied" });
+                }
+            } else if !e.ed.selection.selected_effects().is_empty() {
                 let n = e.ed.copy_selected_effects();
                 if command == Cut {
                     let items = e.ed.selection.selected_effects();
@@ -123,7 +134,8 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
                 None => e.say("Put the playhead over a clip"),
             }
         }
-        Freeze => freeze_frame(app),
+        Freeze => freeze_frame(app, false),
+        FreezeInsert => freeze_frame(app, true),
         RippleDelete => {
             let e = app.editor.as_mut().unwrap();
             e.ed.ripple_delete_selected();
@@ -292,7 +304,8 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
 }
 
 /// Holds the picture under the playhead for three seconds: the frame is saved as an image, imported, and put in.
-fn freeze_frame(app: &mut AppState) {
+/// Holds the frame under the playhead: to the end of its clip, or (`insert`) for three seconds pushed in.
+fn freeze_frame(app: &mut AppState, insert: bool) {
     let cache = app.editor.as_ref().map(|e| app.store.cache_directory(&e.id));
     let Some(e) = app.editor.as_mut() else { return };
     let at = e.playhead;
@@ -332,7 +345,12 @@ fn freeze_frame(app: &mut AppState) {
                         e.project.media.push(still.clone());
                         e.media_rev += 1;
                     }
-                    if e.ed.freeze_frame(&clip_id, at, &still).is_none() {
+                    let held = if insert {
+                        e.ed.insert_freeze_frame(&clip_id, at, &still)
+                    } else {
+                        e.ed.freeze_frame(&clip_id, at, &still)
+                    };
+                    if held.is_none() {
                         e.say("No room to hold the frame there");
                     }
                     crate::editor::media::load_pictures(app);

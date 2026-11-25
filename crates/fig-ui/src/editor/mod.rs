@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use fig_edit::TimelineEditor;
 use fig_project::Project;
-use fig_timeline::{MediaAsset, Timeline, time};
+use fig_timeline::{CropSide, MediaAsset, Timeline, time};
 
 use crate::app::AppState;
 use crate::settings::{Preferences, WorkspaceLayout};
@@ -94,6 +94,8 @@ pub struct Editor {
     pub hint: Option<(String, Instant)>,
     /// The preview's transform handles are shown.
     pub show_overlay: bool,
+    /// The clip being cropped on the preview: shown whole, with its crop as a box to drag.
+    pub crop_edit: Option<String>,
     /// Where each timeline's view was, when switching between them.
     pub views: Vec<(String, f32, f64)>,
     /// The playhead's x on the timeline and the time readout, moved every frame while playing without rebuilding
@@ -160,6 +162,7 @@ impl Editor {
             hint: None,
             lanes: std::cell::RefCell::new(None),
             show_overlay: true,
+            crop_edit: None,
             views: Vec::new(),
             live_playhead: rune::Live::new([0.0, 0.0]),
             live_time: rune::LiveText::new("00:00:00:00"),
@@ -282,12 +285,32 @@ pub fn seek(app: &mut AppState, sec: f64, scrubbing: bool) {
     app.playback.seek(t, scrubbing, e.audio_scrub);
 }
 
-/// Gives playback the current timeline, when it changed.
+/// Gives playback the current timeline, when it changed. While a clip is being cropped on the preview, the preview
+/// shows it whole, so the crop box has the picture around it to show what's cut.
 pub fn sync_playback(app: &mut AppState) {
-    if let Some(e) = app.editor.as_ref() {
-        app.playback.update(e.doc(), &e.project.media, e.revision());
-        app.playback.set_volume(e.volume, e.muted);
+    let Some(e) = app.editor.as_mut() else { return };
+    // cropping ends when its clip is no longer the one selected
+    if e.crop_edit.as_ref().is_some_and(|id| e.ed.selection.selected_clip_ids() != [id.as_str()] || e.ed.find_clip(id).is_none()) {
+        e.crop_edit = None;
     }
+    let e = app.editor.as_ref().unwrap();
+    match &e.crop_edit {
+        Some(id) => {
+            let mut doc = e.doc().clone();
+            if let Some(c) = doc.find_clip_mut(id) {
+                for side in [CropSide::Left, CropSide::Top, CropSide::Right, CropSide::Bottom] {
+                    if let Some(v) = c.crop_mut(side) {
+                        *v = 0.0;
+                    }
+                    c.keyframes.shift_remove(fig_timeline::properties::crop(side).key());
+                }
+            }
+            // a revision of its own, so leaving the crop shows the cropped picture again
+            app.playback.update(&doc, &e.project.media, e.revision() ^ 0x9e37_79b9_7f4a_7c15);
+        }
+        None => app.playback.update(e.doc(), &e.project.media, e.revision()),
+    }
+    app.playback.set_volume(e.volume, e.muted);
 }
 
 pub fn play(app: &mut AppState, rate: f64) {

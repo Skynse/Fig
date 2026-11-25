@@ -62,6 +62,7 @@ fn edit_menu(app: &AppState) -> Vec<Item> {
         Item::command(app, "Delete before the playhead", Command::TrimStart),
         Item::command(app, "Delete after the playhead", Command::TrimEnd),
         Item::command(app, "Freeze frame", Command::Freeze),
+        Item::command(app, "Insert 3 s freeze frame", Command::FreezeInsert),
         Item::command(app, "Ripple delete", Command::RippleDelete),
         Item::command(app, "Lift delete", Command::LiftDelete),
         Item::command(app, "Enable / disable", Command::ToggleEnabled),
@@ -129,15 +130,7 @@ pub fn title_bar(app: &AppState, t: &Tokens) -> El {
         .gap(2.0)
         .pl(12.0)
         .center_y()
-        .child(
-            el().w(22.0)
-                .h(22.0)
-                .mr(10.0)
-                .radius(6.0)
-                .fill(hex("#7a3596"))
-                .center()
-                .child(text("f").font(font(14.0, 800.0)).color(Color::WHITE)),
-        )
+        .child(icon(&crate::ui::logo::FIG, 22.0).mr(10.0))
         .child(menu_button("File", t, file_menu))
         .child(menu_button("Edit", t, edit_menu))
         .child(menu_button("View", t, view_menu))

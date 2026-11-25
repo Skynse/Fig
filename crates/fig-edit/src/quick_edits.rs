@@ -4,13 +4,14 @@
 
 use std::collections::HashSet;
 
+use fig_timeline::serde_util::new_id_n;
 use indexmap::IndexMap;
 
 use super::magnet::{in_time_order, insert_index, pack_track};
 use super::{KeyframeHostRef, MAX_SPEED, MIN_SPEED, TimelineEditor, insert_clip, overlaps};
 use fig_timeline::{
-    AudioBody, Clip, ClipBody, Facet, KeyframeMap, KeyframePoint, MediaAsset, MediaKind, ParamValue, Selectable,
-    Timeline, TrackKind, automation_keys, clip_time,
+    AudioBody, Clip, ClipBody, Facet, ImageBody, KeyframeMap, KeyframePoint, MediaAsset, MediaKind, ParamValue,
+    Selectable, Timeline, TrackKind, automation_keys, clip_time,
 };
 
 fn spans(clip: Option<&Clip>, at: f64) -> bool {
@@ -359,8 +360,47 @@ impl TimelineEditor {
 
     // ---- freeze frame -------------------------------------------------------------------------
 
-    /// How long a freeze frame holds when it is made.
+    /// How long an inserted freeze frame holds when it is made.
     pub const FREEZE_FRAME_SEC: f64 = 3.0;
+
+    /// Holds the picture of a video clip at `at_sec` for the rest of the clip: the clip splits there and its second
+    /// half becomes `still` (that frame, saved as an image). Nothing moves and the clip keeps its length, so a cut to
+    /// music stays on the beat. The still keeps the half's effects, keyframes, opacity, crop, fades and transition out;
+    /// the clip's own sound stops there (sound on a linked track plays on). None when the playhead isn't on the clip.
+    /// Returns the still's clip id.
+    pub fn freeze_frame(&mut self, clip_id: &str, at_sec: f64, still: &MediaAsset) -> Option<String> {
+        let video = self.find_clip(clip_id).filter(|c| c.as_video().is_some())?.clone();
+        let at = self.snap_time(at_sec);
+        if at < video.start_sec - 1e-6 || at >= video.end_sec() - 1e-6 {
+            return None;
+        }
+        let whole = at <= video.start_sec + 1e-6;
+        let hold_id = self.edit(|e| {
+            let target = if whole {
+                video.id.clone()
+            } else {
+                // the held half stays linked with the footage's sound, so they still move together
+                e.cut_one_into(&video.id, at, video.link_group_id.clone()).get(1)?.clone()
+            };
+            let c = e.doc_mut().find_clip_mut(&target)?;
+            let ClipBody::Video(v) = &c.body else { return None };
+            c.body = ClipBody::Image(ImageBody {
+                source_id: still.id.clone(),
+                crop_l: v.crop_l,
+                crop_t: v.crop_t,
+                crop_r: v.crop_r,
+                crop_b: v.crop_b,
+                ..Default::default()
+            });
+            c.speed = 1.0;
+            if whole {
+                c.id = new_id_n();
+            }
+            Some(c.id.clone())
+        })?;
+        self.selection.select_only(&hold_id);
+        Some(hold_id)
+    }
 
     /// The clips on a track from `at` on (and `also`), with the clips linked to them, once each.
     fn followers(&self, track_id: &str, at: f64, also: Option<&str>) -> Vec<String> {
@@ -378,11 +418,11 @@ impl TimelineEditor {
         out
     }
 
-    /// Holds the picture of a video clip at `at_sec`: the clip splits there and `still` (that frame, saved as an
+    /// Inserts a held picture of a video clip at `at_sec`: the clip splits there and `still` (that frame, saved as an
     /// image) goes in between for three seconds, pushing the rest of the track along. The still keeps the clip's
     /// effects, opacity and crop. None when the playhead isn't on the clip, or the rest can't move without landing on
     /// a linked clip's neighbour. Returns the still's clip id.
-    pub fn freeze_frame(&mut self, clip_id: &str, at_sec: f64, still: &MediaAsset) -> Option<String> {
+    pub fn insert_freeze_frame(&mut self, clip_id: &str, at_sec: f64, still: &MediaAsset) -> Option<String> {
         let video = self.find_clip(clip_id).filter(|c| c.as_video().is_some())?.clone();
         let track = self.find_clip_track_id(clip_id)?;
         let at = self.snap_time(at_sec);

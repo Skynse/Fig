@@ -602,20 +602,23 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods) {
                 return;
             }
             let roll = mods.cmd && !mods.shift && matches!(part, Part::Left | Part::Right);
-            // Shift or Ctrl on a clip body draws a box from there (a plain click still adds the clip)
-            if !roll && (mods.shift || (mods.cmd && part == Part::Body && !e.ed.selection.is_selected(&clip))) {
-                if mods.cmd && part == Part::Body && e.ed.selection.is_selected(&clip) {
-                    // fallthrough to copy drag below
-                } else {
-                    let base = e.ed.selection.selected_clip_ids();
-                    let cy = e.tl.content_y(y);
-                    e.tl.gesture = Gesture::Marquee { x0: x, y0: cy, x1: x, y1: cy, additive: true, base, click_clip: Some(clip), gap: None };
-                    return;
-                }
+            // Shift on a clip draws a box from there (a plain click still adds the clip)
+            if !roll && mods.shift {
+                let base = e.ed.selection.selected_clip_ids();
+                let cy = e.tl.content_y(y);
+                e.tl.gesture = Gesture::Marquee { x0: x, y0: cy, x1: x, y1: cy, additive: true, base, click_clip: Some(clip), gap: None };
+                return;
             }
-            // Ctrl-drag a selected clip's body: a copy follows the pointer
-            if mods.cmd && part == Part::Body && e.ed.selection.is_selected(&clip) {
-                let ids = e.ed.selection.selected_clip_ids();
+            // Ctrl-drag a clip's body: a copy of it, and of whatever else is selected, follows the pointer. A Ctrl-click
+            // that doesn't move adds the clip to the selection or takes it out.
+            if mods.cmd && part == Part::Body {
+                let mut ids = e.ed.selection.selected_clip_ids();
+                let group = if linked && !mods.alt { e.ed.link_group(&clip) } else { vec![clip.clone()] };
+                for id in group {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
                 let anchor_start = e.ed.find_clip(&clip).map_or(0.0, |c| c.start_sec);
                 e.tl.gesture = Gesture::Copy(Box::new(CopyDrag {
                     ids,
@@ -1376,12 +1379,25 @@ fn released(app: &mut AppState, x: f32, y: f32, cancelled: bool, mods: Mods) {
             }
         }
         Gesture::Copy(c) => {
-            if c.started
+            if !c.started {
+                let group = e.ed.link_group(&c.anchor);
+                if e.ed.selection.is_selected(&c.anchor) {
+                    for id in group {
+                        e.ed.selection.deselect(&id);
+                    }
+                } else {
+                    for id in group {
+                        e.ed.selection.select(&id);
+                    }
+                }
+            } else if !cancelled
                 && let Some(track) = c.track.and_then(|i| e.doc().tracks.get(i)).map(|t| t.id.clone())
             {
                 let copies = e.ed.duplicate_clips_at(&c.ids, &c.anchor, c.anchor_start + c.delta, &track);
                 if copies.is_empty() {
-                    e.say("No room there for the copy");
+                    e.say("Can't copy onto that track");
+                } else {
+                    e.say(if copies.len() == 1 { "Copied 1 clip".to_string() } else { format!("Copied {} clips", copies.len()) });
                 }
             }
         }
@@ -1445,8 +1461,20 @@ pub fn hover(app: &mut AppState, x: f32, y: f32, tx: &mut Tx) {
     if !matches!(e.tl.gesture, Gesture::Idle) {
         return;
     }
+    // whatever has edges to drag shows its handles and the resize cursor: clips, effect bars and range markers
     let over = match hit(e, x, y) {
-        Hit::Clip { clip, part, .. } if e.tool != Tool::Blade => Some((clip, part)),
+        _ if e.tool == Tool::Blade => None,
+        Hit::Clip { clip, part, .. } => Some((clip, part)),
+        Hit::Rack { item, part, .. } => item.effect.map(|fx| {
+            let part = match part {
+                RackPart::Left => Part::Left,
+                RackPart::Right => Part::Right,
+                _ => Part::Body,
+            };
+            (fx, part)
+        }),
+        Hit::Marker { id, grab: RangeGrab::Start } => Some((id, Part::Left)),
+        Hit::Marker { id, grab: RangeGrab::End } => Some((id, Part::Right)),
         _ => None,
     };
     let changed = over != e.tl.hover;
