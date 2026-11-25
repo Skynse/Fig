@@ -18,7 +18,9 @@ A simple, open-source video editor for cutting clips, long or short, without the
 
 
 ## Motivation
-Fig is a personal project I'm working on to replace Capcut for my simple edits now that I use linux. It already effectively works well for what I need, so I do not plan on making this some "replacement" for davinci or adobe premiere. Though because this is my own spin on video editing software, I'm probably going to implement unique features and workflows others do not have.
+Fig is a personal project I'm working on to replace Capcut for my simple edits now that I use linux. I like to make beats, so it has features that work well for timing videos to audio tracks by bpm using fft analysis. Works well and quickly for long video captioning and editing. 
+
+Fig also has MCP support for those who want to use agents for whatever reason (I was in a rush for something one instance and found that an agent editing clips so I could do the finishing touches after I was done working on other important tasks was useful.)
 
 
 ![Fig](assets/preview.png)
