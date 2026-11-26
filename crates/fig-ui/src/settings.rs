@@ -25,12 +25,12 @@ pub fn project_store() -> ProjectStore {
 
 // ---------------- paths (AppPaths.cs) ----------------
 
-/// `~/.fig`, or `FIG_DATA_DIR` for tests/portable runs.
+/// `~/.fig` (`%USERPROFILE%\.fig` on Windows), or `FIG_DATA_DIR` for tests/portable runs.
 pub fn data_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("FIG_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     home.join(".fig")
 }
 

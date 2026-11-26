@@ -12,7 +12,7 @@ Fig is a Cargo workspace. The editing, media and rendering crates have no UI dep
 | `fig-media` | FFmpeg: probing, decoding, filmstrips, proxies, waveforms, reversed copies, the mixer, export. |
 | `fig-captions` | Captions from speech with Whisper (whisper.cpp on the CPU): model downloads, listening, timed words. |
 | `fig-api` | The control API: what a running editor lets other code read and do, with no transport attached. |
-| `fig-mcp` | An MCP server over `fig-api`. The window serves it on a Unix socket; `fig mcp` is the stdio side a client starts. It stays an optional feature (`mcp`). |
+| `fig-mcp` | An MCP server over `fig-api`. The window serves Streamable HTTP on `127.0.0.1:47331/mcp` with a bearer token, and writes both to `~/.fig/mcp.json`. `fig mcp` is a stdio bridge to it for clients that only start stdio servers. It stays an optional feature (`mcp`). |
 | `fig-ui` | The `fig` binary: home screen, editor, timeline, inspector, preview, graph editor, preferences. |
 
 Every change to a timeline goes through `fig-edit`'s `Editor::edit`, which makes it one undo step. The UI never mutates the document directly.
@@ -41,12 +41,12 @@ The `type_id` is saved in project files, so never rename one that has shipped.
 | `FIG_DATA_DIR` | Use another folder for projects, settings and caches (handy for testing on a copy). |
 | `FIG_X11=1` | Run through XWayland instead of native Wayland. |
 | `FIG_DECORATED=1` | Use the system's window frame instead of Fig's own title bar. |
-| `FIG_MCP_SOCKET` | Where the window serves MCP. |
+| `FIG_MCP_PORT` | The port the window serves MCP on (47331). |
 | `FIG_PROFILE`, `FIG_AUDIO_TRACE` | Print frame timings and audio diagnostics. |
 
 ## CI and releases
 
-`.github/workflows/ci.yml` builds and tests every push to master and every pull request, and reports clippy's lints without failing on them. Both workflows build against FFmpeg 8.1 from [BtbN's GPL shared builds](https://github.com/BtbN/FFmpeg-Builds) (`ci/ffmpeg.sh`), so what is tested is what ships. `.github/actions/setup` holds the system packages a build needs on Ubuntu.
+`.github/workflows/ci.yml` builds and tests every push to master and every pull request, and reports clippy's lints without failing on them. It runs on Linux, Windows and macOS. Linux and Windows build against FFmpeg 8.1 from [BtbN's GPL shared builds](https://github.com/BtbN/FFmpeg-Builds), and macOS against Homebrew's (`ci/ffmpeg.sh`), so what is tested is what ships. `.github/actions/setup` holds the system packages a build needs on Ubuntu.
 
 To release a major version, tag it:
 

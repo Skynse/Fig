@@ -44,6 +44,14 @@ Get the latest from [Releases](https://github.com/Skynse/Fig/releases). Each is 
 - **Linux:** `chmod +x Fig-<version>-linux-x64.AppImage` and run it. It adds itself to your app menu. Run it with `--uninstall` to remove it from the menu.
 - **Windows:** the 1.x releases are the last Windows builds for now; the Rust build is Linux-only until Rune's Windows backend is tested.
 
+## Use it with an agent
+
+While Fig is open, it serves MCP over Streamable HTTP at `http://127.0.0.1:47331/mcp`. Requests need the bearer token in `~/.fig/mcp.json`. For a client that only starts stdio servers, give it the command `fig mcp`: it connects for you and opens Fig if it isn't running. In Claude Code:
+
+```bash
+claude mcp add fig -- fig mcp
+```
+
 ## Build from source
 
 Needs Rust (the toolchain in `rust-toolchain.toml` installs itself through rustup) and the FFmpeg development libraries.
