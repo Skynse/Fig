@@ -54,4 +54,10 @@ To release a major version, tag it:
 git tag v2.0.0 && git push origin v2.0.0
 ```
 
-`.github/workflows/release.yml` stamps the version into `fig-ui` and `fig-mcp`, builds `fig` in release mode and packs it with `packaging/linux/appimage.sh` into `Fig-<version>-linux-x64.AppImage`, which carries the FFmpeg libraries and finds them through its rpath. It then publishes the AppImage and its `SHA256SUMS` as a GitHub release. Run the workflow by hand from the Actions tab to build any other version; leave **publish** off to get the AppImage as a workflow artifact without making a release.
+`.github/workflows/release.yml` stamps the version into `fig-ui` and `fig-mcp`, builds `fig` in release mode on each platform and packs it:
+
+- **Linux:** `packaging/linux/appimage.sh` makes `Fig-<version>-linux-x64.AppImage`, which carries the FFmpeg libraries and finds them through its rpath.
+- **Windows:** `packaging/windows/stage.sh` puts `fig.exe` beside the FFmpeg DLLs, zips that as `Fig-<version>-win-x64.zip`, and builds `Fig-<version>-win-x64-setup.exe` with Inno Setup (`Fig.iss`). The installer keeps the 1.x AppId, so it updates an old install in place.
+- **macOS:** `packaging/macos/bundle.sh` makes `Fig.app` with Homebrew's FFmpeg and its dependencies copied in by dylibbundler, signs it ad hoc and zips it as `Fig-<version>-macos-arm64.zip`. It isn't notarized; that needs an Apple Developer ID.
+
+It then publishes them with a `SHA256SUMS` as a GitHub release, or adds them to the release when the version is already out. Run the workflow by hand from the Actions tab to build any other version; leave **publish** off to get the files as workflow artifacts without making a release.

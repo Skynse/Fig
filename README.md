@@ -8,7 +8,7 @@
   <a href="https://github.com/Skynse/Fig/releases/latest"><img src="https://img.shields.io/github/v/release/Skynse/Fig?style=flat-square&label=release&color=8b5cf6" alt="Latest release"></a>
   <a href="https://github.com/Skynse/Fig/releases"><img src="https://img.shields.io/github/downloads/Skynse/Fig/total?style=flat-square&color=22c55e" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-3b82f6?style=flat-square" alt="License: GPLv3"></a>
-  <img src="https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square" alt="Linux">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey?style=flat-square" alt="Linux, Windows and macOS">
   <img src="https://img.shields.io/badge/Rust-1.99-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust 1.99">
   <img src="https://img.shields.io/badge/FFmpeg-8.1-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg 8.1">
 </p>
@@ -42,7 +42,8 @@ https://github.com/user-attachments/assets/1620a3e4-e0cc-43f5-843e-638beefd4a89
 Get the latest from [Releases](https://github.com/Skynse/Fig/releases). Each is a single file with everything included.
 
 - **Linux:** `chmod +x Fig-<version>-linux-x64.AppImage` and run it. It adds itself to your app menu. Run it with `--uninstall` to remove it from the menu.
-- **Windows:** the 1.x releases are the last Windows builds for now; the Rust build is Linux-only until Rune's Windows backend is tested.
+- **Windows:** run `Fig-<version>-win-x64-setup.exe` (no admin needed), or unzip the portable `Fig-<version>-win-x64.zip` and run `fig.exe`.
+- **macOS (Apple silicon):** unzip `Fig-<version>-macos-arm64.zip` and move `Fig.app` to Applications. It isn't notarized, so the first time, right-click it and choose **Open**.
 
 ## Use it with an agent
 
