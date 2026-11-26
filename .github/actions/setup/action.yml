@@ -1,0 +1,28 @@
+# What every Fig build needs on Ubuntu: system headers, the pinned Rust toolchain, a warm cargo cache and FFmpeg 8.1.
+name: Set up the Fig build
+description: System packages, Rust from rust-toolchain.toml, cargo cache, FFmpeg
+inputs:
+  cache-key:
+    description: Separates the cargo caches of jobs that build differently (debug, release, clippy)
+    default: debug
+runs:
+  using: composite
+  steps:
+    - name: System packages
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        # clang/libclang: FFmpeg's bindings. cmake: whisper.cpp. ALSA/Pulse: sound. The rest: Rune's window and text.
+        # patchelf: the AppImage. mesa-vulkan-drivers: a software GPU for tests that render.
+        sudo apt-get install -y -qq --no-install-recommends \
+          clang libclang-dev cmake pkg-config libasound2-dev libpulse-dev libfontconfig-dev libxkbcommon-dev \
+          libwayland-dev libudev-dev patchelf mesa-vulkan-drivers > /dev/null
+    - name: Rust
+      shell: bash
+      run: rustup show active-toolchain || rustup toolchain install
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ inputs.cache-key }}
+    - name: FFmpeg
+      shell: bash
+      run: source ci/ffmpeg.sh

@@ -69,7 +69,14 @@ pub fn on_startup() {
     if !cfg!(target_os = "linux") {
         return;
     }
-    let Ok(exe) = std::env::current_exe() else { return };
+    // an AppImage runs from a temporary mount: the menu entry must point at the AppImage file itself
+    let exe = match std::env::var_os("APPIMAGE") {
+        Some(image) => PathBuf::from(image),
+        None => match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(_) => return,
+        },
+    };
     if !is_release(&exe) {
         return;
     }

@@ -43,3 +43,15 @@ The `type_id` is saved in project files, so never rename one that has shipped.
 | `FIG_DECORATED=1` | Use the system's window frame instead of Fig's own title bar. |
 | `FIG_MCP_SOCKET` | Where the window serves MCP. |
 | `FIG_PROFILE`, `FIG_AUDIO_TRACE` | Print frame timings and audio diagnostics. |
+
+## CI and releases
+
+`.github/workflows/ci.yml` builds and tests every push to master and every pull request, and reports clippy's lints without failing on them. Both workflows build against FFmpeg 8.1 from [BtbN's GPL shared builds](https://github.com/BtbN/FFmpeg-Builds) (`ci/ffmpeg.sh`), so what is tested is what ships. `.github/actions/setup` holds the system packages a build needs on Ubuntu.
+
+To release a major version, tag it:
+
+```bash
+git tag v2.0.0 && git push origin v2.0.0
+```
+
+`.github/workflows/release.yml` stamps the version into `fig-ui` and `fig-mcp`, builds `fig` in release mode and packs it with `packaging/linux/appimage.sh` into `Fig-<version>-linux-x64.AppImage`, which carries the FFmpeg libraries and finds them through its rpath. It then publishes the AppImage and its `SHA256SUMS` as a GitHub release. Run the workflow by hand from the Actions tab to build any other version; leave **publish** off to get the AppImage as a workflow artifact without making a release.
