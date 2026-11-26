@@ -9,8 +9,7 @@
   <a href="https://github.com/Skynse/Fig/releases"><img src="https://img.shields.io/github/downloads/Skynse/Fig/total?style=flat-square&color=22c55e" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-3b82f6?style=flat-square" alt="License: GPLv3"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Windows and Linux">
-  <img src="https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white" alt=".NET 10">
-  <img src="https://img.shields.io/badge/Avalonia-12-8b44ac?style=flat-square" alt="Avalonia 12">
+  <img src="https://img.shields.io/badge/Rust-1.99-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust 1.99">
   <img src="https://img.shields.io/badge/FFmpeg-8.1-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg 8.1">
 </p>
 
@@ -47,11 +46,11 @@ Get the latest from [Releases](https://github.com/Skynse/Fig/releases). Each is 
 
 ## Build from source
 
-Needs the .NET 10 SDK.
+Needs Rust (the toolchain in `rust-toolchain.toml` installs itself through rustup) and the FFmpeg development libraries.
 
 ```bash
-dotnet run --project src/Fig.App
-dotnet test
+cargo run -p fig-ui --release
+cargo test --workspace
 ```
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for how things fit together and [CONTRIBUTING.md](CONTRIBUTING.md) before sending changes.

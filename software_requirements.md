@@ -1,7 +1,7 @@
 # Fig — Software Requirements Specification
 
 **Document status:** Draft
-**Project:** Fig — open-source non-linear video editor (C# / Avalonia / FFmpeg)
+**Project:** Fig — open-source non-linear video editor (Rust / Rune / FFmpeg)
 **Audience:** Developers, maintainers, and future contributors
 
 ---
@@ -41,8 +41,8 @@ Out of scope for the current build: collaborative editing, cloud storage, mobile
 
 ### 1.4 References
 - `README.md` — project overview, features, and goals.
-- `uml/*.puml` — architecture diagrams (data model, editing commands, media pipeline, playback, gestures, persistence, OTIO import, export).
-- Source: `src/Fig.Core` (domain engine), `src/Fig.App` (Avalonia UI), `tests/Fig.Core.Tests`.
+- `DEVELOPMENT.md` — how the crates fit together.
+- Source: `crates/` (the core crates, and `fig-ui`, the Rune UI). Tests sit inline in each crate.
 
 ### 1.5 Document conventions
 **Requirement IDs.** Functional requirements are `FR-nnn`; non-functional are `NFR-nnn`. IDs are stable once assigned and are never reused.
@@ -62,12 +62,13 @@ Out of scope for the current build: collaborative editing, cloud storage, mobile
 ## 2. Overall description
 
 ### 2.1 Product perspective
-Fig is architected as a clean UI-free core (`Fig.Core`) surrounded by an Avalonia desktop shell (`Fig.App`):
+Fig is architected as UI-free core crates with a Rune desktop shell (`fig-ui`) on top:
 
 ```
-src/Fig.Core/   Timeline engine, media pipeline, audio mixing, gestures, persistence, OTIO import, export
-src/Fig.App/    Views, view models, playback device, export jobs UI, SVG icons
-tests/          Unit tests over Fig.Core
+crates/fig-timeline, fig-edit, fig-project   Timeline model, editing and undo, persistence, OTIO import
+crates/fig-fx, fig-render, fig-media         Effects, compositing, FFmpeg decode, audio mixing, export
+crates/fig-captions, fig-api, fig-mcp        Whisper captions, the control API, the MCP plugin
+crates/fig-ui                                The window: views, playback device, export jobs UI, icons
 ```
 
 The core owns all timeline behavior, media decoding, compositing, audio mixing, and export, and has no UI dependency. The UI layer binds to it, so the engine is fully unit-testable.
@@ -85,13 +86,13 @@ The core owns all timeline behavior, media decoding, compositing, audio mixing, 
 The primary user is a solo creator (hobbyist to semi-professional) who edits short-to-medium projects and wants a fast, keyboard-first, free tool. Secondary users are contributors to the codebase who value a testable, well-documented core.
 
 ### 2.4 Operating environment
-- Windows, macOS, or Linux (Avalonia desktop).
-- .NET SDK 10.0 or later.
+- Linux (Wayland or X11); Windows is planned.
+- Rust, with the toolchain pinned in `rust-toolchain.toml`.
 - FFmpeg native libraries (libavformat/libavcodec/libswscale/libswresample) for the target platform.
 - An audio output device (PulseAudio/PipeWire/ALSA on Linux) for playback.
 
 ### 2.5 Design and implementation constraints
-- `Fig.Core` MUST NOT reference UI or platform APIs.
+- The core crates (everything but `fig-ui`) MUST NOT reference UI or platform APIs.
 - All timeline mutations MUST be undoable command objects through a bounded command history.
 - Media decoding MUST be driven from a dedicated worker thread; native decoders MUST only be disposed on that thread (never the UI thread).
 - Playback MUST use the audio device as the authoritative clock.
@@ -367,13 +368,13 @@ Design: `uml/persistence/preferences-schema.puml`, `uml/persistence/preferences-
 
 | ID | Requirement | Priority | Status |
 | --- | --- | --- | --- |
-| NFR-001 | The application SHALL run on Windows, macOS, and Linux via Avalonia. | P0 | O |
+| NFR-001 | The application SHALL run on Windows, macOS, and Linux via Rune. | P0 | O |
 | NFR-002 | Preview playback SHALL decode at least 30 fps at preview resolutions on typical hardware. | P0 | X |
 | NFR-003 | Export SHALL complete short projects in seconds to a few minutes (hardware-encode path for the seconds end). | P1 | O |
 | NFR-004 | Import, export, artifact generation, and project validation SHALL never block the UI thread. | P0 | X |
 | NFR-005 | Frame buffers SHALL be pooled and the frame cache bounded to limit memory growth. | P0 | X |
 | NFR-006 | Project writes SHALL be atomic with rolling backups so a crash never corrupts the project file. | P0 | X |
-| NFR-007 | `Fig.Core` SHALL be free of UI dependencies and fully unit-testable. | P0 | X |
+| NFR-007 | The core crates SHALL be free of UI dependencies and fully unit-testable. | P0 | X |
 | NFR-008 | Native (FFmpeg) resources SHALL be disposed without use-after-free races, and decode/dispose SHALL be serialized on a single worker thread. | P0 | X |
 | NFR-009 | The core test suite SHALL pass before a change is considered complete. | P0 | X |
 | NFR-010 | AI-generated code SHALL NOT be merged; contributors SHALL understand every line they add. | P0 | X |

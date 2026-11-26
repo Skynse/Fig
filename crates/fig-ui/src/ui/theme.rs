@@ -3,7 +3,7 @@
 //! Sources: `src/Fig.App/Styles/FigTheme.axaml`, `Styles/FigControls.axaml`, and
 //! `src/Fig.App/Services/EditorTheme.cs` (the colours the custom-drawn controls use). The C# app
 //! names every colour and radius once; this module is the Rust equivalent, so views never spell a
-//! hex value. See `docs/ui-port/inventory.md` §9.
+//! hex value.
 
 use rune::{Color, TextStyle};
 

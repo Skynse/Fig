@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-//! Every Lucide icon the C# app vendors, generated from `src/Fig.App/Assets/lucide/icons/*.svg`.
+//! Every Lucide icon the C# app vendors, generated from Lucide's `icons/*.svg`.
 //!
 //! The Avalonia app strokes these same files (`IconService`, 24x24 viewBox, `currentColor`); each
 //! body here wraps the SVG inner markup in one group with Lucide's paint attributes, and Rune

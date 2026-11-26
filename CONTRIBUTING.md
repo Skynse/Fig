@@ -11,12 +11,12 @@ For a major feature, that means building it **incrementally**: a series of small
 ### Building a major feature step by step
 
 1. **Agree the plan first.** Open an issue that says what the feature is, why it belongs in Fig, and the steps you'll build it in. A few lines per step is enough.
-2. **Start with the core.** The first steps go in `Fig.Core`: the model, then the commands that change it (undoable, through `TimelineEditor`), each with its tests. No UI yet.
+2. **Start with the core.** The first steps go in the core crates (`fig-timeline`, `fig-edit` and friends): the model, then the edits that change it (undoable, through `Editor::edit`), each with its tests. No UI yet.
 3. **Then the UI.** Once the core works, wire up the smallest interface that uses it, then improve it in later steps.
-4. **Every step stands on its own.** Each pull request builds, passes `dotnet test` and leaves the app working. A half-built feature stays out of sight until it is usable. Nothing should depend on a later PR to stop being broken.
+4. **Every step stands on its own.** Each pull request builds, passes `cargo test --workspace` and leaves the app working. A half-built feature stays out of sight until it is usable. Nothing should depend on a later PR to stop being broken.
 5. **Keep each step small enough to review in one sitting.** If one is getting big, split it.
 
-The existing code and the diagrams already in `uml/` are good maps of how things fit together. You don't need to add diagrams of your own, but draw one if it helps you or a reviewer follow the change.
+The existing code and [DEVELOPMENT.md](DEVELOPMENT.md) are good maps of how things fit together. Draw a diagram if it helps you or a reviewer follow the change.
 
 ### What counts as a "major feature"
 
@@ -25,7 +25,7 @@ Build these incrementally:
 - A new subsystem, module, or pipeline stage (for example an effect graph, a new export path, a new kind of selection).
 - A new editing command family, or a change to how the timeline model or undo history works.
 - Anything that adds a new concept to the project file format (like an audio mixer).
-- Anything that touches more than one of `Fig.Core`'s modules.
+- Anything that touches more than one core crate.
 
 These can go in a single pull request:
 
@@ -37,30 +37,29 @@ If you are unsure, open an issue and ask before writing code.
 
 ## Getting set up
 
-Requirements: .NET SDK 10.0 or later, and a desktop platform supported by Avalonia (Windows, macOS, Linux). To run with sound you also need an audio output device.
+Requirements: Rust (rustup installs the pinned toolchain from `rust-toolchain.toml`), the FFmpeg development libraries, clang, and the ALSA headers for sound. See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ```bash
-dotnet build
-dotnet run --project src/Fig.App
-dotnet test
+cargo build
+cargo run -p fig-ui
+cargo test --workspace
 ```
 
 ## Code layout and conventions
 
-- `src/Fig.Core` is the engine and has **no UI dependency**. Behaviour belongs here and is unit tested.
-- `src/Fig.App` is the Avalonia application: views, view models, services. Keep logic out of views; they call into Core.
-- Tests live in `tests/Fig.Core.Tests`. Behaviour is tested through Core, not through the UI.
-- One namespace per module (for example `Fig.Core.Media`). Folders are for organisation only and do not change the namespace.
-- Edits to the timeline go through commands on `TimelineEditor` so that they are undoable. Do not mutate the document directly from the UI.
+- The crates under `crates/` other than `fig-ui` have **no UI dependency**. Behaviour belongs there and is unit tested.
+- `crates/fig-ui` is the Rune application. Keep logic out of views; they call into the core crates.
+- Tests live inline, in a `#[cfg(test)] mod tests` in the file they test. Behaviour is tested through the core crates, not through the UI.
+- Edits to the timeline go through `fig-edit`'s `Editor::edit` so that they are undoable. Do not mutate the document directly from the UI.
 - Match the style of the surrounding code: naming, comment density, and idiom.
 - Adding an effect or transition has its own short guide in [DEVELOPMENT.md](DEVELOPMENT.md).
-- Use `<summary></summary>` where possible to describe codeblocks.
+- Give public items a `///` doc comment that says what they are for.
 ### Tests
 
 - Core behaviour gets unit tests before the UI is written.
 - Fix a bug by adding a test that fails without the fix.
-- Don't write headless UI tests (simulated clicks, key presses or drags). If something needs testing, move its logic into `Fig.Core` and test it there.
-- Run `dotnet test` before opening a pull request, and say in the description if anything fails and why.
+- Don't write headless UI tests (simulated clicks, key presses or drags). If something needs testing, move its logic into a core crate and test it there.
+- Run `cargo test --workspace` before opening a pull request, and say in the description if anything fails and why.
 
 ### Requirements document
 
@@ -78,7 +77,7 @@ dotnet test
 
 - [ ] I can explain what this changes and how it works
 - [ ] For a major feature: this is one step of the plan in its issue, and the app still works with it alone
-- [ ] Core behaviour has tests; `dotnet test` passes (or failures are explained)
+- [ ] Core behaviour has tests; `cargo test --workspace` passes (or failures are explained)
 - [ ] `software_requirements.md` updated if a feature was added or completed
 - [ ] Docs updated if behaviour users see has changed
 - [ ] AI use disclosed, if any (below)
@@ -97,7 +96,7 @@ The main rule is the same as everywhere else: you have to understand what you've
 
 ## Reporting bugs
 
-Open an issue with the steps to reproduce, what you expected, and what happened. Include your OS, the .NET version, and a screenshot or log if it helps. For media problems, say what the file's container and codec are.
+Open an issue with the steps to reproduce, what you expected, and what happened. Include your OS, the Fig version, and a screenshot or log if it helps. For media problems, say what the file's container and codec are.
 
 ## License
 
