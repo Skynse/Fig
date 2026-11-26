@@ -290,6 +290,11 @@ impl Mp4Writer {
         let mut packet = ff::Packet::empty();
         while v.encoder.receive_packet(&mut packet).is_ok() {
             packet.set_stream(v.stream);
+            // a frame lasts one tick of the encoder's time base: without it the last frame has no length, and some
+            // FFmpeg builds' MP4 muxer (Homebrew's) cuts it from the edit list
+            if packet.duration() <= 0 {
+                packet.set_duration(1);
+            }
             let st_tb = output.stream(v.stream).unwrap().time_base();
             packet.rescale_ts(v.time_base, st_tb);
             packet.write_interleaved(output)?;
