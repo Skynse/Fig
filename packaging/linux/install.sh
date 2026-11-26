@@ -1,11 +1,11 @@
 #!/bin/sh
 # Adds Fig to your app menu, with its icon, for your user only (nothing outside ~/.local/share is touched).
 #
-#   ./install.sh                     the Fig.App next to this script (an unpacked release)
-#   ./install.sh path/to/Fig.App     another build, such as src/Fig.App/bin/Release/net10.0/Fig.App
+#   ./install.sh                     the fig binary next to this script (an unpacked release)
+#   ./install.sh path/to/fig         another build, such as target/release/fig
 #   ./install.sh --uninstall         remove the launcher and icons again
 #
-# The launcher points at Fig.App where it is now: run this again after moving it.
+# The launcher points at fig where it is now: run this again after moving it.
 set -eu
 
 id=io.github.skynse.Fig
@@ -26,9 +26,9 @@ if [ "${1:-}" = "--uninstall" ]; then
     exit 0
 fi
 
-exe=$(realpath "${1:-$here/Fig.App}")
+exe=$(realpath "${1:-$here/fig}")
 if [ ! -x "$exe" ]; then
-    echo "No Fig.App at $exe; pass the path to one." >&2
+    echo "No fig binary at $exe; pass the path to one." >&2
     exit 1
 fi
 

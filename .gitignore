@@ -373,3 +373,9 @@ local.properties
 
 # Directory Build overrides for local setups
 Directory.Build.Override.props
+
+# Rust
+/target/
+
+# Rust UI snapshot renders (evidence is copied into docs/)
+/out/

@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+bitflags = "2"
+thiserror = "2"
+rayon = "1"
+
+# Rune's vendored crates: an app building Rune patches them as Rune's own workspace does
+# (parley_engine is required: Rune uses features the published one lacks; naga fixes shaders whose
+# constants would otherwise fail to compile). Keep the rev in step with fig-ui's rune dependency.
+[patch.crates-io]
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }
+sctk-adwaita = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }
+naga = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }
+accesskit_atspi_common = { git = "https://github.com/anomalyco/rune", rev = "fe80fd98886ee7ab16969385f33f19bdf5a36b87" }

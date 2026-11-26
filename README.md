@@ -9,18 +9,18 @@
   <a href="https://github.com/Skynse/Fig/releases"><img src="https://img.shields.io/github/downloads/Skynse/Fig/total?style=flat-square&color=22c55e" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-3b82f6?style=flat-square" alt="License: GPLv3"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Windows and Linux">
-  <img src="https://img.shields.io/badge/.NET-10-512bd4?style=flat-square&logo=dotnet&logoColor=white" alt=".NET 10">
-  <img src="https://img.shields.io/badge/Avalonia-12-8b44ac?style=flat-square" alt="Avalonia 12">
+  <img src="https://img.shields.io/badge/Rust-1.99-dea584?style=flat-square&logo=rust&logoColor=white" alt="Rust 1.99">
   <img src="https://img.shields.io/badge/FFmpeg-8.1-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg 8.1">
 </p>
 
-A simple, open-source video editor for cutting clips, long or short, without the hassle. Built with C# and Avalonia.
+A simple, open-source video editor for cutting clips, long or short, without the hassle.
 
 
 ## Motivation
-Fig is a personal project I'm working on to replace Capcut for my simple edits now that I use linux. It already effectively works well for what I need it for, so I do not plan on making this some "replacement" for davinci or adobe premiere. 
+Fig is a personal project I'm working on to replace Capcut for my simple edits now that I use linux. I like to make beats, so it has features that work well for timing videos to audio tracks by bpm using fft analysis. Works well and quickly for long video captioning and editing. 
 
-I am considering paying for Davinci Resolve Studio for larger projects since it's a one-time payment. Fig is just a means of learning how non-linear video editors and video+audio compositing works. With this knowledge, I will be able to work on more complex Video/Audio software that are actually unique.
+Fig also has MCP support for those who want to use agents for whatever reason (I was in a rush for something one instance and found that an agent editing clips so I could do the finishing touches after I was done working on other important tasks was useful.)
+
 
 ![Fig](assets/preview.png)
 
@@ -46,11 +46,11 @@ Get the latest from [Releases](https://github.com/Skynse/Fig/releases). Each is 
 
 ## Build from source
 
-Needs the .NET 10 SDK.
+Needs Rust (the toolchain in `rust-toolchain.toml` installs itself through rustup) and the FFmpeg development libraries.
 
 ```bash
-dotnet run --project src/Fig.App
-dotnet test
+cargo run -p fig-ui --release
+cargo test --workspace
 ```
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for how things fit together and [CONTRIBUTING.md](CONTRIBUTING.md) before sending changes.
