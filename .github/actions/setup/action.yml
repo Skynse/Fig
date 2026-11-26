@@ -13,10 +13,12 @@ runs:
       run: |
         sudo apt-get update -qq
         # clang/libclang: FFmpeg's bindings. cmake: whisper.cpp. ALSA/Pulse: sound. The rest: Rune's window and text.
-        # patchelf: the AppImage. mesa-vulkan-drivers: a software GPU for tests that render.
+        # patchelf: the AppImage. mesa-vulkan-drivers: a software GPU for tests that render. libva/vdpau/OpenCL/VPL:
+        # BtbN's FFmpeg loads the hardware-acceleration libraries at startup and aborts without them (desktops have them).
         sudo apt-get install -y -qq --no-install-recommends \
           clang libclang-dev cmake pkg-config libasound2-dev libpulse-dev libfontconfig-dev libxkbcommon-dev \
-          libwayland-dev libudev-dev patchelf mesa-vulkan-drivers > /dev/null
+          libwayland-dev libudev-dev patchelf mesa-vulkan-drivers \
+          libva2 libva-drm2 libva-x11-2 libvdpau1 ocl-icd-libopencl1 libvpl2 > /dev/null
     - name: Rust
       shell: bash
       run: rustup show active-toolchain || rustup toolchain install
