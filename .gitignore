@@ -379,3 +379,4 @@ Directory.Build.Override.props
 
 # Rust UI snapshot renders (evidence is copied into docs/)
 /out/
+/ffmpeg/
