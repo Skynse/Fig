@@ -244,12 +244,20 @@ impl ColorPainter for Painter<'_> {
 mod tests {
     use super::*;
 
-    /// Paints 😀 from the system's colour emoji font, when there is one, and checks colour came out.
+    /// Paints 😀 from the system's colour emoji font, when it is a COLR one, and checks colour came out. (Ubuntu's
+    /// Noto Color Emoji is the bitmap build, which `layers` draws without this module.)
     #[test]
     fn paints_a_colour_emoji() {
+        use skrifa::raw::TableProvider;
         let mut db = cosmic_text::fontdb::Database::new();
         db.load_system_fonts();
         let Some(face) = db.faces().find(|f| f.families.iter().any(|(n, _)| n == "Noto Color Emoji")) else { return };
+        let is_colr = db
+            .with_face_data(face.id, |data, index| FontRef::from_index(data, index).is_ok_and(|f| f.colr().is_ok()))
+            .unwrap_or(false);
+        if !is_colr {
+            return;
+        }
         let painted = db
             .with_face_data(face.id, |data, index| {
                 let font = FontRef::from_index(data, index).ok()?;
