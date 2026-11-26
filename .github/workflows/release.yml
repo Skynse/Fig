@@ -1,11 +1,14 @@
-# Builds a major version and publishes it as a GitHub release:
+# Builds a major version for Linux, Windows and macOS and publishes it as a GitHub release:
 #   Fig-<v>-linux-x64.AppImage    one file with FFmpeg inside: chmod +x and run it; it adds itself to the app menu
 #                                 (fig --uninstall takes it out)
+#   Fig-<v>-win-x64-setup.exe     installer: Start menu, uninstaller, no admin needed
+#   Fig-<v>-win-x64.zip           the same, portable: unzip and run fig.exe
+#   Fig-<v>-macos-arm64.zip       Fig.app, signed ad hoc (not notarized: right-click > Open the first time)
 #
 #   git tag v2.0.0 && git push origin v2.0.0
 #
 # Only vN.0.0 tags start it. Run it by hand from the Actions tab to build any version; leave "publish" off to
-# get the AppImage as a workflow artifact without making a release.
+# get the files as workflow artifacts without making a release.
 name: Release
 
 on:
@@ -29,8 +32,10 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  linux:
+  version:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
       - id: v
         run: |
@@ -38,6 +43,29 @@ jobs:
           v="${v#v}"
           [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$v' is not a version like 2.0.0"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux-x64
+            package: packaging/linux/appimage.sh
+          - os: windows-latest
+            name: win-x64
+            package: packaging/windows/stage.sh
+          - os: macos-latest
+            name: macos-arm64
+            package: packaging/macos/bundle.sh
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
@@ -45,22 +73,37 @@ jobs:
       # the version the app reports (fig's and its MCP server's) is the tag's
       - run: |
           for c in fig-ui fig-mcp; do
-            sed -i '0,/^version = .*/s//version = "${{ steps.v.outputs.version }}"/' crates/$c/Cargo.toml
+            sed -i.bak '1,/^version = .*/s/^version = .*/version = "'"$VERSION"'"/' crates/$c/Cargo.toml && rm crates/$c/Cargo.toml.bak
           done
       - run: cargo build --release -p fig-ui
-      - run: packaging/linux/appimage.sh ${{ steps.v.outputs.version }} dist
+      - run: ${{ matrix.package }} "$VERSION" dist
       - uses: actions/upload-artifact@v4
         with:
-          name: Fig-${{ steps.v.outputs.version }}-linux-x64
+          name: Fig-${{ needs.version.outputs.version }}-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Release
-        if: github.event_name == 'push' || inputs.publish
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           cd dist
           sha256sum Fig-* > SHA256SUMS
-          gh release create "v${{ steps.v.outputs.version }}" Fig-* SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Fig ${{ steps.v.outputs.version }}" --generate-notes
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            # a release that already exists (built before a platform was added) gets the new files
+            gh release upload "v$VERSION" Fig-* SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "v$VERSION" Fig-* SHA256SUMS \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Fig $VERSION" --generate-notes
+          fi
