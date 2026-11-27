@@ -170,6 +170,8 @@ pub const FIXED: &[(&str, &str)] = &[
     ("Middle-drag", "Pan the timeline"),
     ("Ctrl+drag a clip", "Copy it"),
     ("Ctrl+drag a clip edge", "Roll the cut"),
+    ("Drag an effect bar", "Move it in time, or onto another track or clip"),
+    ("Ctrl+drag an effect bar", "Copy it, with the other selected bars"),
     ("Alt+drag", "Move without snapping"),
     ("Shift+drag", "Select with a box"),
     ("Blade: click", "Cut there (Shift: every track)"),

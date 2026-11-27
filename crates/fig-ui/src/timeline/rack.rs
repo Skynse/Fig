@@ -72,8 +72,6 @@ pub struct Item {
     pub start: f64,
     pub dur: f64,
     pub enabled: bool,
-    /// Limited to part of its owner (else it covers the whole and only its ends drag).
-    pub ranged: bool,
     /// The inspector tab a click on a level or fade bar opens.
     pub opens: Facet,
     pub row: usize,
@@ -197,7 +195,6 @@ fn build(owner: Owner) -> Vec<Item> {
             start: if ranged { fx.start_sec.unwrap_or(0.0) } else { 0.0 },
             dur: if ranged { fx.dur_sec.unwrap_or(0.0) } else { owner.span() },
             enabled: fx.enabled,
-            ranged,
             opens: Facet::EFFECTS,
             row: 0,
             keys: keyframe_times(fx),
@@ -212,7 +209,6 @@ fn build(owner: Owner) -> Vec<Item> {
             start: 0.0,
             dur,
             enabled: true,
-            ranged: false,
             opens: Facet::SOUND,
             row: 0,
             keys: Vec::new(),
@@ -311,7 +307,6 @@ mod tests {
             start,
             dur,
             enabled: true,
-            ranged: true,
             opens: Facet::EFFECTS,
             row: 0,
             keys: Vec::new(),

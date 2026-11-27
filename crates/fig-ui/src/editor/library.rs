@@ -77,6 +77,7 @@ impl LibraryState {
 pub enum Payload {
     Media(String),
     Effect(String),
+    Preset(Box<fig_fx::presets::EffectPreset>),
     Transition(String),
     Text(usize),
 }
@@ -246,19 +247,56 @@ fn drop_on_timeline(app: &mut AppState, payload: &Payload, x: f32, y: f32) {
             }
         }
         Payload::Effect(type_id) => {
-            let owner = match hit {
-                crate::timeline::geometry::Hit::Clip { clip, .. } => Some(clip),
-                _ => track,
+            use crate::timeline::geometry::Hit;
+            // on a clip (or one of its bars), the clip; anywhere else, the track there from where it was dropped
+            let clip = match hit {
+                Hit::Clip { clip, .. } => Some(clip),
+                Hit::Rack { owner, .. } if e.ed.find_clip(&owner).is_some() => Some(owner),
+                _ => None,
             };
-            match owner {
+            if let Some(clip) = clip {
+                add_effect(app, &clip, type_id);
+                return;
+            }
+            match drop_track(e.doc(), ti, at) {
                 Some(owner) => {
-                    add_effect(app, &owner, type_id);
+                    add_effect_at(app, &owner, type_id, at);
                 }
-                None => e.say("Drop an effect on a clip or a track"),
+                None => e.say("Add a video track to put this effect on"),
+            }
+        }
+        Payload::Preset(preset) => {
+            use crate::timeline::geometry::Hit;
+            let clip = match hit {
+                Hit::Clip { clip, .. } => Some(clip),
+                Hit::Rack { owner, .. } => Some(owner),
+                _ => None,
+            };
+            match clip.and_then(|id| e.ed.find_clip(&id).cloned()) {
+                Some(clip) => {
+                    let local = (at - clip.start_sec).clamp(0.0, clip.dur_sec);
+                    if let Some(fx) = fig_fx::presets::instantiate(preset, clip.dur_sec, local) {
+                        add_effect_instance(app, &clip.id, fx);
+                    }
+                }
+                None => e.say("Drop a preset on a clip"),
             }
         }
         Payload::Transition(type_id) => apply_transition_near(app, type_id, track.as_deref(), at),
     }
+}
+
+/// The track an effect dropped off a clip goes on: the video track under the pointer, else the topmost video track
+/// showing something at `at`, else the topmost video track.
+fn drop_track(doc: &fig_timeline::Timeline, under: Option<usize>, at: f64) -> Option<String> {
+    use fig_timeline::TrackKind;
+    let kind = TrackKind::Video;
+    if let Some(t) = under.and_then(|i| doc.tracks.get(i)).filter(|t| t.kind == kind) {
+        return Some(t.id.clone());
+    }
+    let mut of_kind = doc.tracks.iter().filter(|t| t.kind == kind);
+    let busy = of_kind.clone().find(|t| t.clips.iter().any(|c| at >= c.start_sec && at < c.end_sec()));
+    busy.or_else(|| of_kind.next()).map(|t| t.id.clone())
 }
 
 /// Puts a transition on the cut nearest `at` on the track (within 15 px), or after the clip under it.
@@ -286,11 +324,16 @@ fn apply_transition_near(app: &mut AppState, type_id: &str, track: Option<&str>,
 
 /// Adds an effect to a clip or a track and shows it in the inspector. Returns its id.
 pub fn add_effect(app: &mut AppState, owner: &str, type_id: &str) -> Option<String> {
+    let at = app.editor.as_ref()?.playhead;
+    add_effect_at(app, owner, type_id, at)
+}
+
+/// Adds an effect to a clip (all of it) or a track (three seconds from `at`).
+pub fn add_effect_at(app: &mut AppState, owner: &str, type_id: &str, at: f64) -> Option<String> {
     let e = app.editor.as_mut()?;
     let mut fx = fig_fx::effects::find(type_id)?.create_instance();
-    // on a track, an effect covers three seconds from the playhead
     if e.ed.find_track(owner).is_some() {
-        fx.start_sec = Some(e.playhead);
+        fx.start_sec = Some(at.max(0.0));
         fx.dur_sec = Some(3.0);
     }
     add_effect_instance(app, owner, fx)
@@ -658,7 +701,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
         for p in presets {
             let (add, id, name) = (p.clone(), p.id.clone(), p.name.clone());
             let mut card = effect_card("#2a3d61", &icons::SPARKLE, t.accent_text, p.name.clone(), p.description.clone(), None, t)
-                .help("Drag onto a video clip, or select a clip and press +")
+                .help("Drag onto a clip, or select a clip and press +")
                 .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip").on_press(move |s: &mut AppState| add_preset(s, &add)));
             let menu_preset = p.clone();
             let user = !p.built_in;
@@ -671,7 +714,12 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
                 }
                 crate::ui::menu::open(s, crate::ui::menu::Popup::at(at.x, at.y, items));
             });
-            list = list.child(card);
+            let label = p.name.clone();
+            list = list.child(draggable(card, format!("lib.preset.{}", p.id), Payload::Preset(Box::new(p)), label, |s, p| {
+                if let Payload::Preset(p) = p {
+                    add_preset(s, p);
+                }
+            }));
         }
     }
     let mut by_cat: Vec<(String, Vec<std::sync::Arc<fig_fx::effects::EffectEntry>>)> = Vec::new();
@@ -694,7 +742,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
             let (tid, menu_tid, name) = (entry.type_id.clone(), entry.type_id.clone(), entry.display_name.clone());
             let custom = entry.type_id.starts_with("graph:");
             let card = effect_card("#6f5526", &icons::WAND_SPARKLES, hex("#e0bd6e"), entry.display_name.clone(), entry.description.clone(), card_preview(&entry.type_id, false), t)
-                .help("Drag onto a video clip")
+                .help("Drag onto the timeline: on a clip it covers the clip, anywhere else it goes on that track from there")
                 .child(widgets::icon_button(&icons::PLUS, 13.0, 24.0, t).help("Add to the selected clip or track").on_press(move |s: &mut AppState| add_to_selection(s, &tid)))
                 .on_secondary_press(move |s: &mut AppState, at: rune::PointerPress, _tx: &mut Tx| {
                     let items = effect_menu(&menu_tid, &name, custom);
@@ -713,7 +761,7 @@ fn effects_tab(e: &Editor, t: &Tokens) -> El {
         .grow(1.0)
         .min_h(0.0)
         .gap(8.0)
-        .child(widgets::note("Drag onto a video track, or select a track or clip and press +.", t))
+        .child(widgets::note("Drag onto the timeline, or click to add to the selected clip or track. On the timeline, Ctrl+drag a bar to copy it.", t))
         .child(
             row()
                 .w_full()

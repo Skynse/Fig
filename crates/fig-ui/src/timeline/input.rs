@@ -73,6 +73,8 @@ pub struct BarOrig {
     effect: String,
     start: f64,
     dur: f64,
+    /// Limited to part of its owner; else it covers the whole and `start`/`dur` are that whole.
+    ranged: bool,
     /// How far the bar may go: its clip's length, or no limit on a track.
     limit: f64,
     keys: fig_timeline::KeyframeMap,
@@ -81,24 +83,97 @@ pub struct BarOrig {
 impl BarOrig {
     fn of(doc: &fig_timeline::Timeline, owner: &str, effect: &str) -> Option<BarOrig> {
         let fx = fig_edit::effects::owner_effects(doc, owner)?.iter().find(|f| f.id == effect)?;
-        let (start, dur) = (fx.start_sec?, fx.dur_sec?);
         let limit = doc.find_clip(owner).map_or(f64::INFINITY, |c| c.dur_sec);
-        Some(BarOrig { owner: owner.into(), effect: effect.into(), start, dur, limit, keys: fx.keyframes.clone() })
+        let whole = || match doc.find_track(owner) {
+            Some(t) => t.clips.iter().map(fig_timeline::Clip::end_sec).fold(0.0, f64::max),
+            None => limit,
+        };
+        let (start, dur, ranged) = match (fx.start_sec, fx.dur_sec) {
+            (Some(s), Some(d)) => (s, d, true),
+            _ => (0.0, whole(), false),
+        };
+        Some(BarOrig { owner: owner.into(), effect: effect.into(), start, dur, ranged, limit, keys: fx.keyframes.clone() })
     }
 }
 
 /// Slides bars by `delta` from where they were, as one: no bar leaves time zero or the end of its clip.
+/// Slides bars by `delta` from where they were, as one: no bar leaves time zero or the end of its clip.
 fn slide_bars(doc: &mut fig_timeline::Timeline, bars: &[BarOrig], delta: f64) {
+    let d = slide_limit(bars, delta);
+    for b in bars.iter().filter(|b| b.ranged) {
+        set_bar(doc, b, b.start + d, b.dur, Some(d));
+    }
+}
+
+/// How far bars can slide together, from `delta`: no ranged bar leaves time zero or the end of its clip.
+fn slide_limit(bars: &[BarOrig], delta: f64) -> f64 {
     let mut d = delta;
-    for b in bars {
+    for b in bars.iter().filter(|b| b.ranged) {
         d = d.max(-b.start);
         if b.limit.is_finite() {
             d = d.min((b.limit - b.start - b.dur).max(0.0));
         }
     }
-    for b in bars {
-        set_bar(doc, b, b.start + d, b.dur, Some(d));
+    d
+}
+
+/// The owner a dragged bar lands on: a track's bar goes as many lanes over as the pointer did, to a track of the same
+/// kind; the held bar of a clip goes to the clip of the same kind under the pointer. Anything else stays put.
+fn bar_target(doc: &fig_timeline::Timeline, b: &BarOrig, held: bool, lanes: isize, hover: Option<usize>, t: f64) -> String {
+    let index_of = |id: &str| doc.tracks.iter().position(|tr| tr.id == id || tr.clips.iter().any(|c| c.id == id));
+    let Some(home) = index_of(&b.owner) else { return b.owner.clone() };
+    let kind = doc.tracks[home].kind;
+    if doc.find_track(&b.owner).is_some() {
+        let to = home as isize + lanes;
+        return usize::try_from(to)
+            .ok()
+            .and_then(|i| doc.tracks.get(i))
+            .filter(|tr| tr.kind == kind)
+            .map_or_else(|| b.owner.clone(), |tr| tr.id.clone());
     }
+    if !held {
+        return b.owner.clone();
+    }
+    hover
+        .and_then(|i| doc.tracks.get(i))
+        .filter(|tr| tr.kind == kind)
+        .and_then(|tr| tr.clips.iter().find(|c| t >= c.start_sec && t < c.end_sec()))
+        .map_or_else(|| b.owner.clone(), |c| c.id.clone())
+}
+
+/// Puts a bar on `target` (taking it off its owner, unless `copy_id` makes it a copy), slid by `delta`. Returns where
+/// it landed.
+fn place_bar(doc: &mut fig_timeline::Timeline, b: &BarOrig, target: &str, delta: f64, copy_id: Option<&str>) -> Option<(String, String)> {
+    use fig_edit::effects::{owner_effects, owner_effects_mut};
+    if target == b.owner && copy_id.is_none() {
+        if b.ranged {
+            set_bar(doc, b, b.start + delta, b.dur, Some(delta));
+        }
+        return Some((b.owner.clone(), b.effect.clone()));
+    }
+    let mut fx = owner_effects(doc, &b.owner)?.iter().find(|f| f.id == b.effect)?.clone();
+    let limit = doc.find_clip(target).map_or(f64::INFINITY, |c| c.dur_sec);
+    match copy_id {
+        Some(id) => fx.id = id.to_string(),
+        None => owner_effects_mut(doc, &b.owner)?.retain(|f| f.id != b.effect),
+    }
+    fx.keyframes = b.keys.clone();
+    if b.ranged {
+        let dur = b.dur.min(limit);
+        let start = (b.start + delta).clamp(0.0, (limit - dur).max(0.0));
+        fx.start_sec = Some(start);
+        fx.dur_sec = Some(dur);
+        for keys in fx.keyframes.values_mut() {
+            for k in keys {
+                k.time_sec = (k.time_sec + start - b.start).clamp(0.0, limit);
+            }
+        }
+    }
+    let list = owner_effects_mut(doc, target)?;
+    fx.order = list.iter().map(|f| f.order).max().map_or(0, |m| m + 1);
+    let landed = (target.to_string(), fx.id.clone());
+    list.push(fx);
+    Some(landed)
 }
 
 /// Puts a bar at a range; `shift` moves its keyframes with it from where they were.
@@ -119,13 +194,22 @@ fn set_bar(doc: &mut fig_timeline::Timeline, b: &BarOrig, start: f64, dur: f64, 
 }
 
 /// A rack bar being dragged: its body moves it (and the other selected bars, and the selected clips when it is on a
-/// track), its ends resize it.
+/// track), to other times and other tracks or clips; its ends resize it. With Ctrl, copies of the bars move instead.
 pub struct RackDrag {
     part: RackPart,
     origin: f64,
     bar: BarOrig,
     press_t: f64,
     x0: f32,
+    y0: f32,
+    /// Past a few points from the press; until then nothing changes.
+    moved: bool,
+    /// Ctrl: the ids the copies take, the held bar's first, then the others'.
+    copies: Option<Vec<String>>,
+    /// The lane the press was on.
+    lane0: usize,
+    /// Where the bars are now, as (owner, effect).
+    landed: Vec<(String, String)>,
     /// The other selected bars that slide with it.
     others: Vec<BarOrig>,
     /// Selected clips carried along, and where they started.
@@ -595,7 +679,7 @@ fn press(app: &mut AppState, x: f32, y: f32, clicks: u32, mods: Mods) {
             let at = e.ed.snap_time(at);
             crate::editor::seek(app, at, false);
         }
-        Hit::Rack { owner, item, part, .. } => press_rack(app, owner, item, part, t, x, clicks, mods),
+        Hit::Rack { owner, item, part, .. } => press_rack(app, owner, item, part, t, (x, y), clicks, mods),
         Hit::Clip { track, clip, part } => {
             if e.tool == Tool::Blade {
                 blade(app, &clip, t, mods.shift);
@@ -937,7 +1021,12 @@ fn moved(app: &mut AppState, x: f32, y: f32, mods: Mods) {
             Gesture::Keyframe { host, from: if copy { from } else { now }, copy, value, gesture }
         }
         Gesture::Rack(mut r) => {
-            drag_rack(e, &mut r, t, mods.alt);
+            r.moved |= (x - r.x0).abs() + (y - r.y0).abs() >= 3.0;
+            if r.moved {
+                let lanes = e.lanes();
+                let hover = e.tl.track_at(&lanes, y);
+                drag_rack(e, &mut r, t, hover, mods.alt);
+            }
             Gesture::Rack(r)
         }
         Gesture::Track { id, y0, moved, .. } => {
@@ -1364,12 +1453,22 @@ fn released(app: &mut AppState, x: f32, y: f32, cancelled: bool, mods: Mods) {
             e.ed.commit_live();
         }
         Gesture::Rack(r) => {
-            let moved = (x - r.x0).abs() >= 3.0;
-            e.ed.commit_live();
-            if let Some((owner, fx)) = r.collapse_to
-                && !moved
-            {
-                e.ed.selection.select_effect(&owner, &fx);
+            if !r.moved {
+                e.ed.cancel_live();
+                // a Ctrl-click adds the bar to the selection or takes it out; a click in a group narrows to it
+                if r.copies.is_some() {
+                    e.ed.selection.toggle_effect(&r.bar.owner, &r.bar.effect);
+                } else if let Some((owner, fx)) = r.collapse_to {
+                    e.ed.selection.select_effect(&owner, &fx);
+                }
+            } else if cancelled {
+                e.ed.cancel_live();
+            } else {
+                e.ed.commit_live();
+                if r.part == RackPart::Body && !r.landed.is_empty() {
+                    e.ed.selection.select_effects(r.landed.clone(), false);
+                    e.inspector.effect = Some(r.landed[0].1.clone());
+                }
             }
         }
         Gesture::Track { id, to, moved, .. } => {
@@ -1570,7 +1669,7 @@ pub fn cancel(e: &mut Editor) -> bool {
 
 /// A press on a rack bar (`TimelineView.Racks.cs` `HandleRackPress`).
 #[allow(clippy::too_many_arguments)]
-fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: RackPart, t: f64, x: f32, clicks: u32, mods: Mods) {
+fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: RackPart, t: f64, (x, y): (f32, f32), clicks: u32, mods: Mods) {
     let playhead = app.editor.as_ref().map_or(0.0, |e| e.playhead);
     let Some(e) = app.editor.as_mut() else { return };
     let origin = e.ed.find_clip(&owner).map_or(0.0, |c| c.start_sec);
@@ -1601,10 +1700,13 @@ fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: 
         e.ed.selection.toggle_effect(&owner, &fx);
         return;
     }
+    // Ctrl on a bar's body copies it, with the rest of the selection when it is part of it
+    let copy = mods.cmd && part == RackPart::Body;
     // a bar that is one of several keeps the selection so the group can be dragged; a click narrows to it
     let selected = e.ed.selection.selected_effects();
-    let collapse_to = (part == RackPart::Body && e.ed.selection.is_effect_selected(&fx) && selected.len() > 1).then(|| (owner.clone(), fx.clone()));
-    if collapse_to.is_none() {
+    let in_group = part == RackPart::Body && e.ed.selection.is_effect_selected(&fx) && selected.len() > 1;
+    let collapse_to = (in_group && !copy).then(|| (owner.clone(), fx.clone()));
+    if !in_group && !copy {
         pick_effect(e, &owner, &fx);
     }
     if part == RackPart::Keys && clicks >= 2 {
@@ -1612,33 +1714,37 @@ fn press_rack(app: &mut AppState, owner: String, item: super::rack::Item, part: 
         e.ed.add_effect_keyframe(&owner, &fx, (t - origin).max(0.0));
         return;
     }
-    // a bar covering its whole owner has nothing to move; only its ends drag, to limit the effect
-    if part == RackPart::Keys || (part == RackPart::Body && !item.ranged) {
+    if part == RackPart::Keys {
         return;
     }
     let doc = e.doc();
-    let bar = match BarOrig::of(doc, &owner, &fx) {
-        Some(b) => b,
-        // not limited yet: its ends start from the whole owner
-        None => BarOrig {
-            owner: owner.clone(),
-            effect: fx.clone(),
-            start: 0.0,
-            dur: item.dur,
-            limit: doc.find_clip(&owner).map_or(f64::INFINITY, |c| c.dur_sec),
-            keys: fig_edit::effects::owner_effects(doc, &owner).and_then(|l| l.iter().find(|f| f.id == fx)).map(|f| f.keyframes.clone()).unwrap_or_default(),
-        },
-    };
+    let Some(bar) = BarOrig::of(doc, &owner, &fx) else { return };
     let (mut others, mut clips) = (Vec::new(), Vec::new());
-    if part == RackPart::Body && e.ed.selection.is_effect_selected(&fx) {
+    if part == RackPart::Body && (in_group || (!copy && e.ed.selection.is_effect_selected(&fx))) {
         others = e.ed.selection.selected_effects().iter().filter(|(_, id)| *id != fx).filter_map(|(o, id)| BarOrig::of(doc, o, id)).collect();
         // a track's bar carries the selected clips (a clip's bar moves inside its clip)
-        if doc.find_track(&owner).is_some() {
+        if doc.find_track(&owner).is_some() && !copy {
             clips = e.ed.selection.selected_clip_ids().into_iter().filter_map(|id| doc.find_clip(&id).map(|c| (id, c.start_sec))).collect();
         }
     }
+    let lane0 = doc.tracks.iter().position(|tr| tr.id == owner || tr.clips.iter().any(|c| c.id == owner)).unwrap_or(0);
+    let copies = copy.then(|| (0..=others.len()).map(|_| fig_timeline::new_id()).collect());
     e.ed.begin_live();
-    e.tl.gesture = Gesture::Rack(Box::new(RackDrag { part, origin, bar, press_t: t, x0: x, others, clips, collapse_to }));
+    e.tl.gesture = Gesture::Rack(Box::new(RackDrag {
+        part,
+        origin,
+        bar,
+        press_t: t,
+        x0: x,
+        y0: y,
+        moved: false,
+        copies,
+        lane0,
+        landed: Vec::new(),
+        others,
+        clips,
+        collapse_to,
+    }));
 }
 
 /// Selects an effect bar and shows it in the inspector.
@@ -1648,7 +1754,7 @@ fn pick_effect(e: &mut Editor, owner: &str, fx: &str) {
     e.inspector.tab = Some(fig_timeline::Facet::EFFECTS);
 }
 
-fn drag_rack(e: &mut Editor, r: &mut RackDrag, t: f64, alt: bool) {
+fn drag_rack(e: &mut Editor, r: &mut RackDrag, t: f64, hover: Option<usize>, alt: bool) {
     const MIN_LENGTH: f64 = 0.1;
     let b = r.bar.clone();
     let on_track = !b.limit.is_finite();
@@ -1674,10 +1780,20 @@ fn drag_rack(e: &mut Editor, r: &mut RackDrag, t: f64, alt: bool) {
         set_bar(e.ed.live_doc(), &b, start, dur, None);
         return;
     }
-    let delta = start - b.start;
-    let mut bars = r.others.clone();
-    bars.push(b);
-    slide_bars(e.ed.live_doc(), &bars, delta);
+    // every step redoes the move from where the bars began, so a bar can go over to another owner and back
+    e.ed.reset_live();
+    let mut bars = vec![b.clone()];
+    bars.extend(r.others.iter().cloned());
+    let delta = slide_limit(&bars, if b.ranged { start - b.start } else { t - r.press_t });
+    let lanes = hover.map_or(0, |h| h as isize - r.lane0 as isize);
+    let targets: Vec<String> = bars.iter().enumerate().map(|(i, bar)| bar_target(e.doc(), bar, i == 0, lanes, hover, t)).collect();
+    let doc = e.ed.live_doc();
+    r.landed = bars
+        .iter()
+        .zip(&targets)
+        .enumerate()
+        .filter_map(|(i, (bar, target))| place_bar(doc, bar, target, delta, r.copies.as_ref().map(|c| c[i].as_str())))
+        .collect();
     if r.clips.is_empty() {
         return;
     }
