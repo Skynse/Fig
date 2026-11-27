@@ -254,6 +254,7 @@ fn runnable(c: Command) -> bool {
             | Export
             | ExportRanges
             | ExportCaptions
+            | ExportResolve
             | AutoCaptions
             | Shortcuts
     )

@@ -12,6 +12,7 @@ mod editor;
 mod home;
 mod playback;
 mod preferences;
+mod resolve;
 mod settings;
 mod timeline;
 mod ui;
