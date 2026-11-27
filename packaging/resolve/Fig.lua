@@ -9,10 +9,30 @@ local windows = package.config:sub(1, 1) == "\\"
 -- set when run outside the menu (tests): no dialogs, the project and timeline come from these
 local quiet_project = os.getenv("FIG_RESOLVE_PROJECT")
 
+-- Dialogs go through Resolve's UI manager: AskUser needs a Fusion composition, which the Edit page doesn't have.
+local ui = fu and fu.UIManager
+local dispatcher = ui and bmd.UIDispatcher(ui)
+
+-- Shows `win` until one of its handlers calls dispatcher:ExitLoop().
+local function run_window(win)
+    win:Show()
+    dispatcher:RunLoop()
+    win:Hide()
+end
+
 local function tell(title, message)
     print("Fig: " .. message)
-    if quiet_project or not fu then return end
-    fu:AskUser(title, { { "message", "Text", Name = "", Default = message, ReadOnly = true, Lines = 10, Wrap = true } })
+    if quiet_project or not dispatcher then return end
+    local win = dispatcher:AddWindow({
+        ID = "FigMessage", WindowTitle = title, Geometry = { 400, 300, 520, 260 },
+        ui:VGroup({
+            ui:TextEdit({ ID = "Text", Text = message, ReadOnly = true, Weight = 1 }),
+            ui:HGroup({ Weight = 0, ui:HGap(0, 1), ui:Button({ ID = "OK", Text = "OK" }) }),
+        }),
+    })
+    win.On.OK.Clicked = function() dispatcher:ExitLoop() end
+    win.On.FigMessage.Close = function() dispatcher:ExitLoop() end
+    run_window(win)
 end
 
 local function fail(message)
@@ -50,9 +70,39 @@ local function read_back(path)
     return chunk and chunk()
 end
 
-local function choose(title, label, options)
-    local r = fu:AskUser(title, { { "choice", "Dropdown", Name = label, Options = options } })
-    return r and r.choice + 1
+-- Which project and which of its timelines (both from 1), or nil when cancelled.
+local function pick_project(projects)
+    local win = dispatcher:AddWindow({
+        ID = "FigPick", WindowTitle = "Import from Fig", Geometry = { 400, 300, 440, 150 },
+        ui:VGroup({
+            ui:HGroup({ ui:Label({ Text = "Project", Weight = 0, MinimumSize = { 70, 0 } }), ui:ComboBox({ ID = "Project" }) }),
+            ui:HGroup({ ui:Label({ Text = "Timeline", Weight = 0, MinimumSize = { 70, 0 } }), ui:ComboBox({ ID = "Timeline" }) }),
+            ui:HGroup({
+                ui:HGap(0, 1),
+                ui:Button({ ID = "Cancel", Text = "Cancel" }),
+                ui:Button({ ID = "Import", Text = "Import", Default = true }),
+            }),
+        }),
+    })
+    local items = win:GetItems()
+    local function fill_timelines()
+        local p = projects[items.Project.CurrentIndex + 1]
+        items.Timeline:Clear()
+        for _, name in ipairs(p and p.timelines or {}) do items.Timeline:AddItem(name) end
+        items.Timeline.Enabled = p ~= nil and #p.timelines > 1
+    end
+    for _, p in ipairs(projects) do items.Project:AddItem(p.name) end
+    fill_timelines()
+    local project, timeline
+    win.On.Project.CurrentIndexChanged = fill_timelines
+    win.On.Import.Clicked = function()
+        project, timeline = items.Project.CurrentIndex + 1, items.Timeline.CurrentIndex + 1
+        dispatcher:ExitLoop()
+    end
+    win.On.Cancel.Clicked = function() dispatcher:ExitLoop() end
+    win.On.FigPick.Close = function() dispatcher:ExitLoop() end
+    run_window(win)
+    if project then return projects[project], math.max(timeline, 1) end
 end
 
 -- which project, and which of its timelines
@@ -71,16 +121,9 @@ if quiet_project then
     pick = pick or fail("No Fig project " .. quiet_project)
     timeline = tonumber(os.getenv("FIG_RESOLVE_TIMELINE") or "1")
 else
-    local names = {}
-    for i, p in ipairs(projects) do names[i] = p.name end
-    local i = choose("Import from Fig", "Project", names)
-    if not i then return end
-    pick = projects[i]
-    timeline = 1
-    if #pick.timelines > 1 then
-        timeline = choose("Import from Fig", "Timeline", pick.timelines)
-        if not timeline then return end
-    end
+    if not dispatcher then fail("Resolve's dialogs aren't available here.") end
+    pick, timeline = pick_project(projects)
+    if not pick then return end
 end
 
 local manifest_path = temp_file("export")
