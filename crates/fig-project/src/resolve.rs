@@ -1,0 +1,632 @@
+//! A timeline for DaVinci Resolve, as Final Cut Pro 7 XML (`xmeml`), which Resolve imports with File ▸ Import ▸
+//! Timeline. It is track-based like Fig: every video and audio track comes over with its cuts, speeds, opacity,
+//! volume, crops, dissolves, fades and markers, and points at the original media so it can be graded there.
+//!
+//! What Resolve can't read from Fig is either drawn or listed: text (and stills Fig has moved or turned) become
+//! transparent PNGs the caller draws, and effects and animation are named in [`ResolveExport::notes`] so nothing goes
+//! missing unseen.
+
+use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+
+use fig_timeline::{Clip, ClipBody, FrameRate, LayerTransform, MediaAsset, Timeline, TrackKind, TransitionRef};
+
+/// The XML, and what didn't come over as it is in Fig.
+pub struct ResolveExport {
+    pub xml: String,
+    pub notes: Vec<String>,
+}
+
+/// Builds the XML for `timeline` at `size` pixels. `still` draws a text clip, or a still with a layout of its own,
+/// to a frame-sized PNG and returns its path (or none when it can't); `effect_name` names an effect type for the
+/// notes.
+pub fn export(
+    name: &str,
+    timeline: &Timeline,
+    media: &[MediaAsset],
+    size: (u32, u32),
+    still: &mut dyn FnMut(&Clip) -> Option<PathBuf>,
+    effect_name: &dyn Fn(&str) -> String,
+) -> ResolveExport {
+    let mut w = Writer::new(timeline.rate);
+    let mut notes = Notes { list: Vec::new(), effect_name };
+    let duration = timeline.tracks.iter().flat_map(|t| &t.clips).map(Clip::end_sec).fold(0.0, f64::max);
+
+    w.raw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE xmeml>\n");
+    w.open("xmeml version=\"5\"");
+    w.open("sequence id=\"sequence-1\"");
+    w.leaf("name", name);
+    w.leaf("duration", w.frames(duration));
+    w.rate();
+    w.open("timecode");
+    w.rate();
+    w.leaf("string", "00:00:00:00");
+    w.leaf("frame", 0);
+    w.leaf("displayformat", "NDF");
+    w.close("timecode");
+    w.open("media");
+
+    // ---- picture: the bottom track first, as Resolve numbers them
+    w.open("video");
+    w.open("format");
+    w.open("samplecharacteristics");
+    w.rate();
+    w.leaf("width", size.0);
+    w.leaf("height", size.1);
+    w.leaf("anamorphic", "FALSE");
+    w.leaf("pixelaspectratio", "square");
+    w.leaf("fielddominance", "none");
+    w.close("samplecharacteristics");
+    w.close("format");
+    let video: Vec<_> = timeline.tracks.iter().rev().filter(|t| t.kind == TrackKind::Video).collect();
+    for (n, track) in video.iter().enumerate() {
+        let label = format!("V{}", n + 1);
+        w.open("track");
+        let clips: Vec<&Clip> = track.clips.iter().filter(|c| !matches!(c.body, ClipBody::Audio(_))).collect();
+        for (i, clip) in clips.iter().enumerate() {
+            let next = clips.get(i + 1).copied();
+            video_clip(&mut w, &mut notes, &label, clip, next, media, still);
+        }
+        for fx in &track.effects {
+            notes.effect(&label, &fx.type_id, fx.start_sec, fx.dur_sec);
+        }
+        w.leaf("enabled", if track.visible { "TRUE" } else { "FALSE" });
+        w.leaf("locked", "FALSE");
+        w.close("track");
+    }
+    w.close("video");
+
+    // ---- sound: each video track's own sound, then the audio tracks
+    w.open("audio");
+    w.leaf("numOutputChannels", 2);
+    w.open("format");
+    w.open("samplecharacteristics");
+    w.leaf("depth", 16);
+    w.leaf("samplerate", 48000);
+    w.close("samplecharacteristics");
+    w.close("format");
+    for track in &video {
+        let sounding: Vec<&Clip> = track
+            .clips
+            .iter()
+            .filter(|c| match &c.body {
+                ClipBody::Video(v) => v.plays_audio && media.iter().any(|m| m.id == v.source_id && m.has_audio),
+                _ => false,
+            })
+            .collect();
+        if sounding.is_empty() {
+            continue;
+        }
+        w.open("track");
+        for clip in sounding {
+            audio_clip(&mut w, clip, media);
+        }
+        w.leaf("enabled", if track.muted { "FALSE" } else { "TRUE" });
+        w.close("track");
+    }
+    for track in timeline.tracks.iter().filter(|t| t.kind == TrackKind::Audio) {
+        w.open("track");
+        for clip in &track.clips {
+            audio_clip(&mut w, clip, media);
+        }
+        w.leaf("enabled", if track.muted { "FALSE" } else { "TRUE" });
+        w.close("track");
+    }
+    w.close("audio");
+    w.close("media");
+
+    for m in &timeline.markers {
+        w.marker(m, 0.0);
+    }
+    w.close("sequence");
+    w.close("xmeml");
+    ResolveExport { xml: w.out, notes: notes.list }
+}
+
+fn video_clip(
+    w: &mut Writer,
+    notes: &mut Notes<'_>,
+    track: &str,
+    clip: &Clip,
+    next: Option<&Clip>,
+    media: &[MediaAsset],
+    still: &mut dyn FnMut(&Clip) -> Option<PathBuf>,
+) {
+    let at = format!("{track} at {}", clock(clip.start_sec));
+    // what it shows: its own file, or a picture of it
+    let (file, crop) = match &clip.body {
+        ClipBody::Video(v) => match media.iter().find(|m| m.id == v.source_id) {
+            Some(m) => (FileRef::Media(m), [v.crop_l, v.crop_t, v.crop_r, v.crop_b]),
+            None => return notes.push(format!("{at}: its media is missing, so it was left out")),
+        },
+        ClipBody::Image(i) => match media.iter().find(|m| m.id == i.source_id) {
+            Some(m) if i.layout == LayerTransform::default() && !animated(clip, "layout") => {
+                (FileRef::Media(m), [i.crop_l, i.crop_t, i.crop_r, i.crop_b])
+            }
+            Some(_) => match still(clip) {
+                Some(p) => (FileRef::Still(p), [0.0; 4]),
+                None => return notes.push(format!("{at}: couldn't draw this still, so it was left out")),
+            },
+            None => return notes.push(format!("{at}: its media is missing, so it was left out")),
+        },
+        ClipBody::Text(t) => match still(clip) {
+            Some(p) => {
+                if animated(clip, "") {
+                    notes.push(format!("{at}: the text \"{}\" moves in Fig; it comes over still", short(&t.text)));
+                }
+                (FileRef::Still(p), [0.0; 4])
+            }
+            None => return notes.push(format!("{at}: couldn't draw the text \"{}\", so it was left out", short(&t.text))),
+        },
+        ClipBody::Audio(_) => return,
+    };
+
+    if clip.fade_in_sec > 0.0 {
+        w.transition(clip.start_sec, clip.start_sec + clip.fade_in_sec, "start-black", false);
+    }
+
+    let (src_in, src_out) = source_range(clip);
+    let speed = if clip.dur_sec > 0.0 { (src_out - src_in) / clip.dur_sec } else { 1.0 };
+    if fig_timeline::clip_time::has_curve(clip) {
+        notes.push(format!("{at}: its speed ramps in Fig; it comes over at its average speed ({:.0}%)", speed * 100.0));
+    }
+
+    let id = w.next_id();
+    w.open(&format!("clipitem id=\"clipitem-{id}\""));
+    w.leaf("name", file.name(clip));
+    w.leaf("enabled", if clip.enabled { "TRUE" } else { "FALSE" });
+    w.leaf("duration", w.frames(file.duration(clip)));
+    w.rate();
+    w.leaf("start", w.frames(clip.start_sec));
+    w.leaf("end", w.frames(clip.end_sec()));
+    w.leaf("in", w.frames(src_in));
+    w.leaf("out", w.frames(src_out));
+    w.file(&file, clip);
+    if (speed - 1.0).abs() > 1e-4 {
+        w.time_remap(speed);
+    }
+    if crop.iter().any(|c| *c > 1e-4) {
+        w.crop(crop);
+        if animated(clip, "crop") {
+            notes.push(format!("{at}: its crop moves in Fig; it comes over at its first framing"));
+        }
+    }
+    if clip.opacity < 0.999 {
+        w.opacity(clip.opacity);
+    }
+    for key in clip.keyframes.iter().filter(|(_, k)| !k.is_empty()).map(|(k, _)| k.as_str()) {
+        match key {
+            k if k.to_lowercase().contains("crop") || k.to_lowercase().contains("layout") => {}
+            k if k == fig_timeline::automation_keys::SPEED => {}
+            k => notes.push(format!("{at}: its {k} is animated in Fig; it comes over at its starting value")),
+        }
+    }
+    for fx in &clip.effects {
+        notes.effect(&at, &fx.type_id, None, None);
+    }
+    for m in &clip.markers {
+        w.marker(m, src_in);
+    }
+    w.close("clipitem");
+
+    if clip.fade_out_sec > 0.0 {
+        w.transition(clip.end_sec() - clip.fade_out_sec, clip.end_sec(), "end-black", false);
+    }
+    if let (Some(t), Some(next)) = (&clip.transition_out, next)
+        && (next.start_sec - clip.end_sec()).abs() < 1e-3
+    {
+        dissolve(w, notes, &at, t, clip.end_sec());
+    }
+}
+
+fn dissolve(w: &mut Writer, notes: &mut Notes<'_>, at: &str, t: &TransitionRef, cut: f64) {
+    let half = t.duration_sec.max(0.0) / 2.0;
+    w.transition(cut - half, cut + half, "center", false);
+    if !t.type_id.to_lowercase().contains("dissolve") && !t.type_id.to_lowercase().contains("fade") {
+        notes.push(format!("{at}: the \"{}\" transition comes over as a cross dissolve", t.type_id));
+    }
+}
+
+fn audio_clip(w: &mut Writer, clip: &Clip, media: &[MediaAsset]) {
+    let (source_id, fade_in, fade_out) = match &clip.body {
+        ClipBody::Video(v) => (&v.source_id, v.audio_fade_in_sec, v.audio_fade_out_sec),
+        ClipBody::Audio(a) => (&a.source_id, clip.fade_in_sec, clip.fade_out_sec),
+        _ => return,
+    };
+    let Some(m) = media.iter().find(|m| &m.id == source_id) else { return };
+    let file = FileRef::Media(m);
+    if fade_in > 0.0 {
+        w.transition(clip.start_sec, clip.start_sec + fade_in, "start-black", true);
+    }
+    let (src_in, src_out) = source_range(clip);
+    let speed = if clip.dur_sec > 0.0 { (src_out - src_in) / clip.dur_sec } else { 1.0 };
+    let id = w.next_id();
+    w.open(&format!("clipitem id=\"clipitem-{id}\""));
+    w.leaf("name", file.name(clip));
+    w.leaf("enabled", if clip.enabled { "TRUE" } else { "FALSE" });
+    w.leaf("duration", w.frames(file.duration(clip)));
+    w.rate();
+    w.leaf("start", w.frames(clip.start_sec));
+    w.leaf("end", w.frames(clip.end_sec()));
+    w.leaf("in", w.frames(src_in));
+    w.leaf("out", w.frames(src_out));
+    w.file(&file, clip);
+    w.open("sourcetrack");
+    w.leaf("mediatype", "audio");
+    w.leaf("trackindex", 1);
+    w.close("sourcetrack");
+    if (speed - 1.0).abs() > 1e-4 {
+        w.time_remap(speed);
+    }
+    if (clip.volume - 1.0).abs() > 1e-4 {
+        w.audio_level(clip.volume);
+    }
+    w.close("clipitem");
+    if fade_out > 0.0 {
+        w.transition(clip.end_sec() - fade_out, clip.end_sec(), "end-black", true);
+    }
+}
+
+/// Where in its file a clip starts and ends, from the file's first frame.
+fn source_range(clip: &Clip) -> (f64, f64) {
+    match &clip.body {
+        ClipBody::Video(v) => (v.src_in_sec, v.src_out_sec.max(v.src_in_sec)),
+        ClipBody::Audio(a) => (a.src_in_sec, a.src_out_sec.max(a.src_in_sec)),
+        _ => (0.0, clip.dur_sec),
+    }
+}
+
+/// Whether any of the clip's keyframe tracks whose name contains `part` has keys ("" for any).
+fn animated(clip: &Clip, part: &str) -> bool {
+    clip.keyframes.iter().any(|(k, keys)| !keys.is_empty() && k.to_lowercase().contains(part))
+}
+
+fn short(text: &str) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    if line.chars().count() > 30 { format!("{}…", line.chars().take(30).collect::<String>()) } else { line.to_string() }
+}
+
+/// `m:ss.f` for naming where something is.
+fn clock(sec: f64) -> String {
+    let tenths = (sec * 10.0).round() as i64;
+    format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
+struct Notes<'a> {
+    list: Vec<String>,
+    effect_name: &'a dyn Fn(&str) -> String,
+}
+
+impl Notes<'_> {
+    fn push(&mut self, note: String) {
+        if !self.list.contains(&note) {
+            self.list.push(note);
+        }
+    }
+
+    fn effect(&mut self, at: &str, type_id: &str, start: Option<f64>, dur: Option<f64>) {
+        let name = (self.effect_name)(type_id);
+        let when = match (start, dur) {
+            (Some(s), Some(d)) => format!(" ({}–{})", clock(s), clock(s + d)),
+            _ => String::new(),
+        };
+        self.push(format!("{at}: the {name} effect{when} isn't carried over; redo it in Resolve"));
+    }
+}
+
+/// The file a clip item plays.
+enum FileRef<'a> {
+    Media(&'a MediaAsset),
+    /// A picture drawn for the clip.
+    Still(PathBuf),
+}
+
+impl FileRef<'_> {
+    fn path(&self) -> &Path {
+        match self {
+            FileRef::Media(m) => Path::new(&m.url),
+            FileRef::Still(p) => p,
+        }
+    }
+
+    fn name(&self, clip: &Clip) -> String {
+        match (&clip.body, self) {
+            (ClipBody::Text(t), _) => short(&t.text),
+            _ => self.path().file_name().map_or_else(|| "clip".into(), |n| n.to_string_lossy().into_owned()),
+        }
+    }
+
+    /// How long the file lasts: a still as long as its clip.
+    fn duration(&self, clip: &Clip) -> f64 {
+        match self {
+            FileRef::Media(m) if m.duration_sec > 0.0 => m.duration_sec,
+            _ => clip.dur_sec,
+        }
+    }
+
+    fn key(&self) -> String {
+        self.path().to_string_lossy().into_owned()
+    }
+}
+
+struct Writer {
+    out: String,
+    depth: usize,
+    rate: FrameRate,
+    ids: usize,
+    files: HashMap<String, usize>,
+}
+
+impl Writer {
+    fn new(rate: FrameRate) -> Writer {
+        Writer { out: String::new(), depth: 0, rate, ids: 0, files: HashMap::new() }
+    }
+
+    fn next_id(&mut self) -> usize {
+        self.ids += 1;
+        self.ids
+    }
+
+    fn frames(&self, sec: f64) -> i64 {
+        (sec * self.rate.fps()).round() as i64
+    }
+
+    fn raw(&mut self, s: &str) {
+        self.out.push_str(s);
+    }
+
+    fn indent(&mut self) {
+        for _ in 0..self.depth {
+            self.out.push_str("  ");
+        }
+    }
+
+    /// Opens `tag` (which may carry attributes).
+    fn open(&mut self, tag: &str) {
+        self.indent();
+        let _ = writeln!(self.out, "<{tag}>");
+        self.depth += 1;
+    }
+
+    fn close(&mut self, tag: &str) {
+        self.depth -= 1;
+        self.indent();
+        let _ = writeln!(self.out, "</{tag}>");
+    }
+
+    fn leaf(&mut self, tag: &str, value: impl std::fmt::Display) {
+        self.indent();
+        let _ = writeln!(self.out, "<{tag}>{}</{tag}>", escape(&value.to_string()));
+    }
+
+    /// The sequence's rate: NTSC rates as their whole-number timebase.
+    fn rate(&mut self) {
+        let ntsc = self.rate.den() == 1001;
+        let timebase = if ntsc { (f64::from(self.rate.num()) / 1000.0).round() as i64 } else { self.rate.fps().round() as i64 };
+        self.open("rate");
+        self.leaf("timebase", timebase);
+        self.leaf("ntsc", if ntsc { "TRUE" } else { "FALSE" });
+        self.close("rate");
+    }
+
+    /// A file: in full the first time, by its id after that.
+    fn file(&mut self, file: &FileRef, clip: &Clip) {
+        let key = file.key();
+        if let Some(&id) = self.files.get(&key) {
+            self.indent();
+            let _ = writeln!(self.out, "<file id=\"file-{id}\"/>");
+            return;
+        }
+        let id = self.files.len() + 1;
+        self.files.insert(key, id);
+        self.open(&format!("file id=\"file-{id}\""));
+        self.leaf("name", file.path().file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned()));
+        self.leaf("pathurl", file_url(file.path()));
+        self.rate();
+        self.leaf("duration", self.frames(file.duration(clip)));
+        self.open("media");
+        let (video, audio, size) = match file {
+            FileRef::Media(m) => (m.kind != fig_timeline::MediaKind::Audio, m.has_audio, (m.width, m.height)),
+            FileRef::Still(_) => (true, false, (0, 0)),
+        };
+        if video {
+            self.open("video");
+            if size.0 > 0 && size.1 > 0 {
+                self.open("samplecharacteristics");
+                self.leaf("width", size.0);
+                self.leaf("height", size.1);
+                self.close("samplecharacteristics");
+            }
+            self.close("video");
+        }
+        if audio {
+            self.open("audio");
+            self.leaf("channelcount", 2);
+            self.close("audio");
+        }
+        self.close("media");
+        self.close("file");
+    }
+
+    fn effect(&mut self, name: &str, id: &str, category: &str, kind: &str, mediatype: &str, params: &[(&str, &str, String)]) {
+        self.open("filter");
+        self.open("effect");
+        self.leaf("name", name);
+        self.leaf("effectid", id);
+        self.leaf("effectcategory", category);
+        self.leaf("effecttype", kind);
+        self.leaf("mediatype", mediatype);
+        for (pid, pname, value) in params {
+            self.open("parameter");
+            self.leaf("parameterid", pid);
+            self.leaf("name", pname);
+            self.raw_value(value);
+            self.close("parameter");
+        }
+        self.close("effect");
+        self.close("filter");
+    }
+
+    /// A parameter's value: plain, or already XML (a point).
+    fn raw_value(&mut self, value: &str) {
+        self.indent();
+        if value.starts_with('<') {
+            let _ = writeln!(self.out, "<value>{value}</value>");
+        } else {
+            let _ = writeln!(self.out, "<value>{}</value>", escape(value));
+        }
+    }
+
+    fn time_remap(&mut self, speed: f64) {
+        self.effect(
+            "Time Remap",
+            "timeremap",
+            "motion",
+            "motion",
+            "video",
+            &[
+                ("variablespeed", "variablespeed", "0".into()),
+                ("speed", "speed", format!("{:.4}", speed * 100.0)),
+                ("reverse", "reverse", "FALSE".into()),
+                ("frameblending", "frameblending", "FALSE".into()),
+            ],
+        );
+    }
+
+    /// Fig's crop keeps the kept part filling the frame; Resolve's crop only hides, so a zoom and a move go with it.
+    fn crop(&mut self, [l, t, r, b]: [f64; 4]) {
+        let pct = |v: f64| format!("{:.4}", (v * 100.0).clamp(0.0, 100.0));
+        self.effect(
+            "Crop",
+            "crop",
+            "motion",
+            "motion",
+            "video",
+            &[("left", "left", pct(l)), ("right", "right", pct(r)), ("top", "top", pct(t)), ("bottom", "bottom", pct(b))],
+        );
+        let (kw, kh) = ((1.0 - l - r).max(0.01), (1.0 - t - b).max(0.01));
+        let zoom = (1.0 / kw).min(1.0 / kh);
+        let (cx, cy) = (l + kw / 2.0, t + kh / 2.0);
+        let center = format!("<horiz>{:.6}</horiz><vert>{:.6}</vert>", (0.5 - cx) * zoom, (0.5 - cy) * zoom);
+        self.effect(
+            "Basic Motion",
+            "basic",
+            "motion",
+            "motion",
+            "video",
+            &[("scale", "Scale", format!("{:.4}", zoom * 100.0)), ("rotation", "Rotation", "0".into()), ("center", "Center", center)],
+        );
+    }
+
+    fn opacity(&mut self, opacity: f64) {
+        self.effect("Opacity", "opacity", "motion", "motion", "video", &[("opacity", "opacity", format!("{:.2}", opacity.clamp(0.0, 1.0) * 100.0))]);
+    }
+
+    fn audio_level(&mut self, gain: f64) {
+        self.effect("Audio Levels", "audiolevels", "audiolevels", "audiolevels", "audio", &[("level", "Level", format!("{:.4}", gain.max(0.0)))]);
+    }
+
+    /// A dissolve (or, with `alignment` "start-black"/"end-black", a fade) from `from` to `to` on the timeline.
+    fn transition(&mut self, from: f64, to: f64, alignment: &str, audio: bool) {
+        if to - from <= 0.0 {
+            return;
+        }
+        self.open("transitionitem");
+        self.leaf("start", self.frames(from.max(0.0)));
+        self.leaf("end", self.frames(to));
+        self.leaf("alignment", alignment);
+        self.rate();
+        self.open("effect");
+        if audio {
+            self.leaf("name", "Cross Fade (+3dB)");
+            self.leaf("effectid", "KGAudioTransCrossFade3dB");
+            self.leaf("effectcategory", "");
+            self.leaf("effecttype", "transition");
+            self.leaf("mediatype", "audio");
+        } else {
+            self.leaf("name", "Cross Dissolve");
+            self.leaf("effectid", "Cross Dissolve");
+            self.leaf("effectcategory", "Dissolve");
+            self.leaf("effecttype", "transition");
+            self.leaf("mediatype", "video");
+        }
+        self.close("effect");
+        self.close("transitionitem");
+    }
+
+    /// A marker; `origin` is added to its time (a clip's marker counts from its source in point).
+    fn marker(&mut self, m: &fig_timeline::Marker, origin: f64) {
+        self.open("marker");
+        self.leaf("name", &m.name);
+        self.leaf("comment", "");
+        self.leaf("in", self.frames(origin + m.start_sec));
+        self.leaf("out", if m.dur_sec > 0.0 { self.frames(origin + m.start_sec + m.dur_sec) } else { -1 });
+        self.close("marker");
+    }
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// `file://localhost/...`, with what a URL can't hold percent-encoded.
+fn file_url(path: &Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    let mut out = String::from("file://localhost");
+    if !p.starts_with('/') {
+        out.push('/');
+    }
+    for b in p.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~/:".contains(&b) {
+            out.push(b as char);
+        } else {
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fig_timeline::{Track, VideoBody};
+
+    fn video(id: &str, source: &str, start: f64, dur: f64, src_in: f64, src_out: f64) -> Clip {
+        let mut c = Clip::new(ClipBody::Video(VideoBody {
+            source_id: source.into(),
+            src_in_sec: src_in,
+            src_out_sec: src_out,
+            plays_audio: true,
+            ..Default::default()
+        }));
+        c.id = id.into();
+        c.start_sec = start;
+        c.dur_sec = dur;
+        c
+    }
+
+    #[test]
+    fn cuts_speeds_and_shared_files() {
+        let asset =
+            MediaAsset { id: "m1".into(), url: "/clips/my shot.mp4".into(), duration_sec: 10.0, has_audio: true, ..Default::default() };
+        let mut track = Track::new(TrackKind::Video);
+        track.clips.push(video("a", "m1", 0.0, 2.0, 1.0, 3.0));
+        // twice as fast: four seconds of source in two
+        track.clips.push(video("b", "m1", 2.0, 2.0, 4.0, 8.0));
+        let mut timeline = Timeline { rate: FrameRate::new(30, 1), ..Default::default() };
+        timeline.tracks.push(track);
+        let out = export("Reel & co", &timeline, &[asset], (1080, 1920), &mut |_| None, &|id| id.to_string());
+        let xml = &out.xml;
+        assert!(xml.contains("<name>Reel &amp; co</name>"));
+        assert!(xml.contains("<pathurl>file://localhost/clips/my%20shot.mp4</pathurl>"));
+        // the file is written out once and referred to after
+        assert_eq!(xml.matches("<file id=\"file-1\">").count(), 1);
+        assert!(xml.contains("<file id=\"file-1\"/>"));
+        assert!(xml.contains("<start>60</start>") && xml.contains("<in>120</in>") && xml.contains("<out>240</out>"));
+        assert!(xml.contains("<value>200.0000</value>"));
+        // each video clip's sound comes along on an audio track
+        assert_eq!(xml.matches("<mediatype>audio</mediatype>").count(), 2);
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
+    }
+}

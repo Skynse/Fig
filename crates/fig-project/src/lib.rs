@@ -2,6 +2,7 @@
 
 pub mod migrations;
 pub mod otio;
+pub mod resolve;
 mod package;
 mod paths;
 mod store;

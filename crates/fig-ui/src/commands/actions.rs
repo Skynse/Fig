@@ -53,6 +53,7 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
         Export => crate::dialogs::export::open(app, false),
         ExportRanges => crate::dialogs::export::open(app, true),
         ExportCaptions => crate::dialogs::export_captions(app, tx),
+        ExportResolve => crate::dialogs::export_resolve(app, tx),
         Undo | Redo => {
             let e = app.editor.as_mut().unwrap();
             let done = if command == Undo { e.ed.undo() } else { e.ed.redo() };
