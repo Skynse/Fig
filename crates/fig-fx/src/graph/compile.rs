@@ -133,6 +133,7 @@ pub fn compile(graph: &EffectGraph) -> CompileResult {
     if let Some(output) = outputs.first() {
         let mut state: HashMap<&str, u8> = HashMap::new();
         let mut reported = false;
+        #[allow(clippy::too_many_arguments)]
         fn visit<'g>(
             node: &'g GraphNode,
             state: &mut HashMap<&'g str, u8>,

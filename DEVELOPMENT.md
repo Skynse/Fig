@@ -46,7 +46,7 @@ The `type_id` is saved in project files, so never rename one that has shipped.
 
 ## CI and releases
 
-`.github/workflows/ci.yml` builds and tests every push to master and every pull request, and reports clippy's lints without failing on them. It runs on Linux, Windows and macOS. Linux and Windows build against FFmpeg 8.1 from [BtbN's GPL shared builds](https://github.com/BtbN/FFmpeg-Builds), and macOS against Homebrew's (`ci/ffmpeg.sh`), so what is tested is what ships. `.github/actions/setup` holds the system packages a build needs on Ubuntu.
+`.github/workflows/ci.yml` builds and tests every push to master and every pull request, and fails on any clippy warning. It runs on Linux, Windows and macOS. Linux and Windows build against FFmpeg 8.1 from [BtbN's GPL shared builds](https://github.com/BtbN/FFmpeg-Builds), and macOS against Homebrew's (`ci/ffmpeg.sh`), so what is tested is what ships. `.github/actions/setup` holds the system packages a build needs on Ubuntu.
 
 To release a major version, tag it:
 

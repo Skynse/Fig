@@ -206,13 +206,16 @@ pub fn render(scene: &RenderScene) -> Frame {
     canvas
 }
 
+/// A crop still to apply: (x, y, width, height) in source pixels.
+type CropBox = (usize, usize, usize, usize);
+
 /// A layer's picture after its effects, transition and track effects; with whether it is premultiplied, and the crop
 /// still to apply (a crop the compositor can do while it scales).
 fn prepare(
     layer: &RenderLayer,
     w: usize,
     h: usize,
-) -> (Option<Arc<Frame>>, bool, Option<(usize, usize, usize, usize)>) {
+) -> (Option<Arc<Frame>>, bool, Option<CropBox>) {
     let src = &layer.source;
     if src.frame.width != w || src.frame.height != h || layer.opacity <= 0.0 {
         return (None, false, None);
@@ -273,7 +276,7 @@ pub fn crop_scale(src: &Frame, (cx, cy, cw, ch): (usize, usize, usize, usize)) -
     frame::render_rows(src, |y, row| {
         let sy = cy + y * ch / h;
         let from = &src.pixels[sy * w * 4..(sy + 1) * w * 4];
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let sx = (cx + x * cw / w) * 4;
             o.copy_from_slice(&from[sx..sx + 4]);
         }

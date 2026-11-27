@@ -58,9 +58,12 @@ impl Panels {
     }
 }
 
+/// Lanes as laid out, keyed by (revision, media revision, scale, folds).
+type LaidOut = ((u64, u64, u32, u64), std::rc::Rc<Vec<crate::timeline::geometry::Lane>>);
+
 pub struct Editor {
     /// The lanes as last laid out, and the (revision, media revision, scale, folds) they were laid out for.
-    lanes: std::cell::RefCell<Option<((u64, u64, u32, u64), std::rc::Rc<Vec<crate::timeline::geometry::Lane>>)>>,
+    lanes: std::cell::RefCell<Option<LaidOut>>,
     /// The project's id in the store, and its folder.
     pub id: String,
     pub folder: PathBuf,

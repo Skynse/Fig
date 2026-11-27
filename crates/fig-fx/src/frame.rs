@@ -29,7 +29,7 @@ impl Frame {
     pub fn solid(width: usize, height: usize, argb: u32) -> Frame {
         let px = [(argb & 0xFF) as u8, (argb >> 8) as u8, (argb >> 16) as u8, (argb >> 24) as u8];
         let mut f = Frame::new(width, height);
-        for p in f.pixels.chunks_exact_mut(4) {
+        for p in f.pixels.as_chunks_mut::<4>().0 {
             p.copy_from_slice(&px);
         }
         f
@@ -59,7 +59,7 @@ impl Frame {
     pub fn make_opaque(&mut self) {
         let stride = self.stride();
         rows_mut(&mut self.pixels, stride, |_, row| {
-            for p in row.chunks_exact_mut(4) {
+            for p in row.as_chunks_mut::<4>().0 {
                 p[3] = 255;
             }
         });
@@ -70,7 +70,7 @@ impl Frame {
         let mut out = self.pixels.clone();
         let stride = self.stride();
         rows_mut(&mut out, stride, |_, row| {
-            for p in row.chunks_exact_mut(4) {
+            for p in row.as_chunks_mut::<4>().0 {
                 p.swap(0, 2);
             }
         });
@@ -79,7 +79,7 @@ impl Frame {
 
     /// A frame made from RGBA bytes.
     pub fn from_rgba(width: usize, height: usize, mut rgba: Vec<u8>) -> Frame {
-        for p in rgba.chunks_exact_mut(4) {
+        for p in rgba.as_chunks_mut::<4>().0 {
             p.swap(0, 2);
         }
         Frame::from_pixels(width, height, rgba)
@@ -129,7 +129,7 @@ pub fn map_color(frame: &Frame, map: impl Fn(f64, f64, f64) -> (f64, f64, f64) +
     let stride = frame.stride();
     render_rows(frame, |y, row| {
         let s = &src[y * stride..(y + 1) * stride];
-        for (o, i) in row.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
+        for (o, i) in row.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
             let (r, g, b) = map(i[2] as f64, i[1] as f64, i[0] as f64);
             o[0] = to_byte(b);
             o[1] = to_byte(g);
@@ -146,7 +146,7 @@ pub fn remap(frame: &Frame, source_x: &[usize], source_y: impl Fn(usize) -> usiz
     let src = &frame.pixels;
     render_rows(frame, |y, row| {
         let from = &src[source_y(y) * stride..][..stride];
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let s = source_x[x] * 4;
             o.copy_from_slice(&from[s..s + 4]);
         }
@@ -260,7 +260,7 @@ pub fn sample_rgb(f: &Frame, x: f64, y: f64, weight: f64, acc: &mut [f64; 3]) {
 pub fn warp(source: &Frame, map: impl Fn(f64, f64) -> (f64, f64) + Sync + Send) -> Frame {
     let (w, h) = (source.width as f64, source.height as f64);
     render_rows(source, |y, row| {
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let (u, v) = map((x as f64 + 0.5) / w, (y as f64 + 0.5) / h);
             for c in 0..4 {
                 o[c] = to_byte(sample(source, u * w - 0.5, v * h - 0.5, c));
@@ -273,7 +273,7 @@ pub fn warp(source: &Frame, map: impl Fn(f64, f64) -> (f64, f64) + Sync + Send) 
 pub fn rgb(source: &Frame, channel: impl Fn(usize, usize, usize) -> f64 + Sync + Send) -> Frame {
     let stride = source.stride();
     render_rows(source, |y, row| {
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             for c in 0..3 {
                 o[c] = to_byte(channel(x, y, c));
             }
@@ -287,7 +287,7 @@ pub fn rgb(source: &Frame, channel: impl Fn(usize, usize, usize) -> f64 + Sync +
 pub fn shade(source: &Frame, shader: impl Fn(usize, usize, &mut [f64; 3]) + Sync + Send) -> Frame {
     let stride = source.stride();
     render_rows(source, |y, row| {
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let mut acc = [0.0; 3];
             shader(x, y, &mut acc);
             for c in 0..3 {
@@ -302,7 +302,7 @@ pub fn shade(source: &Frame, shader: impl Fn(usize, usize, &mut [f64; 3]) + Sync
 pub fn mix(a: &Frame, b: &Frame, weight: impl Fn(usize, usize) -> f64 + Sync + Send) -> Frame {
     let stride = a.stride();
     render_rows(a, |y, row| {
-        for (x, o) in row.chunks_exact_mut(4).enumerate() {
+        for (x, o) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let t = weight(x, y).clamp(0.0, 1.0);
             let i = y * stride + x * 4;
             for c in 0..4 {

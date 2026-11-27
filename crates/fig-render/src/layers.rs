@@ -16,6 +16,9 @@ use tiny_skia::{
     Stroke, Transform,
 };
 
+/// Paints a layer onto the canvas once its cache key misses.
+type Draw = Box<dyn FnOnce(&mut Pixmap)>;
+
 /// A layer's unscaled size, in frame heights (so a full-height square in a 16:9 frame is 1 × 1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayerSize {
@@ -235,7 +238,7 @@ fn draw_color_glyph(fonts: &mut Fonts, g: &Glyph, target: &mut Pixmap, t: Transf
     }
     let (w, h) = (image.placement.width, image.placement.height);
     let Some(mut pm) = Pixmap::new(w, h) else { return };
-    for (dst, src) in pm.pixels_mut().iter_mut().zip(image.data.chunks_exact(4)) {
+    for (dst, src) in pm.pixels_mut().iter_mut().zip(image.data.as_chunks::<4>().0) {
         let c = tiny_skia::ColorU8::from_rgba(src[0], src[1], src[2], src[3]);
         *dst = c.premultiply();
     }
@@ -339,7 +342,7 @@ fn blur_alpha(pm: &mut Pixmap, sigma: f32, strength: u32) {
     for _ in 0..3 {
         f = fig_fx::frame::blur(&f, radius);
     }
-    alpha = f.pixels.chunks_exact(4).map(|p| (p[3] as u32 * strength / 255) as u8).collect();
+    alpha = f.pixels.as_chunks::<4>().0.iter().map(|p| (p[3] as u32 * strength / 255) as u8).collect();
     for (p, a) in pm.pixels_mut().iter_mut().zip(alpha) {
         *p = tiny_skia::PremultipliedColorU8::from_rgba(0, 0, 0, a).unwrap();
     }
@@ -516,7 +519,7 @@ impl LayerRasterizer {
             return None;
         }
         let layout = properties::layout_at(clip, local_t);
-        let (key, draw): (u64, Box<dyn FnOnce(&mut Pixmap)>) = match &clip.body {
+        let (key, draw): (u64, Draw) = match &clip.body {
             ClipBody::Text(body) => {
                 let style = Self::style_at(clip, body, local_t);
                 // the caption word being said then, lit
@@ -557,8 +560,8 @@ impl LayerRasterizer {
         draw(&mut pm);
         let picture = Arc::new(to_frame(pm));
         let mut c = self.caches.lock().unwrap();
-        if !c.pictures.contains_key(&key) {
-            c.pictures.insert(key, picture.clone());
+        if let std::collections::hash_map::Entry::Vacant(e) = c.pictures.entry(key) {
+            e.insert(picture.clone());
             c.picture_order.push_back(key);
             while c.picture_order.len() > MAX_PICTURES {
                 let old = c.picture_order.pop_front().unwrap();

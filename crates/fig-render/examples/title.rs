@@ -36,7 +36,7 @@ fn main() {
     let r = LayerRasterizer::new();
     let mut canvas = Frame::new(w, h);
     for (y, row) in canvas.pixels.chunks_exact_mut(w * 4).enumerate() {
-        for p in row.chunks_exact_mut(4) {
+        for p in row.as_chunks_mut::<4>().0 {
             p.copy_from_slice(&[(y * 255 / h) as u8, 90, 40, 255]);
         }
     }

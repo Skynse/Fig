@@ -21,6 +21,7 @@ use rune::{App, AppSpec, KeyEvent, Tx, Waker, WindowOptions};
 use crate::app::AppState;
 
 /// The extensions built in: each gets the command line first, and the API once the window is up.
+#[allow(clippy::vec_init_then_push)]
 fn extensions() -> &'static [Box<dyn fig_api::Extension>] {
     static ALL: std::sync::OnceLock<Vec<Box<dyn fig_api::Extension>>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {

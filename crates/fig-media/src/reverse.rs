@@ -89,7 +89,7 @@ pub fn reverse(
                     // copy time t is source time length - t: read the piece that ends where this one starts, backwards
                     let from = (length - *audio_done - piece).max(0.0);
                     let mut samples = a.read(from, piece);
-                    let frames: Vec<[f32; 2]> = samples.chunks_exact(2).rev().map(|p| [p[0], p[1]]).collect();
+                    let frames: Vec<[f32; 2]> = samples.as_chunks::<2>().0.iter().rev().map(|p| [p[0], p[1]]).collect();
                     samples = frames.into_iter().flatten().collect();
                     writer.write_audio(&samples)?;
                     *audio_done += piece;

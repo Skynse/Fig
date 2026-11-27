@@ -69,7 +69,7 @@ pub fn analyze(path: &Path, start_sec: f64, duration_sec: Option<f64>) -> Result
         return Ok(BeatAnalysis::default());
     }
     let stereo = AudioSource::open(path, RATE)?.read(start_sec, duration);
-    let mono: Vec<f32> = stereo.chunks_exact(2).map(|p| (p[0] + p[1]) * 0.5).collect();
+    let mono: Vec<f32> = stereo.as_chunks::<2>().0.iter().map(|p| (p[0] + p[1]) * 0.5).collect();
     let filters = mel_filters(RATE as f64, WINDOW, BANDS);
     let fft = FftPlanner::<f32>::new().plan_fft_forward(WINDOW);
     let hann: Vec<f32> = (0..WINDOW)

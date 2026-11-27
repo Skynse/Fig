@@ -36,7 +36,7 @@ fn luma(b: u8, g: u8, r: u8) -> f64 {
 /// A frame the size of `like`, each pixel made by `f(x, y, &mut [b, g, r, a])`.
 fn fill(like: &Frame, f: impl Fn(usize, usize, &mut [u8]) + Sync + Send) -> Frame {
     render_rows(like, |y, row| {
-        for (x, px) in row.chunks_exact_mut(4).enumerate() {
+        for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             f(x, y, px);
         }
     })
