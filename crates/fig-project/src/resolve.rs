@@ -36,7 +36,7 @@ pub fn export(
     effect_name: &dyn Fn(&str) -> String,
 ) -> ResolveExport {
     let mut w = Writer::new(timeline.rate);
-    let mut notes = Notes { list: Vec::new(), effect_name };
+    let mut notes = Notes { kinds: Vec::new(), effect_name };
     let duration = timeline.tracks.iter().flat_map(|t| &t.clips).map(Clip::end_sec).fold(0.0, f64::max);
 
     w.raw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE xmeml>\n");
@@ -136,7 +136,7 @@ pub fn export(
     }
     w.close("sequence");
     w.close("xmeml");
-    ResolveExport { xml: w.out, notes: notes.list }
+    ResolveExport { xml: w.out, notes: notes.lines() }
 }
 
 fn video_clip(
@@ -152,12 +152,12 @@ fn video_clip(
         other.is_some_and(|o| (o.start_sec - at).abs() < 1e-3 || (o.end_sec() - at).abs() < 1e-3)
     };
     let (shared_in, shared_out) = (touches(prev, clip.start_sec), touches(next, clip.end_sec()));
-    let at = format!("{track} at {}", clock(clip.start_sec));
+    let at = format!("{track} {}", clock(clip.start_sec));
     // what it shows: its own file, or a picture of it
     let (file, crop) = match &clip.body {
         ClipBody::Video(v) => match media.iter().find(|m| m.id == v.source_id) {
             Some(m) => (FileRef::Media(m), [v.crop_l, v.crop_t, v.crop_r, v.crop_b]),
-            None => return notes.push(format!("{at}: its media is missing, so it was left out")),
+            None => return notes.push("Clips whose media is missing were left out".into(), at),
         },
         ClipBody::Image(i) => match media.iter().find(|m| m.id == i.source_id) {
             Some(m) if i.layout == LayerTransform::default() && !animated(clip, "layout") => {
@@ -165,19 +165,20 @@ fn video_clip(
             }
             Some(_) => match still(clip) {
                 Some(p) => (FileRef::Still(p), [0.0; 4]),
-                None => return notes.push(format!("{at}: couldn't draw this still, so it was left out")),
+                None => return notes.push("Stills Fig couldn't draw were left out".into(), at),
             },
-            None => return notes.push(format!("{at}: its media is missing, so it was left out")),
+            None => return notes.push("Clips whose media is missing were left out".into(), at),
         },
         ClipBody::Text(t) => match still(clip) {
             Some(p) => {
                 if animated(clip, "") {
-                    notes.push(format!("{at}: the text \"{}\" moves in Fig; it comes over still", short(&t.text)));
+                    notes.push("Moving text comes over still".into(), format!("{at} \"{}\"", short(&t.text)));
                 }
                 (FileRef::Still(p), [0.0; 4])
             }
             None => {
-                return notes.push(format!("{at}: couldn't draw the text \"{}\", so it was left out", short(&t.text)));
+                return notes
+                    .push("Text Fig couldn't draw was left out".into(), format!("{at} \"{}\"", short(&t.text)));
             }
         },
         ClipBody::Audio(_) => return,
@@ -190,7 +191,7 @@ fn video_clip(
     let (src_in, src_out) = source_range(clip);
     let speed = if clip.dur_sec > 0.0 { (src_out - src_in) / clip.dur_sec } else { 1.0 };
     if fig_timeline::clip_time::has_curve(clip) {
-        notes.push(format!("{at}: its speed ramps in Fig; it comes over at its average speed ({:.0}%)", speed * 100.0));
+        notes.push("Speed ramps come over at their average speed".into(), format!("{at} ({:.0}%)", speed * 100.0));
     }
 
     let id = w.next_id();
@@ -210,7 +211,7 @@ fn video_clip(
     if crop.iter().any(|c| *c > 1e-4) {
         w.crop(crop);
         if animated(clip, "crop") {
-            notes.push(format!("{at}: its crop moves in Fig; it comes over at its first framing"));
+            notes.push("Moving crops come over at their first framing".into(), at.clone());
         }
     }
     // fades at edges another clip touches go in as keyframes, from the clip's own source frames
@@ -234,7 +235,7 @@ fn video_clip(
         match key {
             k if k.to_lowercase().contains("crop") || k.to_lowercase().contains("layout") => {}
             k if k == fig_timeline::automation_keys::SPEED => {}
-            k => notes.push(format!("{at}: its {k} is animated in Fig; it comes over at its starting value")),
+            k => notes.push(format!("Animated {k} comes over at its starting value"), at.clone()),
         }
     }
     for fx in &clip.effects {
@@ -252,7 +253,10 @@ fn video_clip(
         let (kind, exact) = resolve_transition(t);
         w.transition(clip.end_sec() - half, clip.end_sec() + half, "center", &kind);
         if !exact {
-            notes.push(format!("{at}: the \"{}\" transition comes over as a {}", t.type_id, kind.name.to_lowercase()));
+            notes.push(
+                format!("The \"{}\" transition comes over as a {}", t.type_id, kind.name.to_lowercase()),
+                at.clone(),
+            );
         }
     }
 }
@@ -409,25 +413,52 @@ fn clock(sec: f64) -> String {
     format!("{}:{:02}.{}", tenths / 600, tenths / 10 % 60, tenths % 10)
 }
 
+/// What didn't carry over, one line per kind of thing with where it happens.
 struct Notes<'a> {
-    list: Vec<String>,
+    /// (what, where), in the order first seen.
+    kinds: Vec<(String, Vec<String>)>,
     effect_name: &'a dyn Fn(&str) -> String,
 }
 
 impl Notes<'_> {
-    fn push(&mut self, note: String) {
-        if !self.list.contains(&note) {
-            self.list.push(note);
+    fn push(&mut self, what: String, place: String) {
+        let i = match self.kinds.iter().position(|(w, _)| *w == what) {
+            Some(i) => i,
+            None => {
+                self.kinds.push((what, Vec::new()));
+                self.kinds.len() - 1
+            }
+        };
+        let places = &mut self.kinds[i].1;
+        if !places.contains(&place) {
+            places.push(place);
         }
     }
 
     fn effect(&mut self, at: &str, type_id: &str, start: Option<f64>, dur: Option<f64>) {
         let name = (self.effect_name)(type_id);
-        let when = match (start, dur) {
-            (Some(s), Some(d)) => format!(" ({}–{})", clock(s), clock(s + d)),
-            _ => String::new(),
+        let place = match (start, dur) {
+            (Some(s), Some(d)) => format!("{at} {}–{}", clock(s), clock(s + d)),
+            _ => at.to_string(),
         };
-        self.push(format!("{at}: the {name} effect{when} isn't carried over; redo it in Resolve"));
+        self.push(format!("{name} isn't carried over"), place);
+    }
+
+    /// One line per kind: where it happens, or how often and the first few places.
+    fn lines(self) -> Vec<String> {
+        const SHOWN: usize = 3;
+        self.kinds
+            .into_iter()
+            .map(|(what, mut places)| {
+                // by track, then time (reels are short enough for "m:ss" to sort as text)
+                places.sort();
+                (what, places)
+            })
+            .map(|(what, places)| match places.len() {
+                n if n <= SHOWN + 1 => format!("{what}: {}", places.join(", ")),
+                n => format!("{what}: {n} times ({}, and {} more)", places[..SHOWN].join(", "), n - SHOWN),
+            })
+            .collect()
     }
 }
 
