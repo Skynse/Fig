@@ -168,6 +168,14 @@ impl TimelineEditor {
         recorded
     }
 
+    /// Puts the timeline back to where the drag began, for a drag that redoes its whole change at every step.
+    pub fn reset_live(&mut self) {
+        if let Some(before) = &self.live {
+            self.doc = before.clone();
+            self.revision += 1;
+        }
+    }
+
     /// Ends a drag by putting everything back as it was.
     pub fn cancel_live(&mut self) {
         if let Some(before) = self.live.take() {
