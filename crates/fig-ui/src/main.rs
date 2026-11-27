@@ -1,5 +1,8 @@
 //! Fig: a video editor for short art reels.
 
+// a window app on Windows: no console opens beside it (`fig mcp` still gets the pipes an MCP client hands it)
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod api;
 mod app;
 mod commands;

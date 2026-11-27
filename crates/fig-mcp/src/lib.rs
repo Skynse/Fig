@@ -1,13 +1,15 @@
-//! Fig's MCP extension. The window serves MCP on a Unix socket; `fig mcp` is the stdio side an MCP client starts,
-//! which joins that socket (starting Fig when it isn't running). Everything it does goes through `fig_api`.
+//! Fig's MCP extension. The window serves MCP over Streamable HTTP on `127.0.0.1` (port 47331, or `FIG_MCP_PORT`),
+//! and writes its URL and bearer token to `mcp.json` in Fig's data folder. `fig mcp` is the stdio side for clients
+//! that only start stdio servers: it pipes to that endpoint, starting Fig when it isn't running. Everything it does
+//! goes through `fig_api`.
 //!
-//! `FIG_MCP=0` keeps the window from serving; `FIG_MCP_SOCKET` puts the socket somewhere else.
+//! `FIG_MCP=0` keeps the window from serving.
 
 mod bridge;
 mod server;
 mod tools;
+mod endpoint;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use fig_api::{Extension, FigApi};
@@ -29,15 +31,4 @@ impl Extension for Mcp {
         }
         server::spawn(api);
     }
-}
-
-/// Where the window listens: `$XDG_RUNTIME_DIR/fig/mcp.sock`, a folder only this user can open.
-fn socket_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("FIG_MCP_SOCKET") {
-        return path.into();
-    }
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("fig-{}", std::env::var("USER").unwrap_or_default())));
-    base.join("fig").join("mcp.sock")
 }

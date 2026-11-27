@@ -75,7 +75,14 @@ fn chapters(doc: &fig_timeline::Timeline) -> Vec<Chapter> {
             Some(n) => format!("{n}.mp4"),
             None => format!("{index:02}-{}.mp4", slug(&name)),
         };
-        out.push(Chapter { name, color: m.color.clone(), start, end: stop, file: TextEdit::new(file), included: m.include_in_export });
+        out.push(Chapter {
+            name,
+            color: m.color.clone(),
+            start,
+            end: stop,
+            file: TextEdit::new(file),
+            included: m.include_in_export,
+        });
     }
     out
 }
@@ -92,7 +99,9 @@ fn problems(s: &ExportState) -> Vec<Option<&'static str>> {
             let file = c.file.text.trim();
             if file.is_empty() || file.contains(['/', '\\', '\0']) {
                 Some("Enter a valid file name")
-            } else if s.chapters.iter().filter(|o| o.included && o.file.text.trim().eq_ignore_ascii_case(file)).count() > 1 {
+            } else if s.chapters.iter().filter(|o| o.included && o.file.text.trim().eq_ignore_ascii_case(file)).count()
+                > 1
+            {
                 Some("Another range uses this file name")
             } else if folder.is_dir() && folder.join(file).exists() {
                 Some("A file with this name already exists")
@@ -120,8 +129,8 @@ fn default_folder(app: &AppState) -> PathBuf {
         .clone()
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Videos")).filter(|p| p.is_dir()))
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| PathBuf::from(h).join("Videos")).filter(|p| p.is_dir()))
+        .or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -180,9 +189,23 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
     let Some(e) = app.editor.as_ref() else { return super::card(560.0, t) };
     let (w, h) = size_for(app, s.short_side);
     let step = (28 - s.crf).clamp(0, 10);
-    let qlabel = if step <= 2 { "Smaller file" } else if step >= 8 { "High quality" } else { "Balanced" };
-    let mut body = super::card(560.0, t).child(super::title_row(if s.ranges { "Export marked ranges" } else { "Export" }, t));
-    body = body.child(widgets::note(if s.ranges { "Each checked range becomes a separate video file." } else { "The whole timeline, as one video." }, t));
+    let qlabel = if step <= 2 {
+        "Smaller file"
+    } else if step >= 8 {
+        "High quality"
+    } else {
+        "Balanced"
+    };
+    let mut body =
+        super::card(560.0, t).child(super::title_row(if s.ranges { "Export marked ranges" } else { "Export" }, t));
+    body = body.child(widgets::note(
+        if s.ranges {
+            "Each checked range becomes a separate video file."
+        } else {
+            "The whole timeline, as one video."
+        },
+        t,
+    ));
     if s.ranges {
         let issues = problems(s);
         let mut list = col().w_full().gap(4.0);
@@ -217,7 +240,11 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                             _ => &mut a.field_edit,
                         }),
                 )
-                .child(text(format!("{} → {}", e.timecode(c.start), e.timecode(c.end))).font(mono(10.5, 400.0)).color(t.text_muted));
+                .child(
+                    text(format!("{} → {}", e.timecode(c.start), e.timecode(c.end)))
+                        .font(mono(10.5, 400.0))
+                        .color(t.text_muted),
+                );
             if !c.included {
                 r = r.opacity(0.55);
             }
@@ -239,14 +266,21 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
             .w_full()
             .gap(6.0)
             .center_y()
-            .child(widgets::checkbox(all, "", t).help("Tick or untick every range").on_press(move |a: &mut AppState| {
-                if let Some(s) = state(a) {
-                    for c in &mut s.chapters {
-                        c.included = !all;
+            .child(widgets::checkbox(all, "", t).help("Tick or untick every range").on_press(
+                move |a: &mut AppState| {
+                    if let Some(s) = state(a) {
+                        for c in &mut s.chapters {
+                            c.included = !all;
+                        }
                     }
-                }
-            }))
-            .child(text(format!("{n} of {} ranges", s.chapters.len())).font(font(11.5, 400.0)).color(t.text_secondary).grow(1.0));
+                },
+            ))
+            .child(
+                text(format!("{n} of {} ranges", s.chapters.len()))
+                    .font(font(11.5, 400.0))
+                    .color(t.text_secondary)
+                    .grow(1.0),
+            );
         if colours.len() > 1 {
             for colour in colours {
                 let pick = colour.clone();
@@ -271,37 +305,56 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                 );
             }
         }
-        tools = tools.child(widgets::button("Invert", Kind::Ghost, t).h(22.0).help("Tick the unticked ranges and untick the rest").on_press(|a: &mut AppState| {
-            if let Some(s) = state(a) {
-                for c in &mut s.chapters {
-                    c.included = !c.included;
-                }
-            }
-        }));
+        tools = tools.child(
+            widgets::button("Invert", Kind::Ghost, t)
+                .h(22.0)
+                .help("Tick the unticked ranges and untick the rest")
+                .on_press(|a: &mut AppState| {
+                    if let Some(s) = state(a) {
+                        for c in &mut s.chapters {
+                            c.included = !c.included;
+                        }
+                    }
+                }),
+        );
         body = body
             .children((!s.chapters.is_empty()).then_some(tools))
             .child(col().w_full().max_h(220.0).scroll(rune::ScrollSpec { stick_bottom: false }).child(list))
-            .child(widgets::button("Create ranges from bookmarks…", Kind::Ghost, t).on_press(|a: &mut AppState| a.dialog = Some(Dialog::Bookmarks { include_bounds: true })));
+            .child(
+                widgets::button("Create ranges from bookmarks…", Kind::Ghost, t)
+                    .on_press(|a: &mut AppState| a.dialog = Some(Dialog::Bookmarks { include_bounds: true })),
+            );
     }
     body = body
         .child(widgets::rule(t))
-        .child(row().w_full().child(col().grow(1.0).child(text("MP4 video").font(font(13.0, 600.0)).color(t.text_primary)).child(widgets::note(format!("H.264 / AAC · {}", e.doc().rate.label()), t))).child(text(format!("{w} × {h}")).font(mono(12.0, 400.0)).color(t.text_secondary)))
+        .child(
+            row()
+                .w_full()
+                .child(
+                    col()
+                        .grow(1.0)
+                        .child(text("MP4 video").font(font(13.0, 600.0)).color(t.text_primary))
+                        .child(widgets::note(format!("H.264 / AAC · {}", e.doc().rate.label()), t)),
+                )
+                .child(text(format!("{w} × {h}")).font(mono(12.0, 400.0)).color(t.text_secondary)),
+        )
         .child(widgets::field_row(
             "Resolution",
-            widgets::dropdown("export.size", SIZES.iter().find(|x| x.0 == s.short_side).map_or("Custom", |x| x.1), t).on_press(|a: &mut AppState| {
-                let items = SIZES
-                    .iter()
-                    .map(|&(side, label)| {
-                        let (w, h) = size_for(a, side);
-                        Item::new(format!("{label} ({w}×{h})"), move |a, _| {
-                            if let Some(s) = state(a) {
-                                s.short_side = side;
-                            }
+            widgets::dropdown("export.size", SIZES.iter().find(|x| x.0 == s.short_side).map_or("Custom", |x| x.1), t)
+                .on_press(|a: &mut AppState| {
+                    let items = SIZES
+                        .iter()
+                        .map(|&(side, label)| {
+                            let (w, h) = size_for(a, side);
+                            Item::new(format!("{label} ({w}×{h})"), move |a, _| {
+                                if let Some(s) = state(a) {
+                                    s.short_side = side;
+                                }
+                            })
                         })
-                    })
-                    .collect();
-                crate::ui::menu::open_below(a, "export.size", items);
-            }),
+                        .collect();
+                    crate::ui::menu::open_below(a, "export.size", items);
+                }),
             t,
         ))
         .child(widgets::field_row(
@@ -328,7 +381,12 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
         ))
         .child(widgets::field_row(
             "Encoder",
-            widgets::dropdown("export.encoder", ENCODERS.iter().find(|x| x.0 == s.encoder).map_or("Automatic", |x| x.1), t).on_press(|a: &mut AppState| {
+            widgets::dropdown(
+                "export.encoder",
+                ENCODERS.iter().find(|x| x.0 == s.encoder).map_or("Automatic", |x| x.1),
+                t,
+            )
+            .on_press(|a: &mut AppState| {
                 let items = ENCODERS
                     .iter()
                     .map(|&(enc, label)| {
@@ -355,16 +413,20 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                 t,
             )
             .on_press(|a: &mut AppState| {
-                let items = [(ExportTurn::None, "As edited"), (ExportTurn::Right, "Turned right (phone held left)"), (ExportTurn::Left, "Turned left (phone held right)")]
-                    .into_iter()
-                    .map(|(turn, label)| {
-                        Item::new(label, move |a, _| {
-                            if let Some(s) = state(a) {
-                                s.turn = turn;
-                            }
-                        })
+                let items = [
+                    (ExportTurn::None, "As edited"),
+                    (ExportTurn::Right, "Turned right (phone held left)"),
+                    (ExportTurn::Left, "Turned left (phone held right)"),
+                ]
+                .into_iter()
+                .map(|(turn, label)| {
+                    Item::new(label, move |a, _| {
+                        if let Some(s) = state(a) {
+                            s.turn = turn;
+                        }
                     })
-                    .collect();
+                })
+                .collect();
                 crate::ui::menu::open_below(a, "export.turn", items);
             }),
             t,
@@ -390,11 +452,20 @@ pub fn view(app: &AppState, s: &ExportState, t: &Tokens) -> El {
                             _ => &mut a.field_edit,
                         }),
                 )
-                .child(widgets::button("Browse…", Kind::Normal, t).on_press_tx(|a: &mut AppState, tx: &mut Tx| browse(a, tx))),
+                .child(
+                    widgets::button("Browse…", Kind::Normal, t)
+                        .on_press_tx(|a: &mut AppState, tx: &mut Tx| browse(a, tx)),
+                ),
         );
     let problem = validate(app, s);
     let n = s.chapters.iter().filter(|c| c.included).count();
-    let label = if !s.ranges { "Export".into() } else if n == 1 { "Export 1 video".to_string() } else { format!("Export {n} videos") };
+    let label = if !s.ranges {
+        "Export".into()
+    } else if n == 1 {
+        "Export 1 video".to_string()
+    } else {
+        format!("Export {n} videos")
+    };
     let mut go = widgets::button(label, Kind::Primary, t);
     go = if problem.is_none() { go.on_press(start) } else { go.opacity(0.45) };
     body.child(
@@ -434,7 +505,11 @@ fn browse(app: &mut AppState, tx: &mut Tx) {
     let Some(s) = state(app) else { return };
     let current = PathBuf::from(s.output.text.trim());
     if s.ranges {
-        let options = rune::file_dialog::FileDialogOptions { title: "Export to folder".into(), directory: Some(current), ..Default::default() };
+        let options = rune::file_dialog::FileDialogOptions {
+            title: "Export to folder".into(),
+            directory: Some(current),
+            ..Default::default()
+        };
         tx.open_folder(options, |a: &mut AppState, r, _| {
             if let (Ok(Some(p)), Some(s)) = (r, state(a)) {
                 s.output = TextEdit::new(p.to_string_lossy());
@@ -465,13 +540,18 @@ fn start(app: &mut AppState) {
     let Some(e) = app.editor.as_mut() else { return };
     e.commit_to_project();
     let (w, h) = size_for(app, s.short_side);
-    let base = ExportSettings { width: w, height: h, quality: s.crf as u32, encoder: s.encoder, turn: s.turn, range: None };
+    let base =
+        ExportSettings { width: w, height: h, quality: s.crf as u32, encoder: s.encoder, turn: s.turn, range: None };
     let out = PathBuf::from(s.output.text.trim());
     let mut jobs: Vec<(String, PathBuf, ExportSettings)> = Vec::new();
     if s.ranges {
         for c in s.chapters.iter().filter(|c| c.included) {
             let file = c.file.text.trim().to_string();
-            jobs.push((file.clone(), out.join(&file), ExportSettings { range: Some((c.start, c.end)), ..base.clone() }));
+            jobs.push((
+                file.clone(),
+                out.join(&file),
+                ExportSettings { range: Some((c.start, c.end)), ..base.clone() },
+            ));
         }
     } else {
         jobs.push((out.file_name().map_or("export".into(), |n| n.to_string_lossy().into_owned()), out.clone(), base));
@@ -494,7 +574,15 @@ pub fn start_jobs(app: &mut AppState, jobs: Vec<(String, PathBuf, ExportSettings
     for (name, path, settings) in jobs {
         let progress = Arc::new(AtomicU64::new(0f64.to_bits()));
         let cancel = Arc::new(AtomicBool::new(false));
-        app.jobs.list.push(Job { name, path: path.clone(), progress: progress.clone(), cancel: cancel.clone(), done: false, error: None, encoder: None });
+        app.jobs.list.push(Job {
+            name,
+            path: path.clone(),
+            progress: progress.clone(),
+            cancel: cancel.clone(),
+            done: false,
+            error: None,
+            encoder: None,
+        });
         let index = app.jobs.list.len() - 1;
         let (timeline, media) = (timeline.clone(), media.clone());
         crate::app::spawn(

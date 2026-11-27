@@ -6,9 +6,16 @@ description = "An MCP server for Fig: lets an MCP client drive the running edito
 
 [dependencies]
 fig-api = { path = "../fig-api" }
-rmcp = { version = "3.11", default-features = false, features = ["server", "macros", "schemars", "transport-async-rw"] }
+rmcp = { version = "3.11", default-features = false, features = ["server", "client", "macros", "schemars", "transport-async-rw", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
 schemars = "1"
-tokio = { version = "1", features = ["rt", "net", "io-std", "io-util", "time", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-std", "io-util", "time", "macros"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "service"] }
+http-body-util = "0.1"
+bytes = "1"
+tower-service = "0.3"
+reqwest = { version = "0.13", default-features = false }
+uuid = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = "0.22"

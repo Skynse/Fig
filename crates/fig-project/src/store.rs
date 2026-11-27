@@ -234,6 +234,7 @@ mod format_tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the fixture's outside paths are Unix paths, which Windows reads as drive-relative")]
     fn a_csharp_project_opens_with_everything_in_it() {
         let (_root, store) = fixture_store();
         let p = store.load_project("fixture").unwrap().unwrap();
@@ -285,6 +286,7 @@ mod format_tests {
     }
 
     #[test]
+    #[cfg_attr(windows, ignore = "the fixture's outside paths are Unix paths, which Windows reads as drive-relative")]
     fn saving_writes_the_csharp_shape() {
         let (_root, store) = fixture_store();
         let mut p = store.load_project("fixture").unwrap().unwrap();
@@ -445,7 +447,7 @@ mod format_tests {
         let new_id = store.unpack(&pkg, &mut |_| {}).unwrap();
         let opened = store.load_project(&new_id).unwrap().unwrap();
         let m = opened.find_media("m").unwrap();
-        assert!(m.url.ends_with("media/clip.mp4"), "{}", m.url);
+        assert!(Path::new(&m.url).ends_with("media/clip.mp4"), "{}", m.url);
         assert_eq!(fs::read(&m.url).unwrap(), b"footage");
     }
 }

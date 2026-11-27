@@ -1,4 +1,4 @@
-# What every Fig build needs on Ubuntu: system headers, the pinned Rust toolchain, a warm cargo cache and FFmpeg 8.1.
+# What every Fig build needs: system packages, the pinned Rust toolchain, a warm cargo cache and FFmpeg 8.1.
 name: Set up the Fig build
 description: System packages, Rust from rust-toolchain.toml, cargo cache, FFmpeg
 inputs:
@@ -8,7 +8,8 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: System packages
+    - name: System packages (Linux)
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update -qq
@@ -19,6 +20,11 @@ runs:
           clang libclang-dev cmake pkg-config libasound2-dev libpulse-dev libfontconfig-dev libxkbcommon-dev \
           libwayland-dev libudev-dev patchelf mesa-vulkan-drivers \
           libva2 libva-drm2 libva-x11-2 libvdpau1 ocl-icd-libopencl1 libvpl2 > /dev/null
+    # the runner's LLVM, for FFmpeg's bindings (bindgen); cmake and the MSVC tools are already there
+    - name: libclang (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
     - name: Rust
       shell: bash
       run: rustup show active-toolchain || rustup toolchain install
