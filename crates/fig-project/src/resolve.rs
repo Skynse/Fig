@@ -190,9 +190,6 @@ fn video_clip(
 
     let (src_in, src_out) = source_range(clip);
     let speed = if clip.dur_sec > 0.0 { (src_out - src_in) / clip.dur_sec } else { 1.0 };
-    if fig_timeline::clip_time::has_curve(clip) {
-        notes.push("Speed ramps come over at their average speed".into(), format!("{at} ({:.0}%)", speed * 100.0));
-    }
 
     let id = w.next_id();
     w.open(&format!("clipitem id=\"clipitem-{id}\""));
@@ -202,11 +199,15 @@ fn video_clip(
     w.rate();
     w.leaf("start", w.frames(clip.start_sec));
     w.leaf("end", w.frames(clip.end_sec()));
-    w.leaf("in", w.frames(src_in));
-    w.leaf("out", w.frames(src_out));
+    // a still shows the same picture at any speed
+    let moving = matches!(file, FileRef::Media(m) if m.kind == fig_timeline::MediaKind::Video);
+    let graph = if moving { speed_curve(w, clip, file.duration(clip)) } else { None };
+    let (clip_in, clip_out) = graph.as_ref().map_or((w.frames(src_in), w.frames(src_out)), |g| (g.clip_in, g.clip_out));
+    w.leaf("in", clip_in);
+    w.leaf("out", clip_out);
     w.file(&file, clip);
-    if (speed - 1.0).abs() > 1e-4 {
-        w.time_remap(speed);
+    if (speed - 1.0).abs() > 1e-4 || graph.is_some() {
+        w.time_remap(speed, graph.as_ref().map(|g| g.points.as_slice()));
     }
     if crop.iter().any(|c| *c > 1e-4) {
         w.crop(crop);
@@ -352,15 +353,17 @@ fn audio_clip(w: &mut Writer, clip: &Clip, (prev, next): (Option<&Clip>, Option<
     w.rate();
     w.leaf("start", w.frames(clip.start_sec));
     w.leaf("end", w.frames(clip.end_sec()));
-    w.leaf("in", w.frames(src_in));
-    w.leaf("out", w.frames(src_out));
+    let graph = speed_curve(w, clip, file.duration(clip));
+    let (clip_in, clip_out) = graph.as_ref().map_or((w.frames(src_in), w.frames(src_out)), |g| (g.clip_in, g.clip_out));
+    w.leaf("in", clip_in);
+    w.leaf("out", clip_out);
     w.file(&file, clip);
     w.open("sourcetrack");
     w.leaf("mediatype", "audio");
     w.leaf("trackindex", 1);
     w.close("sourcetrack");
-    if (speed - 1.0).abs() > 1e-4 {
-        w.time_remap(speed);
+    if (speed - 1.0).abs() > 1e-4 || graph.is_some() {
+        w.time_remap(speed, graph.as_ref().map(|g| g.points.as_slice()));
     }
     let key_in = if shared_in { fade_in.min(clip.dur_sec) } else { 0.0 };
     let key_out = if shared_out { fade_out.min(clip.dur_sec) } else { 0.0 };
@@ -405,6 +408,33 @@ fn short(text: &str) -> String {
     } else {
         line.to_string()
     }
+}
+
+/// A ramping clip's time graph as Resolve reads it: (graph frame, file frame) from the file's start to its end, at
+/// normal speed up to the clip's in point, then the clip's own frames, then normal speed to the end. The clip's in and
+/// out points are then counted along the graph. Resolve scales the graph to the file's length, so the last point
+/// must be that length.
+struct TimeGraph {
+    points: Vec<(i64, f64)>,
+    clip_in: i64,
+    clip_out: i64,
+}
+
+fn speed_curve(w: &Writer, clip: &Clip, file_len: f64) -> Option<TimeGraph> {
+    if !fig_timeline::clip_time::has_curve(clip) {
+        return None;
+    }
+    let fps = w.rate.fps();
+    let frames = w.frames(clip.dur_sec).max(1);
+    let clip_in = w.frames(fig_timeline::clip_time::source_at(clip, 0.0)).max(0);
+    let mut points = vec![(0, 0.0)];
+    points.extend((0..=frames).map(|f| (clip_in + f, fig_timeline::clip_time::source_at(clip, f as f64 / fps) * fps)));
+    let (last_when, last_frame) = *points.last().unwrap();
+    let len = file_len * fps;
+    if len > last_frame + 0.5 {
+        points.push((last_when + (len - last_frame).round() as i64, len));
+    }
+    Some(TimeGraph { points, clip_in, clip_out: clip_in + frames })
 }
 
 /// `m:ss.f` for naming where something is.
@@ -663,20 +693,54 @@ impl Writer {
         }
     }
 
-    fn time_remap(&mut self, speed: f64) {
-        self.effect(
-            "Time Remap",
-            "timeremap",
-            "motion",
-            "motion",
-            "video",
-            &[
-                ("variablespeed", "variablespeed", "0".into()),
-                ("speed", "speed", format!("{:.4}", speed * 100.0)),
-                ("reverse", "reverse", "FALSE".into()),
-                ("frameblending", "frameblending", "FALSE".into()),
-            ],
-        );
+    /// The clip's speed: steady, or (`curve`: clip frame → file frame) ramping.
+    fn time_remap(&mut self, speed: f64, curve: Option<&[(i64, f64)]>) {
+        self.open("filter");
+        self.open("effect");
+        self.leaf("name", "Time Remap");
+        self.leaf("effectid", "timeremap");
+        self.leaf("effectcategory", "motion");
+        self.leaf("effecttype", "motion");
+        self.leaf("mediatype", "video");
+        let param = |w: &mut Self, id: &str, value: String| {
+            w.open("parameter");
+            w.leaf("parameterid", id);
+            w.leaf("name", id);
+            w.raw_value(&value);
+            w.close("parameter");
+        };
+        param(self, "variablespeed", if curve.is_some() { "1" } else { "0" }.into());
+        param(self, "speed", format!("{:.4}", speed * 100.0));
+        param(self, "reverse", "FALSE".into());
+        param(self, "frameblending", "FALSE".into());
+        if let Some(curve) = curve {
+            // as Resolve writes it: the first point marked in, the last end, the rest out, and the range
+            self.open("parameter");
+            self.leaf("parameterid", "graphdict");
+            self.leaf("name", "graphdict");
+            for (i, (when, frame)) in curve.iter().enumerate() {
+                self.open("keyframe");
+                self.leaf("when", when);
+                self.leaf("value", format!("{frame:.3}"));
+                let mark = if i == 0 {
+                    "speedkfin"
+                } else if i + 1 == curve.len() {
+                    "speedkfend"
+                } else {
+                    "speedkfout"
+                };
+                self.leaf(mark, "TRUE");
+                self.close("keyframe");
+            }
+            self.leaf("valuemin", 0);
+            self.leaf("valuemax", format!("{:.3}", curve.iter().map(|c| c.1).fold(0.0, f64::max)));
+            self.open("interpolation");
+            self.leaf("name", "FCPCurve");
+            self.close("interpolation");
+            self.close("parameter");
+        }
+        self.close("effect");
+        self.close("filter");
     }
 
     /// Fig's crop keeps the kept part filling the frame; Resolve's crop only hides, so a zoom and a move go with it.

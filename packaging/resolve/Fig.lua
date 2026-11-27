@@ -126,26 +126,52 @@ else
     if not pick then return end
 end
 
+local project = resolve:GetProjectManager():GetCurrentProject() or fail("Open a project in Resolve first.")
+local pool = project:GetMediaPool()
+-- the reel's media goes in a bin named after it, the same one each time
+local root, folder = pool:GetRootFolder(), nil
+for _, f in ipairs(root:GetSubFolderList() or {}) do
+    if f:GetName() == pick.name then folder = f end
+end
+folder = folder or pool:AddSubFolder(root, pick.name)
+if folder then pool:SetCurrentFolder(folder) end
+
+-- Resolve counts some videos' frames at another rate than their timestamps run (a 29.974 fps WebM at 30), so Fig
+-- is told how Resolve counts each one and lines the cuts up with that
+local videos_path = temp_file("videos")
+run_fig("--resolve-media", pick.id, tostring(timeline), videos_path)
+local videos = read_back(videos_path) or {}
+if videos.error then fail(videos.error) end
+local rates_path = temp_file("rates")
+local rates = io.open(rates_path, "w")
+local in_pool = {}
+for _, clip in ipairs(folder and folder:GetClipList() or {}) do in_pool[clip:GetClipProperty("File Path")] = clip end
+local missing = {}
+for _, path in ipairs(videos) do
+    if not in_pool[path] then missing[#missing + 1] = path end
+end
+if #missing > 0 then
+    for _, clip in ipairs(resolve:GetMediaStorage():AddItemListToMediaPool(missing) or {}) do
+        in_pool[clip:GetClipProperty("File Path")] = clip
+    end
+end
+for path, clip in pairs(in_pool) do
+    rates:write(path, "\t", tostring(clip:GetClipProperty("FPS")), "\t", tostring(clip:GetClipProperty("Frames")), "\n")
+end
+rates:close()
+
 local manifest_path = temp_file("export")
-run_fig("--resolve-export", pick.id, tostring(timeline), manifest_path)
+run_fig("--resolve-export", pick.id, tostring(timeline), manifest_path, rates_path)
+os.remove(rates_path)
 local m = read_back(manifest_path) or fail("Fig didn't write the timeline.")
 if m.error then fail(m.error) end
 
-local project = resolve:GetProjectManager():GetCurrentProject() or fail("Open a project in Resolve first.")
-local pool = project:GetMediaPool()
 -- a project with no timelines yet takes the reel's size and frame rate
 if project:GetTimelineCount() == 0 then
     project:SetSetting("timelineResolutionWidth", tostring(m.width))
     project:SetSetting("timelineResolutionHeight", tostring(m.height))
     project:SetSetting("timelineFrameRate", m.fps)
 end
--- the reel's media goes in a bin named after it, the same one each time
-local root, folder = pool:GetRootFolder(), nil
-for _, f in ipairs(root:GetSubFolderList() or {}) do
-    if f:GetName() == m.name then folder = f end
-end
-folder = folder or pool:AddSubFolder(root, m.name)
-if folder then pool:SetCurrentFolder(folder) end
 
 -- Resolve won't import over a timeline of the same name: importing again makes "<name> 2"
 local taken = {}
