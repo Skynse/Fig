@@ -20,7 +20,7 @@ pub enum Command {
     Export,
     ExportRanges,
     ExportCaptions,
-    ExportResolve,
+    InstallResolveScript,
     // editing
     Undo,
     Redo,
@@ -82,7 +82,7 @@ pub enum Command {
 /// Every command, in the enum's order.
 pub const ALL: &[Command] = &[
     Command::Save, Command::SaveAs, Command::SavePackage, Command::CloseProject, Command::Preferences, Command::Exit,
-    Command::Import, Command::Export, Command::ExportRanges, Command::ExportCaptions, Command::ExportResolve, Command::Undo, Command::Redo,
+    Command::Import, Command::Export, Command::ExportRanges, Command::ExportCaptions, Command::InstallResolveScript, Command::Undo, Command::Redo,
     Command::Cut, Command::Copy, Command::Paste, Command::Duplicate, Command::Split, Command::SplitAll,
     Command::TrimStart, Command::TrimEnd, Command::Freeze, Command::FreezeInsert, Command::RippleDelete, Command::LiftDelete, Command::Delete,
     Command::ToggleEnabled, Command::Group, Command::Ungroup, Command::Magnet, Command::Snapping, Command::SelectTool,

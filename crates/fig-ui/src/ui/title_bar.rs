@@ -37,7 +37,6 @@ fn file_menu(app: &AppState) -> Vec<Item> {
         Item::command(app, "Export…", Command::Export).enabled(editing),
         Item::command(app, "Export marked ranges…", Command::ExportRanges).enabled(editing),
         Item::command(app, "Export captions (SRT, TXT)…", Command::ExportCaptions).enabled(editing),
-        Item::command(app, "Export for DaVinci Resolve…", Command::ExportResolve).enabled(editing),
         Item::Separator,
         Item::command(app, "Preferences…", Command::Preferences),
         Item::command(app, "Close project", Command::CloseProject).enabled(editing),
@@ -101,7 +100,10 @@ fn view_menu(app: &AppState) -> Vec<Item> {
 }
 
 fn help_menu(app: &AppState) -> Vec<Item> {
-    vec![Item::command(app, "Keyboard shortcuts", Command::Shortcuts)]
+    vec![
+        Item::command(app, "Keyboard shortcuts", Command::Shortcuts),
+        Item::command(app, "Install DaVinci Resolve importer", Command::InstallResolveScript),
+    ]
 }
 
 fn bar_button(i: &'static rune::Icon, tip: &str, on: bool, t: &Tokens) -> El {

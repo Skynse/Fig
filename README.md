@@ -32,7 +32,7 @@ Fig also has MCP support for those who want to use agents for whatever reason (I
 - **Text and layers:** titles and images, with tracks stacked top over bottom.
 - **Markers:** bookmarks and ranges, and export each range as its own video.
 - **Fast export:** H.264 / AAC, with hardware encoding where available.
-- **Finish in DaVinci Resolve:** File ▸ Export for DaVinci Resolve writes the timeline as Final Cut Pro 7 XML (File ▸ Import ▸ Timeline in Resolve), pointing at your original media. Cuts, speed, opacity, volume, crops, dissolves, fades and markers come with it, and text comes as transparent PNGs. Anything that can't, such as Fig's effects, is listed in a notes file beside the XML.
+- **Finish in DaVinci Resolve:** Fig puts a script in Resolve's Workspace ▸ Scripts menu (or use Help ▸ Install DaVinci Resolve importer). Run it in Resolve, pick a Fig project, and its timeline comes in pointing at your original media: cuts, speed, opacity, volume, crops, transitions, fades and markers, with text as transparent images. Anything that can't come over, such as Fig's effects, is listed when it finishes.
 
 ## See it in action
 

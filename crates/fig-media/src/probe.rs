@@ -122,6 +122,26 @@ fn measure_duration_sec(path: &Path) -> f64 {
     if first == f64::MAX { 0.0 } else { (end - first.max(0.0)).max(0.0) }
 }
 
+/// How long the picture runs: from the first video packet to the end of the last, read without decoding. Editors
+/// that count frames (Resolve) see this rather than the container's length, which can run longer with the sound.
+pub fn video_length_sec(path: &Path) -> Option<f64> {
+    let mut input = ff::format::input(path).ok()?;
+    let stream = input.streams().best(ff::media::Type::Video)?;
+    let (index, tb) = (stream.index(), f64::from(stream.time_base()));
+    let (mut first, mut end) = (i64::MAX, i64::MIN);
+    let mut packet = ff::Packet::empty();
+    while packet.read(&mut input).is_ok() {
+        if packet.stream() != index {
+            continue;
+        }
+        if let Some(ts) = packet.pts().or(packet.dts()) {
+            first = first.min(ts);
+            end = end.max(ts + packet.duration().max(0));
+        }
+    }
+    (end > first).then(|| (end - first) as f64 * tb)
+}
+
 /// True when a finished MP4 looks complete: an `ftyp` then a top-level `moov` (a proxy written without its trailer
 /// fails). Doesn't open FFmpeg.
 pub fn is_complete_mp4(path: &Path) -> bool {

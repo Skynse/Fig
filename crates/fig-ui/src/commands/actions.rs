@@ -28,6 +28,14 @@ pub fn run(app: &mut AppState, command: Command, tx: &mut Tx) {
             app.dialog = Some(crate::dialogs::Dialog::Shortcuts);
             return;
         }
+        InstallResolveScript => {
+            let message = match crate::resolve::install_script() {
+                Ok(_) => "Installed. In Resolve (restart it if it's open): Workspace ▸ Scripts ▸ Fig".to_string(),
+                Err(e) => format!("Couldn't install the Resolve importer: {e}"),
+            };
+            crate::ui::toasts::show(app, message);
+            return;
+        }
         _ => {}
     }
     let Some(e) = app.editor.as_ref() else { return };
@@ -53,7 +61,6 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
         Export => crate::dialogs::export::open(app, false),
         ExportRanges => crate::dialogs::export::open(app, true),
         ExportCaptions => crate::dialogs::export_captions(app, tx),
-        ExportResolve => crate::dialogs::export_resolve(app, tx),
         Undo | Redo => {
             let e = app.editor.as_mut().unwrap();
             let done = if command == Undo { e.ed.undo() } else { e.ed.redo() };
@@ -300,7 +307,7 @@ fn edit(app: &mut AppState, command: Command, tx: &mut Tx) {
         }
         TallerTracks => app.editor.as_mut().unwrap().tl.taller(1.2),
         ShorterTracks => app.editor.as_mut().unwrap().tl.taller(1.0 / 1.2),
-        Preferences | Exit | Shortcuts => {}
+        Preferences | Exit | Shortcuts | InstallResolveScript => {}
     }
 }
 

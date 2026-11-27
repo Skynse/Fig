@@ -60,12 +60,14 @@ fn icons_root() -> PathBuf {
 }
 
 /// A build run from cargo's `target/` folder is a development build: it doesn't touch the app menu.
-fn is_release(exe: &Path) -> bool {
+pub fn is_release(exe: &Path) -> bool {
     !exe.components().any(|c| c.as_os_str() == "target") && !exe.starts_with("/tmp")
 }
 
-/// At startup, off the UI thread: adds Fig to the app menu (Linux only). Nothing here may stop Fig from starting.
+/// At startup, off the UI thread: keeps Resolve's Fig script current, and adds Fig to the app menu (Linux only).
+/// Nothing here may stop Fig from starting.
 pub fn on_startup() {
+    std::thread::spawn(crate::resolve::refresh_script);
     if !cfg!(target_os = "linux") {
         return;
     }

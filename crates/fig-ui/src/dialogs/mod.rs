@@ -295,36 +295,6 @@ pub fn export_captions(app: &mut AppState, tx: &mut Tx) {
     });
 }
 
-/// File ▸ Export for DaVinci Resolve: the timeline as Final Cut Pro 7 XML pointing at the original media, with text
-/// drawn to PNGs in a folder beside it and what couldn't come over listed in a notes file.
-pub fn export_resolve(app: &mut AppState, tx: &mut Tx) {
-    let Some(e) = app.editor.as_mut() else { return };
-    e.commit_to_project();
-    let options = rune::file_dialog::FileDialogOptions {
-        title: "Export for DaVinci Resolve".into(),
-        file_name: Some(format!("{}.xml", e.project.name)),
-        ..Default::default()
-    }
-    .filter("Final Cut Pro 7 XML (File ▸ Import ▸ Timeline in Resolve)", &["xml"]);
-    tx.save_file(options, |s: &mut AppState, result, _tx| {
-        let Ok(Some(path)) = result else { return };
-        let Some(e) = s.editor.as_ref() else { return };
-        let (name, timeline, media) = (e.project.name.clone(), e.doc().clone(), e.project.media.clone());
-        crate::ui::toasts::show(s, "Exporting for Resolve…");
-        crate::app::spawn(
-            move || crate::resolve::write(&path, &name, &timeline, &media),
-            |s, r| match r {
-                Ok((0, _)) => crate::ui::toasts::show(s, "Exported for Resolve. In Resolve: File ▸ Import ▸ Timeline"),
-                Ok((n, notes)) => crate::ui::toasts::show(
-                    s,
-                    format!("Exported for Resolve; {n} thing(s) didn't carry over (listed in {})", notes.display()),
-                ),
-                Err(err) => crate::ui::toasts::show(s, format!("Couldn't export for Resolve: {err}")),
-            },
-        );
-    });
-}
-
 /// Copies every file the project links to into its own folder, so it travels with it.
 pub fn collect_sources(app: &mut AppState) {
     let Some(e) = app.editor.as_mut() else { return };
