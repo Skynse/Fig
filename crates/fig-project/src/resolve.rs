@@ -5,6 +5,12 @@
 //! What Resolve can't read from Fig is either drawn or listed: text (and stills Fig has moved or turned) become
 //! transparent PNGs the caller draws, and effects and animation are named in [`ResolveExport::notes`] so nothing goes
 //! missing unseen.
+//!
+//! Checked against Resolve Studio 21.2 by importing and exporting back: crops with their zoom and move land to the
+//! pixel; only the transitions in [`resolve_transition`] become Resolve's own (any other name is a placeholder); no
+//! clip filter becomes a Resolve effect, so effects can't travel this way; markers inside clip items are dropped, so
+//! they go on the timeline; and a fade at an edge another clip touches would turn into a dissolve between the two,
+//! so those fade by keyframes instead.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -65,8 +71,9 @@ pub fn export(
         w.open("track");
         let clips: Vec<&Clip> = track.clips.iter().filter(|c| !matches!(c.body, ClipBody::Audio(_))).collect();
         for (i, clip) in clips.iter().enumerate() {
+            let prev = i.checked_sub(1).map(|p| clips[p]);
             let next = clips.get(i + 1).copied();
-            video_clip(&mut w, &mut notes, &label, clip, next, media, still);
+            video_clip(&mut w, &mut notes, &label, clip, (prev, next), media, still);
         }
         for fx in &track.effects {
             notes.effect(&label, &fx.type_id, fx.start_sec, fx.dur_sec);
@@ -99,16 +106,18 @@ pub fn export(
             continue;
         }
         w.open("track");
-        for clip in sounding {
-            audio_clip(&mut w, clip, media);
+        for (i, clip) in sounding.iter().enumerate() {
+            let prev = i.checked_sub(1).map(|p| sounding[p]);
+            audio_clip(&mut w, clip, (prev, sounding.get(i + 1).copied()), media);
         }
         w.leaf("enabled", if track.muted { "FALSE" } else { "TRUE" });
         w.close("track");
     }
     for track in timeline.tracks.iter().filter(|t| t.kind == TrackKind::Audio) {
         w.open("track");
-        for clip in &track.clips {
-            audio_clip(&mut w, clip, media);
+        for (i, clip) in track.clips.iter().enumerate() {
+            let prev = i.checked_sub(1).map(|p| &track.clips[p]);
+            audio_clip(&mut w, clip, (prev, track.clips.get(i + 1)), media);
         }
         w.leaf("enabled", if track.muted { "FALSE" } else { "TRUE" });
         w.close("track");
@@ -116,8 +125,14 @@ pub fn export(
     w.close("audio");
     w.close("media");
 
+    // clip markers too: Resolve drops markers inside clip items
     for m in &timeline.markers {
         w.marker(m, 0.0);
+    }
+    for clip in timeline.tracks.iter().flat_map(|t| &t.clips) {
+        for m in &clip.markers {
+            w.marker(m, clip.start_sec);
+        }
     }
     w.close("sequence");
     w.close("xmeml");
@@ -129,10 +144,14 @@ fn video_clip(
     notes: &mut Notes<'_>,
     track: &str,
     clip: &Clip,
-    next: Option<&Clip>,
+    (prev, next): (Option<&Clip>, Option<&Clip>),
     media: &[MediaAsset],
     still: &mut dyn FnMut(&Clip) -> Option<PathBuf>,
 ) {
+    let touches = |other: Option<&Clip>, at: f64| {
+        other.is_some_and(|o| (o.start_sec - at).abs() < 1e-3 || (o.end_sec() - at).abs() < 1e-3)
+    };
+    let (shared_in, shared_out) = (touches(prev, clip.start_sec), touches(next, clip.end_sec()));
     let at = format!("{track} at {}", clock(clip.start_sec));
     // what it shows: its own file, or a picture of it
     let (file, crop) = match &clip.body {
@@ -157,13 +176,15 @@ fn video_clip(
                 }
                 (FileRef::Still(p), [0.0; 4])
             }
-            None => return notes.push(format!("{at}: couldn't draw the text \"{}\", so it was left out", short(&t.text))),
+            None => {
+                return notes.push(format!("{at}: couldn't draw the text \"{}\", so it was left out", short(&t.text)));
+            }
         },
         ClipBody::Audio(_) => return,
     };
 
-    if clip.fade_in_sec > 0.0 {
-        w.transition(clip.start_sec, clip.start_sec + clip.fade_in_sec, "start-black", false);
+    if clip.fade_in_sec > 0.0 && !shared_in {
+        w.transition(clip.start_sec, clip.start_sec + clip.fade_in_sec, "start-black", &Transition::DISSOLVE);
     }
 
     let (src_in, src_out) = source_range(clip);
@@ -192,8 +213,22 @@ fn video_clip(
             notes.push(format!("{at}: its crop moves in Fig; it comes over at its first framing"));
         }
     }
-    if clip.opacity < 0.999 {
-        w.opacity(clip.opacity);
+    // fades at edges another clip touches go in as keyframes, from the clip's own source frames
+    let fade_in = if shared_in { clip.fade_in_sec.min(clip.dur_sec) } else { 0.0 };
+    let fade_out = if shared_out { clip.fade_out_sec.min(clip.dur_sec) } else { 0.0 };
+    if clip.opacity < 0.999 || fade_in > 0.0 || fade_out > 0.0 {
+        let base = clip.opacity.clamp(0.0, 1.0) * 100.0;
+        let mut keys = Vec::new();
+        let at = |local: f64| w.frames(src_in + local * speed);
+        if fade_in > 0.0 {
+            keys.push((at(0.0), 0.0));
+            keys.push((at(fade_in), base));
+        }
+        if fade_out > 0.0 {
+            keys.push((at(clip.dur_sec - fade_out), base));
+            keys.push((at(clip.dur_sec), 0.0));
+        }
+        w.opacity(base, &keys);
     }
     for key in clip.keyframes.iter().filter(|(_, k)| !k.is_empty()).map(|(k, _)| k.as_str()) {
         match key {
@@ -205,30 +240,94 @@ fn video_clip(
     for fx in &clip.effects {
         notes.effect(&at, &fx.type_id, None, None);
     }
-    for m in &clip.markers {
-        w.marker(m, src_in);
-    }
     w.close("clipitem");
 
-    if clip.fade_out_sec > 0.0 {
-        w.transition(clip.end_sec() - clip.fade_out_sec, clip.end_sec(), "end-black", false);
+    if clip.fade_out_sec > 0.0 && !shared_out {
+        w.transition(clip.end_sec() - clip.fade_out_sec, clip.end_sec(), "end-black", &Transition::DISSOLVE);
     }
     if let (Some(t), Some(next)) = (&clip.transition_out, next)
         && (next.start_sec - clip.end_sec()).abs() < 1e-3
     {
-        dissolve(w, notes, &at, t, clip.end_sec());
+        let half = t.duration_sec.max(0.0) / 2.0;
+        let (kind, exact) = resolve_transition(t);
+        w.transition(clip.end_sec() - half, clip.end_sec() + half, "center", &kind);
+        if !exact {
+            notes.push(format!("{at}: the \"{}\" transition comes over as a {}", t.type_id, kind.name.to_lowercase()));
+        }
     }
 }
 
-fn dissolve(w: &mut Writer, notes: &mut Notes<'_>, at: &str, t: &TransitionRef, cut: f64) {
-    let half = t.duration_sec.max(0.0) / 2.0;
-    w.transition(cut - half, cut + half, "center", false);
-    if !t.type_id.to_lowercase().contains("dissolve") && !t.type_id.to_lowercase().contains("fade") {
-        notes.push(format!("{at}: the \"{}\" transition comes over as a cross dissolve", t.type_id));
+/// A transition as Resolve's XML import knows it: its name and category, and its settings.
+struct Transition {
+    name: &'static str,
+    category: &'static str,
+    audio: bool,
+    params: Vec<(&'static str, String)>,
+}
+
+impl Transition {
+    const DISSOLVE: Transition =
+        Transition { name: "Cross Dissolve", category: "Dissolve", audio: false, params: Vec::new() };
+    const AUDIO_FADE: Transition =
+        Transition { name: "Cross Fade (+3dB)", category: "", audio: true, params: Vec::new() };
+}
+
+/// The Resolve transition closest to a Fig one, and whether it is the same thing. Only these names become Resolve's
+/// own transitions on import (Fade To Color, Wipe, Center, Clock, Circle, Venetian Blind); slides, pushes, zooms,
+/// spins and the rest come in as placeholders, so those go over as dissolves.
+fn resolve_transition(t: &TransitionRef) -> (Transition, bool) {
+    let number = |key: &str, default: f64| t.params.get(key).map_or(default, |v| (*v).as_number());
+    let color = |rgb: u8| format!("<alpha>255</alpha><red>{rgb}</red><green>{rgb}</green><blue>{rgb}</blue>");
+    let wipe = |name| Transition { name, category: "Wipe", audio: false, params: Vec::new() };
+    match t.type_id.as_str() {
+        "cross-dissolve" => (Transition::DISSOLVE, true),
+        "fade-to-black" => (
+            Transition {
+                name: "Dip to Color Dissolve",
+                category: "Dissolve",
+                audio: false,
+                params: vec![("dipcolor", color(0))],
+            },
+            true,
+        ),
+        "white-flash" => (
+            Transition {
+                name: "Dip to Color Dissolve",
+                category: "Dissolve",
+                audio: false,
+                params: vec![("dipcolor", color(255))],
+            },
+            true,
+        ),
+        "wipe" => (wipe("Edge Wipe"), true),
+        "curtain" => (wipe("Center Wipe"), true),
+        "radial-wipe" => {
+            let clockwise = number("direction", 0.0) < 0.5;
+            (
+                Transition {
+                    params: vec![("wipedirection", if clockwise { "1" } else { "2" }.into())],
+                    ..wipe("Clock Wipe")
+                },
+                true,
+            )
+        }
+        "blinds" => (
+            Transition {
+                params: vec![("bands", format!("{}", number("stripes", 10.0).round()))],
+                ..wipe("Venetian Blind Wipe")
+            },
+            true,
+        ),
+        "iris" => (Transition { name: "Oval Iris", category: "Iris", audio: false, params: Vec::new() }, true),
+        _ => (Transition::DISSOLVE, false),
     }
 }
 
-fn audio_clip(w: &mut Writer, clip: &Clip, media: &[MediaAsset]) {
+fn audio_clip(w: &mut Writer, clip: &Clip, (prev, next): (Option<&Clip>, Option<&Clip>), media: &[MediaAsset]) {
+    let touches = |other: Option<&Clip>, at: f64| {
+        other.is_some_and(|o| (o.start_sec - at).abs() < 1e-3 || (o.end_sec() - at).abs() < 1e-3)
+    };
+    let (shared_in, shared_out) = (touches(prev, clip.start_sec), touches(next, clip.end_sec()));
     let (source_id, fade_in, fade_out) = match &clip.body {
         ClipBody::Video(v) => (&v.source_id, v.audio_fade_in_sec, v.audio_fade_out_sec),
         ClipBody::Audio(a) => (&a.source_id, clip.fade_in_sec, clip.fade_out_sec),
@@ -236,8 +335,8 @@ fn audio_clip(w: &mut Writer, clip: &Clip, media: &[MediaAsset]) {
     };
     let Some(m) = media.iter().find(|m| &m.id == source_id) else { return };
     let file = FileRef::Media(m);
-    if fade_in > 0.0 {
-        w.transition(clip.start_sec, clip.start_sec + fade_in, "start-black", true);
+    if fade_in > 0.0 && !shared_in {
+        w.transition(clip.start_sec, clip.start_sec + fade_in, "start-black", &Transition::AUDIO_FADE);
     }
     let (src_in, src_out) = source_range(clip);
     let speed = if clip.dur_sec > 0.0 { (src_out - src_in) / clip.dur_sec } else { 1.0 };
@@ -259,12 +358,25 @@ fn audio_clip(w: &mut Writer, clip: &Clip, media: &[MediaAsset]) {
     if (speed - 1.0).abs() > 1e-4 {
         w.time_remap(speed);
     }
-    if (clip.volume - 1.0).abs() > 1e-4 {
-        w.audio_level(clip.volume);
+    let key_in = if shared_in { fade_in.min(clip.dur_sec) } else { 0.0 };
+    let key_out = if shared_out { fade_out.min(clip.dur_sec) } else { 0.0 };
+    if (clip.volume - 1.0).abs() > 1e-4 || key_in > 0.0 || key_out > 0.0 {
+        let level = clip.volume.max(0.0);
+        let at = |local: f64| w.frames(src_in + local * speed);
+        let mut keys = Vec::new();
+        if key_in > 0.0 {
+            keys.push((at(0.0), 0.0));
+            keys.push((at(key_in), level));
+        }
+        if key_out > 0.0 {
+            keys.push((at(clip.dur_sec - key_out), level));
+            keys.push((at(clip.dur_sec), 0.0));
+        }
+        w.audio_level(level, &keys);
     }
     w.close("clipitem");
-    if fade_out > 0.0 {
-        w.transition(clip.end_sec() - fade_out, clip.end_sec(), "end-black", true);
+    if fade_out > 0.0 && !shared_out {
+        w.transition(clip.end_sec() - fade_out, clip.end_sec(), "end-black", &Transition::AUDIO_FADE);
     }
 }
 
@@ -284,7 +396,11 @@ fn animated(clip: &Clip, part: &str) -> bool {
 
 fn short(text: &str) -> String {
     let line = text.lines().next().unwrap_or("").trim();
-    if line.chars().count() > 30 { format!("{}…", line.chars().take(30).collect::<String>()) } else { line.to_string() }
+    if line.chars().count() > 30 {
+        format!("{}…", line.chars().take(30).collect::<String>())
+    } else {
+        line.to_string()
+    }
 }
 
 /// `m:ss.f` for naming where something is.
@@ -403,7 +519,8 @@ impl Writer {
     /// The sequence's rate: NTSC rates as their whole-number timebase.
     fn rate(&mut self) {
         let ntsc = self.rate.den() == 1001;
-        let timebase = if ntsc { (f64::from(self.rate.num()) / 1000.0).round() as i64 } else { self.rate.fps().round() as i64 };
+        let timebase =
+            if ntsc { (f64::from(self.rate.num()) / 1000.0).round() as i64 } else { self.rate.fps().round() as i64 };
         self.open("rate");
         self.leaf("timebase", timebase);
         self.leaf("ntsc", if ntsc { "TRUE" } else { "FALSE" });
@@ -449,7 +566,30 @@ impl Writer {
         self.close("file");
     }
 
-    fn effect(&mut self, name: &str, id: &str, category: &str, kind: &str, mediatype: &str, params: &[(&str, &str, String)]) {
+    fn effect(
+        &mut self,
+        name: &str,
+        id: &str,
+        category: &str,
+        kind: &str,
+        mediatype: &str,
+        params: &[(&str, &str, String)],
+    ) {
+        self.effect_keyed(name, id, category, kind, mediatype, params, &[]);
+    }
+
+    /// An effect whose first parameter also changes over time: `keys` are (source frame, value).
+    #[allow(clippy::too_many_arguments)]
+    fn effect_keyed(
+        &mut self,
+        name: &str,
+        id: &str,
+        category: &str,
+        kind: &str,
+        mediatype: &str,
+        params: &[(&str, &str, String)],
+        keys: &[(i64, f64)],
+    ) {
         self.open("filter");
         self.open("effect");
         self.leaf("name", name);
@@ -457,11 +597,19 @@ impl Writer {
         self.leaf("effectcategory", category);
         self.leaf("effecttype", kind);
         self.leaf("mediatype", mediatype);
-        for (pid, pname, value) in params {
+        for (i, (pid, pname, value)) in params.iter().enumerate() {
             self.open("parameter");
             self.leaf("parameterid", pid);
             self.leaf("name", pname);
             self.raw_value(value);
+            if i == 0 {
+                for (when, v) in keys {
+                    self.open("keyframe");
+                    self.leaf("when", when);
+                    self.leaf("value", format!("{v:.4}"));
+                    self.close("keyframe");
+                }
+            }
             self.close("parameter");
         }
         self.close("effect");
@@ -503,7 +651,12 @@ impl Writer {
             "motion",
             "motion",
             "video",
-            &[("left", "left", pct(l)), ("right", "right", pct(r)), ("top", "top", pct(t)), ("bottom", "bottom", pct(b))],
+            &[
+                ("left", "left", pct(l)),
+                ("right", "right", pct(r)),
+                ("top", "top", pct(t)),
+                ("bottom", "bottom", pct(b)),
+            ],
         );
         let (kw, kh) = ((1.0 - l - r).max(0.01), (1.0 - t - b).max(0.01));
         let zoom = (1.0 / kw).min(1.0 / kh);
@@ -515,20 +668,42 @@ impl Writer {
             "motion",
             "motion",
             "video",
-            &[("scale", "Scale", format!("{:.4}", zoom * 100.0)), ("rotation", "Rotation", "0".into()), ("center", "Center", center)],
+            &[
+                ("scale", "Scale", format!("{:.4}", zoom * 100.0)),
+                ("rotation", "Rotation", "0".into()),
+                ("center", "Center", center),
+            ],
         );
     }
 
-    fn opacity(&mut self, opacity: f64) {
-        self.effect("Opacity", "opacity", "motion", "motion", "video", &[("opacity", "opacity", format!("{:.2}", opacity.clamp(0.0, 1.0) * 100.0))]);
+    /// Opacity in percent, with keyframes (source frame, percent) when it changes.
+    fn opacity(&mut self, percent: f64, keys: &[(i64, f64)]) {
+        self.effect_keyed(
+            "Opacity",
+            "opacity",
+            "motion",
+            "motion",
+            "video",
+            &[("opacity", "Opacity", format!("{percent:.2}"))],
+            keys,
+        );
     }
 
-    fn audio_level(&mut self, gain: f64) {
-        self.effect("Audio Levels", "audiolevels", "audiolevels", "audiolevels", "audio", &[("level", "Level", format!("{:.4}", gain.max(0.0)))]);
+    /// Sound level as linear gain, with keyframes (source frame, gain) when it changes.
+    fn audio_level(&mut self, gain: f64, keys: &[(i64, f64)]) {
+        self.effect_keyed(
+            "Audio Levels",
+            "audiolevels",
+            "audiolevels",
+            "audiolevels",
+            "audio",
+            &[("level", "Level", format!("{gain:.4}"))],
+            keys,
+        );
     }
 
-    /// A dissolve (or, with `alignment` "start-black"/"end-black", a fade) from `from` to `to` on the timeline.
-    fn transition(&mut self, from: f64, to: f64, alignment: &str, audio: bool) {
+    /// A transition (with `alignment` "start-black"/"end-black", a fade) from `from` to `to` on the timeline.
+    fn transition(&mut self, from: f64, to: f64, alignment: &str, kind: &Transition) {
         if to - from <= 0.0 {
             return;
         }
@@ -538,18 +713,17 @@ impl Writer {
         self.leaf("alignment", alignment);
         self.rate();
         self.open("effect");
-        if audio {
-            self.leaf("name", "Cross Fade (+3dB)");
-            self.leaf("effectid", "KGAudioTransCrossFade3dB");
-            self.leaf("effectcategory", "");
-            self.leaf("effecttype", "transition");
-            self.leaf("mediatype", "audio");
-        } else {
-            self.leaf("name", "Cross Dissolve");
-            self.leaf("effectid", "Cross Dissolve");
-            self.leaf("effectcategory", "Dissolve");
-            self.leaf("effecttype", "transition");
-            self.leaf("mediatype", "video");
+        self.leaf("name", kind.name);
+        self.leaf("effectid", if kind.audio { "KGAudioTransCrossFade3dB" } else { kind.name });
+        self.leaf("effectcategory", kind.category);
+        self.leaf("effecttype", "transition");
+        self.leaf("mediatype", if kind.audio { "audio" } else { "video" });
+        for (id, value) in &kind.params {
+            self.open("parameter");
+            self.leaf("parameterid", id);
+            self.leaf("name", id);
+            self.raw_value(value);
+            self.close("parameter");
         }
         self.close("effect");
         self.close("transitionitem");
@@ -608,8 +782,13 @@ mod tests {
 
     #[test]
     fn cuts_speeds_and_shared_files() {
-        let asset =
-            MediaAsset { id: "m1".into(), url: "/clips/my shot.mp4".into(), duration_sec: 10.0, has_audio: true, ..Default::default() };
+        let asset = MediaAsset {
+            id: "m1".into(),
+            url: "/clips/my shot.mp4".into(),
+            duration_sec: 10.0,
+            has_audio: true,
+            ..Default::default()
+        };
         let mut track = Track::new(TrackKind::Video);
         track.clips.push(video("a", "m1", 0.0, 2.0, 1.0, 3.0));
         // twice as fast: four seconds of source in two
@@ -628,5 +807,24 @@ mod tests {
         // each video clip's sound comes along on an audio track
         assert_eq!(xml.matches("<mediatype>audio</mediatype>").count(), 2);
         assert!(out.notes.is_empty(), "{:?}", out.notes);
+    }
+
+    /// A fade where another clip touches would turn into a dissolve in Resolve, so it goes in as keyframes; a fade
+    /// from black keeps its transition.
+    #[test]
+    fn fades_at_cuts_are_keyframes() {
+        let asset = MediaAsset { id: "m1".into(), url: "/a.mp4".into(), duration_sec: 10.0, ..Default::default() };
+        let mut track = Track::new(TrackKind::Video);
+        let mut a = video("a", "m1", 0.0, 1.0, 0.0, 1.0);
+        a.fade_in_sec = 0.5;
+        let mut b = video("b", "m1", 1.0, 1.0, 1.0, 2.0);
+        b.fade_in_sec = 0.5;
+        track.clips = vec![a, b];
+        let mut timeline = Timeline { rate: FrameRate::new(30, 1), ..Default::default() };
+        timeline.tracks.push(track);
+        let xml = export("f", &timeline, &[asset], (1080, 1920), &mut |_| None, &|id| id.to_string()).xml;
+        assert_eq!(xml.matches("<alignment>start-black</alignment>").count(), 1);
+        // b's keyframes count in source frames: from its in point at 30
+        assert!(xml.contains("<when>30</when>") && xml.contains("<when>45</when>"), "{xml}");
     }
 }
