@@ -132,9 +132,12 @@ fn level_changed(clip: &Clip) -> bool {
     (clip.volume - 1.0).abs() > 0.01 || clip.keyframes.contains_key(automation_keys::VOLUME)
 }
 
+/// A built rack and the fingerprint it was built from.
+type Built = (u64, Rc<Vec<Item>>);
+
 thread_local! {
     /// Racks built so far, by owner, with the fingerprint of what they were built from.
-    static RACKS: RefCell<HashMap<String, (u64, Rc<Vec<Item>>)>> = RefCell::new(HashMap::new());
+    static RACKS: RefCell<HashMap<String, Built>> = RefCell::new(HashMap::new());
 }
 
 /// Everything [`build`] reads, folded into one number: cheap to compute, so a rack is only rebuilt when it changes.

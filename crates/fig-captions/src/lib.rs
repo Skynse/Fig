@@ -205,7 +205,7 @@ pub fn mix_for_speech(
         let stereo = mixer.mix(timeline, media, start + pos, CHUNK.min(duration - pos));
         // each sample the average of three frames (both channels): a box filter that keeps speech and cuts most of
         // what would fold back above 8 kHz
-        for group in stereo.chunks_exact(FACTOR * 2) {
+        for group in stereo.as_chunks::<{ FACTOR * 2 }>().0 {
             out.push(group.iter().sum::<f32>() / (FACTOR * 2) as f32);
         }
         progress(((pos + CHUNK) / duration).min(1.0));

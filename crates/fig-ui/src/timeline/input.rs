@@ -374,7 +374,7 @@ fn hit_rack(e: &Editor, ti: usize, lane: &Lane, x: f32, cy: f32) -> Option<Hit> 
         let x0 = tl.x_of(owner.origin() + tl.slide_offset(owner.id()));
         let items = rack::items(owner);
         for item in items.iter() {
-            let r = rack::bar_rect(&item, x0, top, tl.pps, open);
+            let r = rack::bar_rect(item, x0, top, tl.pps, open);
             // thin bars get a taller grab area
             if !rack::contains([r[0] - 4.0, r[1] - 2.0, r[2] + 8.0, r[3] + 4.0], x, cy) {
                 continue;
@@ -1711,7 +1711,7 @@ fn bars_in_box(e: &Editor, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<(String, S
             let ox = tl.x_of(owner.origin());
             for item in rack::items(owner).iter() {
                 let Some(fx) = item.effect.clone() else { continue };
-                let b = rack::bar_rect(&item, ox, rack_top, tl.pps, lane.rack_open);
+                let b = rack::bar_rect(item, ox, rack_top, tl.pps, lane.rack_open);
                 if b[0] <= r && b[0] + b[2] >= l && b[1] <= bottom && b[1] + b[3] >= top {
                     out.push((owner.id().to_string(), fx));
                 }

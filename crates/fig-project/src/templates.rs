@@ -232,6 +232,7 @@ pub fn from_timeline(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn built_in(
     id: &str,
     name: &str,

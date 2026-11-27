@@ -599,6 +599,30 @@ pub fn display_gesture(gesture: &str) -> String {
     out
 }
 
+/// Loads a project thumbnail (C# writes JPEG/PNG beside the project) as Rune pixels, scaled to the
+/// card's box.
+pub fn thumbnail_pixels(path: &Path, width: u32, height: u32) -> Option<rune::Pixels> {
+    let image = image::open(path).ok()?;
+    let rgba = image.to_rgba8();
+    let (sw, sh) = rgba.dimensions();
+    if sw == 0 || sh == 0 {
+        return None;
+    }
+    let mut out = vec![0u8; (width * height * 4) as usize];
+    for y in 0..height {
+        let sy = (u64::from(y) * u64::from(sh) / u64::from(height)).min(u64::from(sh - 1)) as u32;
+        for x in 0..width {
+            let sx = (u64::from(x) * u64::from(sw) / u64::from(width)).min(u64::from(sw - 1)) as u32;
+            let src = rgba.get_pixel(sx, sy);
+            let dst = ((y * width + x) * 4) as usize;
+            out[dst..dst + 4].copy_from_slice(&src.0);
+        }
+    }
+    let pixels = rune::Pixels::new();
+    pixels.set(width, height, out);
+    Some(pixels)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,29 +739,4 @@ mod tests {
         assert!(parse_gesture("Ctrl+D1").is_some());
         assert!(parse_gesture("").is_none());
     }
-}
-
-
-/// Loads a project thumbnail (C# writes JPEG/PNG beside the project) as Rune pixels, scaled to the
-/// card's box.
-pub fn thumbnail_pixels(path: &Path, width: u32, height: u32) -> Option<rune::Pixels> {
-    let image = image::open(path).ok()?;
-    let rgba = image.to_rgba8();
-    let (sw, sh) = rgba.dimensions();
-    if sw == 0 || sh == 0 {
-        return None;
-    }
-    let mut out = vec![0u8; (width * height * 4) as usize];
-    for y in 0..height {
-        let sy = (u64::from(y) * u64::from(sh) / u64::from(height)).min(u64::from(sh - 1)) as u32;
-        for x in 0..width {
-            let sx = (u64::from(x) * u64::from(sw) / u64::from(width)).min(u64::from(sw - 1)) as u32;
-            let src = rgba.get_pixel(sx, sy);
-            let dst = ((y * width + x) * 4) as usize;
-            out[dst..dst + 4].copy_from_slice(&src.0);
-        }
-    }
-    let pixels = rune::Pixels::new();
-    pixels.set(width, height, out);
-    Some(pixels)
 }

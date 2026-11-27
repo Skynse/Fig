@@ -27,13 +27,11 @@ jobs:
       - run: cargo build --workspace --all-targets --locked
       - run: cargo test --workspace --locked
 
-  # reports lints on the pull request without failing it, until the existing warnings are cleared
   clippy:
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
           cache-key: clippy
-      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings

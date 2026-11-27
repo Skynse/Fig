@@ -178,7 +178,7 @@ fn brightness(f: &Frame, p: &ParamSet, _: f64) -> Option<Frame> {
     let stride = f.stride();
     Some(render_rows(f, |y, row| {
         let s = &f.pixels[y * stride..(y + 1) * stride];
-        for (o, i) in row.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
+        for (o, i) in row.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
             for c in 0..3 {
                 o[c] = (i[c] as i32 + delta).clamp(0, 255) as u8;
             }
@@ -241,7 +241,7 @@ fn invert(f: &Frame, p: &ParamSet, _: f64) -> Option<Frame> {
     let stride = f.stride();
     Some(render_rows(f, |y, row| {
         let s = &f.pixels[y * stride..(y + 1) * stride];
-        for (o, i) in row.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
+        for (o, i) in row.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
             o[0] = 255 - i[0];
             o[1] = 255 - i[1];
             o[2] = 255 - i[2];
@@ -338,7 +338,7 @@ fn vignette(f: &Frame, p: &ParamSet, _: f64) -> Option<Frame> {
     Some(render_rows(f, |y, row| {
         let dy = (y as f64 - cy) / max_dist;
         let s = &f.pixels[y * stride..(y + 1) * stride];
-        for (x, (o, i)) in row.chunks_exact_mut(4).zip(s.chunks_exact(4)).enumerate() {
+        for (x, (o, i)) in row.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0).enumerate() {
             let dx = (x as f64 - cx) / max_dist;
             let t = (dx * dx + dy * dy).min(1.0);
             let k = t * t * strength;
@@ -389,7 +389,7 @@ fn crop_with_padding(f: &Frame, p: &ParamSet, _: f64) -> Option<Frame> {
     }
     let mut out = Frame::new(f.width, f.height);
     if cw <= 0 || ch <= 0 {
-        out.pixels.chunks_exact_mut(4).for_each(|px| px.copy_from_slice(&pad));
+        out.pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px.copy_from_slice(&pad));
         return Some(out);
     }
     let scale = (w as f64 / cw as f64).min(h as f64 / ch as f64);

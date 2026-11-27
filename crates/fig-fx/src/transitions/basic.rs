@@ -136,7 +136,7 @@ fn push(a: &Frame, b: &Frame, t: f64, p: &ParamSet) -> Frame {
         } else if (0..h).contains(&ay) {
             row.copy_from_slice(&a.pixels[ay as usize * stride..][..stride]);
         } else {
-            row.chunks_exact_mut(4).for_each(|px| px.copy_from_slice(&BLACK));
+            row.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px.copy_from_slice(&BLACK));
         }
     })
 }

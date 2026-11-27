@@ -31,7 +31,7 @@ pub fn save_jpeg(frame: &Frame, path: &Path, quality: u8) -> Result<(), MediaErr
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let rgb: Vec<u8> = frame.pixels.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    let rgb: Vec<u8> = frame.pixels.as_chunks::<4>().0.iter().flat_map(|p| [p[2], p[1], p[0]]).collect();
     let file = std::fs::File::create(path)?;
     let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(file), quality);
     enc.encode(&rgb, frame.width as u32, frame.height as u32, image::ExtendedColorType::Rgb8)
@@ -56,7 +56,7 @@ pub fn thumbnail(path: &Path, out: &Path, width: u32) -> Result<(), MediaError> 
 pub fn average_luma(path: &Path, time_sec: f64) -> Result<f64, MediaError> {
     let f = frame_at(path, time_sec, 64, 36)?;
     let sum: f64 =
-        f.pixels.chunks_exact(4).map(|p| 0.114 * p[0] as f64 + 0.587 * p[1] as f64 + 0.299 * p[2] as f64).sum();
+        f.pixels.as_chunks::<4>().0.iter().map(|p| 0.114 * p[0] as f64 + 0.587 * p[1] as f64 + 0.299 * p[2] as f64).sum();
     Ok(sum / (64.0 * 36.0))
 }
 
@@ -136,8 +136,8 @@ pub fn filmstrip(path: &Path, out: &Path, tile_height: u32) -> Result<Filmstrip,
     // tiles with no keyframe of their own repeat the one before (or, at the start, the first)
     let first = filled.iter().position(|f| *f).unwrap();
     let mut last = first;
-    for i in 0..count as usize {
-        if filled[i] {
+    for (i, &done) in filled.iter().enumerate() {
+        if done {
             last = i;
         } else {
             copy_tile(&mut strip, if i < first { first } else { last }, i, tile_w as usize);
@@ -221,7 +221,7 @@ pub fn peaks(path: &Path, buckets: usize) -> Result<Vec<f32>, MediaError> {
     let mut t = 0.0;
     while t < duration && bucket < buckets {
         let samples = source.read(t, chunk.min(duration - t));
-        for pair in samples.chunks_exact(2) {
+        for pair in samples.as_chunks::<2>().0 {
             let v = ((pair[0] + pair[1]) / 2.0).abs().min(1.0);
             if v > out[bucket] {
                 out[bucket] = v;

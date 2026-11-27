@@ -14,7 +14,7 @@ pub fn blend(dst: &mut Frame, src: &Frame, opacity: f64, premultiplied: bool) {
     if premultiplied {
         rows_mut(&mut dst.pixels, stride, |y, row| {
             let s = &src.pixels[y * stride..(y + 1) * stride];
-            for (d, p) in row.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
+            for (d, p) in row.as_chunks_mut::<4>().0.iter_mut().zip(s.as_chunks::<4>().0) {
                 let a = p[3] as u32 * k / 255;
                 if a == 0 {
                     continue;

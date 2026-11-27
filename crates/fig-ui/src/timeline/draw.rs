@@ -743,7 +743,7 @@ fn rack_bars(e: &Editor, owner: super::rack::Owner, x0: f32, top: f32, open: boo
     let mut slivers: std::collections::BTreeMap<usize, Slivers> = Default::default();
     let items = rack::items(owner);
     for item in items.iter() {
-        let r = rack::bar_rect(&item, x0, top, tl.pps, open);
+        let r = rack::bar_rect(item, x0, top, tl.pps, open);
         if r[0] + r[2] < HEADER_W || r[0] > w || r[1] + r[3] < RULER_H {
             continue;
         }

@@ -285,7 +285,7 @@ fn render_png(
     sources.mode = fig_media::DecodeMode::Playback;
     let scene = fig_render::build_scene(doc, media, t, w, h, &mut sources);
     let mut frame = fig_render::render(&scene);
-    for px in frame.pixels.chunks_exact_mut(4) {
+    for px in frame.pixels.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     let (width, height) = (frame.width as u32, frame.height as u32);

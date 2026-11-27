@@ -94,7 +94,6 @@ impl VideoSource {
         ctx.set_threading(ff::threading::Config {
             kind: ff::threading::Type::Frame,
             count: threads,
-            ..Default::default()
         });
         unsafe { (*ctx.as_mut_ptr()).pkt_timebase = st.time_base().into() };
         let decoder = ctx.decoder().video()?;
@@ -362,7 +361,7 @@ impl VideoSource {
         let mut fit = ff::frame::Video::empty();
         self.scaler.as_mut().unwrap().1.run(&self.pending, &mut fit).ok()?;
         let mut out = Frame::new(self.out_w, self.out_h);
-        out.pixels.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+        out.pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p[3] = 255);
         let stride = fit.stride(0);
         let data = fit.data(0);
         let (fw, fh) = (self.fit_w as usize, self.fit_h as usize);
