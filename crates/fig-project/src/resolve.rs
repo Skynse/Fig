@@ -542,6 +542,12 @@ impl Writer {
         self.leaf("pathurl", file_url(file.path()));
         self.rate();
         self.leaf("duration", self.frames(file.duration(clip)));
+        // without a start timecode Resolve refuses the whole timeline once it takes sound from the file
+        self.open("timecode");
+        self.leaf("string", "00:00:00:00");
+        self.leaf("displayformat", "NDF");
+        self.rate();
+        self.close("timecode");
         self.open("media");
         let (video, audio, size) = match file {
             FileRef::Media(m) => (m.kind != fig_timeline::MediaKind::Audio, m.has_audio, (m.width, m.height)),
